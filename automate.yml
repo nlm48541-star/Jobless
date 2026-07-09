@@ -1,0 +1,53 @@
+name: RSS Video Automation System
+
+on:
+  repository_dispatch:
+    types: [rss_video_check] 
+  workflow_dispatch: 
+
+jobs:
+  run-automation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+
+      # 🌟 [বাগ ফিক্স]: ডাবল কোটেশন চিহ্ন অক্ষত রেখে নিরাপদে কনফিগ ফাইল তৈরি করার লজিক
+      - name: Configure Rclone (Secure Quote Handling)
+        shell: python
+        env:
+          RCLONE_CONF_DATA: ${{ secrets.RCLONE_CONF }}
+        run: |
+          import os
+          config_path = os.path.expanduser('~/.config/rclone/rclone.conf')
+          os.makedirs(os.path.dirname(config_path), exist_ok=True)
+          with open(config_path, 'w', encoding='utf-8') as f:
+              f.write(os.environ['RCLONE_CONF_DATA'])
+
+      - name: Download Files from Google Drive
+        run: |
+          mkdir -p workspace
+          rclone sync "gdrive:" ./workspace --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}"
+
+      - name: Run Python Process (Movie & YouTube upload)
+        env:
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+        run: python main.py
+
+      - name: Push updates back to Google Drive
+        run: |
+          rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}"
