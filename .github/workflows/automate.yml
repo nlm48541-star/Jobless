@@ -2,8 +2,8 @@ name: RSS Video Automation System
 
 on:
   repository_dispatch:
-    types: [rss_video_check] # cron-job.org থেকে ট্রিগার করার জন্য
-  workflow_dispatch: # চাইলে ম্যানুয়ালি রান করানোর অপশন
+    types: [rss_video_check] 
+  workflow_dispatch: 
 
 jobs:
   run-automation:
@@ -20,10 +20,26 @@ jobs:
       - name: Install Dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Script
+      - name: Install and Setup Rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+
+      - name: Download Files from Google Drive
+        run: |
+          # ড্রাইভ থেকে workspace ফোল্ডারে সবকিছু সিঙ্ক করবে
+          mkdir -p workspace
+          rclone sync "gdrive:" ./workspace --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}"
+
+      - name: Run Python Process (Movie & YouTube upload)
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
-          GDRIVE_PARENT_FOLDER_ID: ${{ secrets.GDRIVE_PARENT_FOLDER_ID }}
         run: python main.py
+
+      - name: Push updates back to Google Drive
+        run: |
+          # মেইন পাইথন থেকে ফোল্ডার মুছে ফেলা বা যোগ করার ফলাফল পুনরায় ড্রাইভ এ আপডেট হয়ে যাবে
+          rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}"
