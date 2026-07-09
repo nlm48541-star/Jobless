@@ -20,15 +20,24 @@ jobs:
       - name: Install Dependencies
         run: pip install -r requirements.txt
 
-      - name: Install and Setup Rclone
+      - name: Install Rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
-          mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+
+      # 🌟 [বাগ ফিক্স]: ডাবল কোটেশন চিহ্ন অক্ষত রেখে নিরাপদে কনফিগ ফাইল তৈরি করার লজিক
+      - name: Configure Rclone (Secure Quote Handling)
+        shell: python
+        env:
+          RCLONE_CONF_DATA: ${{ secrets.RCLONE_CONF }}
+        run: |
+          import os
+          config_path = os.path.expanduser('~/.config/rclone/rclone.conf')
+          os.makedirs(os.path.dirname(config_path), exist_ok=True)
+          with open(config_path, 'w', encoding='utf-8') as f:
+              f.write(os.environ['RCLONE_CONF_DATA'])
 
       - name: Download Files from Google Drive
         run: |
-          # ড্রাইভ থেকে workspace ফোল্ডারে সবকিছু সিঙ্ক করবে
           mkdir -p workspace
           rclone sync "gdrive:" ./workspace --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}"
 
@@ -41,5 +50,4 @@ jobs:
 
       - name: Push updates back to Google Drive
         run: |
-          # মেইন পাইথন থেকে ফোল্ডার মুছে ফেলা বা যোগ করার ফলাফল পুনরায় ড্রাইভ এ আপডেট হয়ে যাবে
           rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}"
