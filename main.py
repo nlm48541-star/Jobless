@@ -132,7 +132,7 @@ def process_ready_videos(yt):
     for folder_name in folders:
         folder_path = os.path.join(WORKSPACE_DIR, folder_name)
         
-        # 🌟 [CRITICAL OPTIMIZATION] : সম্পূর্ণ ফোল্ডার প্রসেস লজিককে try-except দিয়ে সুরক্ষিত করা হয়েছে
+        # ফোল্ডার প্রসেস লজিক (যা ট্রাই-ক্যাচ দিয়ে সম্পূর্ণ সুরক্ষিত)
         try:
             audio_file, txt_path = None, None
             img_files = []
@@ -157,7 +157,7 @@ def process_ready_videos(yt):
                 print("No images found inside folder, skipping...")
                 continue
                 
-            # মেমোরি ক্লিনআপ: আগের লুপের তৈরি করা থাম্বনেইল এবং ভিডিও ফাইল রিমুভ করা
+            # মেমোরি ক্লিনআপ: আগের লুপের তৈরি করা ফাইল রিমুভ করা
             thumbnail_path = os.path.join(TMP_DIR, "thumbnail.jpg")
             if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
             
@@ -194,11 +194,18 @@ def process_ready_videos(yt):
             clips = [make_video_frame(v, audio_clip.duration / len(video_imgs)) for v in video_imgs]
             
             final_video = concatenate_videoclips(clips).set_audio(audio_clip)
+            
+            # --- Outro.mp4 ভিডিওর শেষে যুক্ত করার ম্যাজিক (গুগল ড্রাইভ সোর্স থেকে) ---
             outro = None
-            if os.path.exists("Outro.mp4"):
-                outro = VideoFileClip("Outro.mp4")
-                if outro.size != (1920, 1080): outro = outro.resize((1920, 1080))
-                final_video = concatenate_videoclips([final_video, outro], method="compose")
+            outro_path = os.path.join(WORKSPACE_DIR, "Outro.mp4")
+            if os.path.exists(outro_path):
+                print("Outro.mp4 found in Drive, attaching at the end...")
+                try:
+                    outro = VideoFileClip(outro_path)
+                    if outro.size != (1920, 1080): outro = outro.resize((1920, 1080))
+                    final_video = concatenate_videoclips([final_video, outro], method="compose")
+                except Exception as ex:
+                    print(f"Error appending outro: {ex}")
                 
             print("Rendering started, Please wait...")
             final_video.write_videofile(
@@ -206,7 +213,7 @@ def process_ready_videos(yt):
                 audio_codec="aac", threads=4, preset="ultrafast", logger=None
             )
             
-            # ভিডিও ও অডিও ফাইল ক্লোজ করা (রিসোর্স লক এড়াতে)
+            # ভিডিও ও অডিও ফাইল ক্লোজ করা 
             final_video.close()
             audio_clip.close()
             if outro: outro.close()
@@ -223,7 +230,6 @@ def process_ready_videos(yt):
                 shutil.rmtree(folder_path)
 
         except Exception as folder_error:
-            # কোনো নির্দিষ্ট ফোল্ডারে সমস্যা হলে সেটি স্ক্রিনে প্রিন্ট করবে এবং পরবর্তী ফোল্ডারের কাজ শুরু করবে
             print(f"\n❌ Error occurred while processing folder '{folder_name}': {folder_error}")
             print("Moving on to the next available folder...\n")
 
