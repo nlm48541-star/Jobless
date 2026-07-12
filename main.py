@@ -30,7 +30,6 @@ def clean_filename(text):
 
 def download_image(url, output_path):
     try:
-        # stream=True ছাড়াই সরাসরি রিকোয়েস্ট করা হলো যাতে ফাইল রাইটিংয়ে বাগ না হয়
         req = requests.get(url, timeout=10)
         if req.status_code == 200:
             with open(output_path, 'wb') as f:
@@ -113,7 +112,6 @@ def make_video_frame(img_path, duration):
     else:
         new_w, new_h = TARGET_W, int((TARGET_W / w) * h)
         
-    # 🌟 [ডাইমেনশন বাউন্ডারি সুরক্ষা]: উইডথ এবং হাইট যেন কোনোভাবেই ১৯২০x১০৮০ এর নিচে না নামে
     if new_w < TARGET_W:
         new_w = TARGET_W
         new_h = int((new_w / w) * h)
@@ -152,7 +150,6 @@ def process_ready_videos(yt):
                     audio_file = file
                 elif ext in ['txt']: 
                     txt_path = os.path.join(folder_path, file)
-                # 🌟 [অপ্টিমাইজেশন]: আধুনিক সাইটের জন্য .webp ইমেজের সাপোর্ট দেওয়া হলো
                 elif ext in ['jpg', 'jpeg', 'png', 'webp']: 
                     img_files.append(os.path.join(folder_path, file))
                     
@@ -209,11 +206,16 @@ def process_ready_videos(yt):
             
             final_video = concatenate_videoclips(clips).set_audio(audio_clip)
             
-            # Outro.mp4 ড্রাইভ সোর্স থেকে জোড়া দেওয়া 
+            # --- Outro.mp4 ড্রাইভ সোর্স থেকে জোড়া দেওয়া (কেস-সেন্সিটিভ বাগ ফিক্স সহ) ---
             outro = None
-            outro_path = os.path.join(WORKSPACE_DIR, "Outro.mp4")
-            if os.path.exists(outro_path):
-                print("Outro.mp4 found in Drive, attaching at the end...")
+            outro_path = None
+            for file in os.listdir(WORKSPACE_DIR):
+                if file.lower() == "outro.mp4":
+                    outro_path = os.path.join(WORKSPACE_DIR, file)
+                    break
+
+            if outro_path and os.path.exists(outro_path):
+                print(f"Outro.mp4 found in Drive ({outro_path}), attaching at the end...")
                 try:
                     outro = VideoFileClip(outro_path)
                     if outro.size != (1920, 1080): outro = outro.resize((1920, 1080))
@@ -237,7 +239,6 @@ def process_ready_videos(yt):
                 thumbnail_path if os.path.exists(thumbnail_path) else None
             )
             
-            # 🌟 [বাগ ফিক্স]: Permission locks এড়াতে ignore_errors=True সহ ডিলিট করা হলো 
             if upload_success: 
                 print("Task Accomplished! Requesting Drive Cleanup.")
                 shutil.rmtree(folder_path, ignore_errors=True)
@@ -250,19 +251,22 @@ def process_ready_videos(yt):
 def upload_to_youtube(yt, video_file, title, thumbnail_path):
     print(f"Now Uploading: '{title}'")
     try:
+        # 🌟 এখানে আপনি চাইলে আপনার স্থায়ী ডেসক্রিপশনটি কোটেশনের ভেতর লিখে দিতে পারেন।
+        # উদাহরণস্বরূপ: description_text = "আপনার চ্যানেলের সোশ্যাল লিংক বা অন্যান্য তথ্য এখানে লিখে দিন।"
+        description_text = "" # ← ফাঁকা রাখলে সম্পূর্ণ খালি আপলোড হবে
+        
         body = {
             'snippet': { 
                 'title': title[:100], 
-                'description': "Bot Generated Latest Govt Job Details & Update.\nAutomated video uploading bot running properly.", 
+                'description': description_text, 
                 'tags': ['Job Circular BD', 'Today Govt Jobs'] 
             },
-            'status': { 'privacyStatus': 'private' }
+            'status': { 'privacyStatus': 'public' } # 🌟 এখানে private থেকে public করা হলো
         }
-        # 🌟 [স্ট্যাবিলিটি ফিক্স]: কানেকশন ড্রপ এড়াতে chunksize=1MB সেট করে আপলোড রেজিলিয়েন্স বাড়ানো হলো
         media_vid = MediaFileUpload(video_file, chunksize=1024*1024, resumable=True)
         res = yt.videos().insert(part="snippet,status", body=body, media_body=media_vid).execute()
         video_id = res['id']
-        print(f"» Successfully Uploaded as Private! Video Link: https://youtu.be/{video_id}")
+        print(f"» Successfully Uploaded! Video Link: https://youtu.be/{video_id}")
         
         if thumbnail_path:
             try: 
@@ -286,6 +290,5 @@ if __name__ == "__main__":
     except Exception as critical:
         print("\nFATAL ERROR DETECTED: ", critical)
     finally:
-        # প্রসেস সম্পূর্ণ শেষে শুধু Temporary Folder ডিলিট করবে, Workspace ঠিক থাকবে 
         if os.path.exists(TMP_DIR): shutil.rmtree(TMP_DIR, ignore_errors=True)
         print("\nAll Tasks Finalized Perfectly.\n======================================")
