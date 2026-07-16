@@ -72,7 +72,6 @@ def check_new_articles_and_prepare_folders():
 
             if published_time >= time_limit:
                 folder_title = clean_filename(entry.title).strip()
-                # 'Shorts' ফোল্ডারটিকে নতুন আর্টিকেল হিসেবে কাউন্ট হওয়া থেকে আটকানো হলো
                 if folder_title.lower() == "shorts":
                     continue
                 if not folder_title or folder_title in existing_folders or folder_title in history_logs: 
@@ -139,7 +138,6 @@ def process_ready_videos(yt):
     if not os.path.exists(WORKSPACE_DIR): return
     if not os.path.exists(TMP_DIR): os.makedirs(TMP_DIR)
     
-    # 'Shorts' ফোল্ডারটিকে এখানে স্ক্যান করা থেকে বাদ দেওয়া হলো
     folders = [f for f in os.listdir(WORKSPACE_DIR) if os.path.isdir(os.path.join(WORKSPACE_DIR, f)) and f.lower() != "shorts"]
     
     for folder_name in folders:
@@ -210,7 +208,7 @@ def process_ready_videos(yt):
             
             final_video = concatenate_videoclips(clips).set_audio(audio_clip)
             
-            # --- Outro.mp4 ড্রাইভ সোর্স থেকে জোড়া দেওয়া ---
+            # --- Outro.mp4 ড্রাইভ সোর্স থেকে জোড়া দেওয়া (অপ্টিমাইজড এনিমেশন লজিক) ---
             outro = None
             outro_path = None
             for file in os.listdir(WORKSPACE_DIR):
@@ -223,7 +221,8 @@ def process_ready_videos(yt):
                 try:
                     outro = VideoFileClip(outro_path)
                     if outro.size != (1920, 1080): outro = outro.resize((1920, 1080))
-                    final_video = concatenate_videoclips([final_video, outro], method="compose")
+                    # 🌟 এখানে অপ্টিমাইজড চেইন মেথড ব্যবহার করা হয়েছে যাতে অডিও ক্র্যাশ না হয়
+                    final_video = concatenate_videoclips([final_video, outro])
                 except Exception as ex:
                     print(f"Error appending outro: {ex}")
                 
@@ -251,7 +250,7 @@ def process_ready_videos(yt):
             print(f"\n❌ Error occurred while processing folder '{folder_name}': {folder_error}")
             print("Moving on to the next available folder...\n")
 
-# ==================== [ 4. DEDICATED SHORTS LOADER (New Feature!) ] ====================
+# ==================== [ 4. DEDICATED SHORTS LOADER (Anti-Deletion keep system) ] ====================
 def process_shorts_folder(yt):
     print("\nScanning for pre-made Shorts in 'Shorts' folder...")
     shorts_dir = None
@@ -265,21 +264,31 @@ def process_shorts_folder(yt):
         print("No 'Shorts' folder found in Google Drive. Skipping Shorts process.")
         return
         
+    # 🌟 [CRITICAL FIX] : ফোল্ডার ডিলিট হওয়া আটকাতে একটি ডামি .keep ফাইল তৈরি করা হচ্ছে
+    keep_file = os.path.join(shorts_dir, ".keep")
+    if not os.path.exists(keep_file):
+        try:
+            with open(keep_file, 'w') as kf:
+                kf.write("keep")
+            print("Created .keep file inside Shorts folder to preserve it.")
+        except Exception as ke:
+            print("Failed to create .keep file:", ke)
+                
     for file in os.listdir(shorts_dir):
+        # ডামি ফাইলটিকে আপলোড করা থেকে স্কিপ করবে
+        if file == ".keep": 
+            continue
+            
         file_path = os.path.join(shorts_dir, file)
-        if os.path.isdir(file_path): continue # সাব-ফোল্ডার স্কিপ করবে
+        if os.path.isdir(file_path): continue 
         
         ext = file.lower().split('.')[-1]
-        # অনুমোদিত ভিডিও ফরম্যাটসমূহ 
         if ext in ['mp4', 'mov', 'mkv', 'avi']:
-            # ফাইলের আসল নামটিকে টাইটেল হিসেবে ধরা হবে (Extension ছাড়া)
             video_title = os.path.splitext(file)[0]
             print(f"\n========== Processing Short Video: {video_title} ==========")
             
-            # সরাসরি ইউটিউবে পাবলিক হিসেবে আপলোড 
             upload_success = upload_to_youtube(yt, file_path, video_title, thumbnail_path=None)
             
-            # আপলোড সফল হলে লোকাল স্পেস থেকে ভিডিও ডিলিট করা (Rclone এরপর এটিকে ড্রাইভ থেকেও ডিলিট করবে)
             if upload_success:
                 print(f"Deleting uploaded Short locally: {file}")
                 try: os.remove(file_path)
@@ -289,7 +298,7 @@ def process_shorts_folder(yt):
 def upload_to_youtube(yt, video_file, title, thumbnail_path):
     print(f"Now Uploading: '{title}'")
     try:
-        description_text = "" # ← ফাঁকা রাখলে সম্পূর্ণ খালি আপলোড হবে
+        description_text = "" 
         
         body = {
             'snippet': { 
@@ -323,7 +332,7 @@ if __name__ == "__main__":
         yt_service = get_youtube_service()
         check_new_articles_and_prepare_folders()
         process_ready_videos(yt_service)
-        process_shorts_folder(yt_service) # 🌟 এখানে নতুন Shorts প্রসেসরটি রান করানো হলো
+        process_shorts_folder(yt_service) 
     except Exception as critical:
         print("\nFATAL ERROR DETECTED: ", critical)
     finally:
