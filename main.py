@@ -72,6 +72,9 @@ def check_new_articles_and_prepare_folders():
 
             if published_time >= time_limit:
                 folder_title = clean_filename(entry.title).strip()
+                # 'Shorts' ফোল্ডারটিকে নতুন আর্টিকেল হিসেবে কাউন্ট হওয়া থেকে আটকানো হলো
+                if folder_title.lower() == "shorts":
+                    continue
                 if not folder_title or folder_title in existing_folders or folder_title in history_logs: 
                     continue 
 
@@ -136,7 +139,8 @@ def process_ready_videos(yt):
     if not os.path.exists(WORKSPACE_DIR): return
     if not os.path.exists(TMP_DIR): os.makedirs(TMP_DIR)
     
-    folders = [f for f in os.listdir(WORKSPACE_DIR) if os.path.isdir(os.path.join(WORKSPACE_DIR, f))]
+    # 'Shorts' ফোল্ডারটিকে এখানে স্ক্যান করা থেকে বাদ দেওয়া হলো
+    folders = [f for f in os.listdir(WORKSPACE_DIR) if os.path.isdir(os.path.join(WORKSPACE_DIR, f)) and f.lower() != "shorts"]
     
     for folder_name in folders:
         folder_path = os.path.join(WORKSPACE_DIR, folder_name)
@@ -206,7 +210,7 @@ def process_ready_videos(yt):
             
             final_video = concatenate_videoclips(clips).set_audio(audio_clip)
             
-            # --- Outro.mp4 ড্রাইভ সোর্স থেকে জোড়া দেওয়া (কেস-সেন্সিটিভ বাগ ফিক্স সহ) ---
+            # --- Outro.mp4 ড্রাইভ সোর্স থেকে জোড়া দেওয়া ---
             outro = None
             outro_path = None
             for file in os.listdir(WORKSPACE_DIR):
@@ -247,12 +251,44 @@ def process_ready_videos(yt):
             print(f"\n❌ Error occurred while processing folder '{folder_name}': {folder_error}")
             print("Moving on to the next available folder...\n")
 
-# ==================== [ 4. YOUTUBE API ] ====================
+# ==================== [ 4. DEDICATED SHORTS LOADER (New Feature!) ] ====================
+def process_shorts_folder(yt):
+    print("\nScanning for pre-made Shorts in 'Shorts' folder...")
+    shorts_dir = None
+    if os.path.exists(WORKSPACE_DIR):
+        for f in os.listdir(WORKSPACE_DIR):
+            if f.lower() == "shorts" and os.path.isdir(os.path.join(WORKSPACE_DIR, f)):
+                shorts_dir = os.path.join(WORKSPACE_DIR, f)
+                break
+                
+    if not shorts_dir:
+        print("No 'Shorts' folder found in Google Drive. Skipping Shorts process.")
+        return
+        
+    for file in os.listdir(shorts_dir):
+        file_path = os.path.join(shorts_dir, file)
+        if os.path.isdir(file_path): continue # সাব-ফোল্ডার স্কিপ করবে
+        
+        ext = file.lower().split('.')[-1]
+        # অনুমোদিত ভিডিও ফরম্যাটসমূহ 
+        if ext in ['mp4', 'mov', 'mkv', 'avi']:
+            # ফাইলের আসল নামটিকে টাইটেল হিসেবে ধরা হবে (Extension ছাড়া)
+            video_title = os.path.splitext(file)[0]
+            print(f"\n========== Processing Short Video: {video_title} ==========")
+            
+            # সরাসরি ইউটিউবে পাবলিক হিসেবে আপলোড 
+            upload_success = upload_to_youtube(yt, file_path, video_title, thumbnail_path=None)
+            
+            # আপলোড সফল হলে লোকাল স্পেস থেকে ভিডিও ডিলিট করা (Rclone এরপর এটিকে ড্রাইভ থেকেও ডিলিট করবে)
+            if upload_success:
+                print(f"Deleting uploaded Short locally: {file}")
+                try: os.remove(file_path)
+                except Exception as r_e: print("File delete error:", r_e)
+
+# ==================== [ 5. YOUTUBE API ] ====================
 def upload_to_youtube(yt, video_file, title, thumbnail_path):
     print(f"Now Uploading: '{title}'")
     try:
-        # 🌟 এখানে আপনি চাইলে আপনার স্থায়ী ডেসক্রিপশনটি কোটেশনের ভেতর লিখে দিতে পারেন।
-        # উদাহরণস্বরূপ: description_text = "আপনার চ্যানেলের সোশ্যাল লিংক বা অন্যান্য তথ্য এখানে লিখে দিন।"
         description_text = "" # ← ফাঁকা রাখলে সম্পূর্ণ খালি আপলোড হবে
         
         body = {
@@ -261,7 +297,7 @@ def upload_to_youtube(yt, video_file, title, thumbnail_path):
                 'description': description_text, 
                 'tags': ['Job Circular BD', 'Today Govt Jobs'] 
             },
-            'status': { 'privacyStatus': 'public' } # 🌟 এখানে private থেকে public করা হলো
+            'status': { 'privacyStatus': 'public' } 
         }
         media_vid = MediaFileUpload(video_file, chunksize=1024*1024, resumable=True)
         res = yt.videos().insert(part="snippet,status", body=body, media_body=media_vid).execute()
@@ -274,7 +310,7 @@ def upload_to_youtube(yt, video_file, title, thumbnail_path):
                 yt.thumbnails().set(videoId=video_id, media_body=media_thmb).execute()
                 print("» Attached perfect Custom Thumbnail!")
             except Exception as e: 
-                print("\n⚠️ Custom Thumbnail Add Failed! -> Note: Check if YouTube Account is Phone Verified!\n")
+                print("\n⚠️ Custom Thumbnail Add Failed! -> Check if YouTube Account is Phone Verified!\n")
         return True
     except Exception as e:
         print("\n❌ Upload failed by error API limits! Detail:", e)
@@ -287,6 +323,7 @@ if __name__ == "__main__":
         yt_service = get_youtube_service()
         check_new_articles_and_prepare_folders()
         process_ready_videos(yt_service)
+        process_shorts_folder(yt_service) # 🌟 এখানে নতুন Shorts প্রসেসরটি রান করানো হলো
     except Exception as critical:
         print("\nFATAL ERROR DETECTED: ", critical)
     finally:
