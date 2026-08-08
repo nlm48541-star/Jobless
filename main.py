@@ -10,7 +10,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips, VideoFileClip
+from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips
 
 WORKSPACE_DIR = "workspace"      # Rclone Sync Location
 LIVESTREAM_DIR = "workspace_live" # JobLive folder source
@@ -207,52 +207,13 @@ def process_ready_videos(yt):
 
             # মুভি এডিটিং শুরু
             audio_clip = AudioFileClip(audio_path)
+            per_img_duration = audio_clip.duration / len(video_imgs)
             
-            # ১. আউটরো ছাড়া ৯:১৬ (Vertical 1080x1920) ভিডিও তৈরি ও 'workspace_live' ফোল্ডারে সেভ করা
-            if not os.path.exists(LIVESTREAM_DIR):
-                os.makedirs(LIVESTREAM_DIR)
-                
-            safe_video_title = clean_filename(video_title)
-            live_video_file = os.path.join(LIVESTREAM_DIR, f"{safe_video_title}.mp4")
+            # ------------------ [১ম কাজ: ১৬:৯ ল্যান্ডস্কেপ ভিডিও (ইউটিউবের জন্য)] ------------------
+            print("Rendering 16:9 Landscape slideshow for YouTube upload...")
+            yt_clips = [make_video_frame(v, per_img_duration, target_w=1920, target_h=1080) for v in video_imgs]
+            youtube_video = concatenate_videoclips(yt_clips).set_audio(audio_clip)
             
-            print(f"Rendering 9:16 Vertical slideshow (without Outro) for JobLive: {live_video_file}")
-            live_clips = [make_video_frame(v, audio_clip.duration / len(video_imgs), target_w=1080, target_h=1920) for v in video_imgs]
-            live_video = concatenate_videoclips(live_clips).set_audio(audio_clip)
-            
-            # 🌟 [বাগ ফিক্স]: pix_fmt কে সরাসরি না পাঠিয়ে ffmpeg_params এর মধ্যে যুক্ত করা হয়েছে
-            live_video.write_videofile(
-                live_video_file, fps=30, codec="libx264", 
-                audio_codec="aac", threads=4, preset="ultrafast",
-                ffmpeg_params=["-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-pix_fmt", "yuv420p"],
-                logger=None
-            )
-            
-            # রেন্ডার হওয়া স্লাইডশোটি লোড করা
-            rendered_slideshow = VideoFileClip(live_video_file)
-            
-            # --- Outro.mp4 ড্রাইভ সোর্স থেকে জোড়া দেওয়া ---
-            outro = None
-            outro_path = None
-            for file in os.listdir(WORKSPACE_DIR):
-                if file.lower() == "outro.mp4":
-                    outro_path = os.path.join(WORKSPACE_DIR, file)
-                    break
-
-            if outro_path and os.path.exists(outro_path):
-                print(f"Outro.mp4 found in Drive ({outro_path}), attaching for YouTube upload...")
-                try:
-                    outro = VideoFileClip(outro_path)
-                    if outro.size != (1920, 1080): outro = outro.resize((1920, 1080))
-                    youtube_video = concatenate_videoclips([rendered_slideshow, outro])
-                except Exception as ex:
-                    print(f"Error appending outro: {ex}")
-                    youtube_video = rendered_slideshow
-            else:
-                youtube_video = rendered_slideshow
-                
-            # ইউটিউবের জন্য ল্যান্ডস্কেপ ভিডিও রেন্ডারিং 
-            print("Rendering final video with Outro for YouTube upload...")
-            # 🌟 [বাগ ফিক্স]: এখানেও pix_fmt ফিক্স করা হয়েছে 
             youtube_video.write_videofile(
                 out_video_file, fps=30, codec="libx264", 
                 audio_codec="aac", threads=4, preset="ultrafast",
@@ -260,26 +221,45 @@ def process_ready_videos(yt):
                 logger=None
             )
             
-            # রিসোর্স ক্লোজ করা
-            live_video.close()
-            for c in live_clips: c.close()
-            
-            youtube_video.close()
-            for c in yt_clips if 'yt_clips' in locals() else []: c.close()
-            
-            rendered_slideshow.close()
-            audio_clip.close()
-            if outro: outro.close()
-            
-            # YouTube-এ আপলোডিং
+            # YouTube-এ আপলোডিং (পাবলিক এবং ১৬:৯ রেশিওতে)
             upload_success = upload_to_youtube(
                 yt, out_video_file, video_title, 
                 thumbnail_path if os.path.exists(thumbnail_path) else None
             )
             
-            if upload_success: 
+            youtube_video.close()
+            for c in yt_clips: c.close()
+            
+            # ------------------ [২য় কাজ: ৯:১৬ পোর্ট্রেট ভিডিও (JobLive গুগল ড্রাইভের জন্য)] ------------------
+            if upload_success:
+                if not os.path.exists(LIVESTREAM_DIR):
+                    os.makedirs(LIVESTREAM_DIR)
+                    
+                safe_video_title = clean_filename(video_title)
+                live_video_file = os.path.join(LIVESTREAM_DIR, f"{safe_video_title}.mp4")
+                
+                print(f"Rendering 9:16 Vertical slideshow for JobLive: {live_video_file}")
+                # ৯:১৬ ডাইমেনশন (১০৮০x১৯২০) দিয়ে রেন্ডারিং 
+                live_clips = [make_video_frame(v, per_img_duration, target_w=1080, target_h=1920) for v in video_imgs]
+                live_video = concatenate_videoclips(live_clips).set_audio(audio_clip)
+                
+                live_video.write_videofile(
+                    live_video_file, fps=30, codec="libx264", 
+                    audio_codec="aac", threads=4, preset="ultrafast",
+                    ffmpeg_params=["-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-pix_fmt", "yuv420p"],
+                    logger=None
+                )
+                
+                live_video.close()
+                for c in live_clips: c.close()
+                
+                # ড্রাইভ ফোল্ডার ক্লিনআপ
                 print("Task Accomplished! Requesting Drive Cleanup.")
                 shutil.rmtree(folder_path, ignore_errors=True)
+            else:
+                print("❌ YouTube upload failed! Skipping JobLive copy and deletion to prevent data loss.")
+                
+            audio_clip.close()
 
         except Exception as folder_error:
             print(f"\n❌ Error occurred while processing folder '{folder_name}': {folder_error}")
