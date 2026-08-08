@@ -110,7 +110,6 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
     ratio = w / h
     target_ratio = target_w / target_h
 
-    # ডায়নামিক্যালি রেশিও ক্যালকুলেট করা (১৬:৯ এবং ৯:১৬ উভয়ের জন্যই কাজ করবে)
     if ratio >= target_ratio: 
         new_h = target_h
         new_w = int((target_h / h) * w)
@@ -209,7 +208,7 @@ def process_ready_videos(yt):
             # মুভি এডিটিং শুরু
             audio_clip = AudioFileClip(audio_path)
             
-            # 🌟 [১ম কাজ]: আউটরো ছাড়া ৯:১৬ (Vertical 1080x1920) ভিডিও তৈরি ও 'workspace_live' ফোল্ডারে সেভ করা
+            # ১. আউটরো ছাড়া ৯:১৬ (Vertical 1080x1920) ভিডিও তৈরি ও 'workspace_live' ফোল্ডারে সেভ করা
             if not os.path.exists(LIVESTREAM_DIR):
                 os.makedirs(LIVESTREAM_DIR)
                 
@@ -217,25 +216,21 @@ def process_ready_videos(yt):
             live_video_file = os.path.join(LIVESTREAM_DIR, f"{safe_video_title}.mp4")
             
             print(f"Rendering 9:16 Vertical slideshow (without Outro) for JobLive: {live_video_file}")
-            # ৯:১৬ রেশিওর ক্লিপসমূহ তৈরি
             live_clips = [make_video_frame(v, audio_clip.duration / len(video_imgs), target_w=1080, target_h=1920) for v in video_imgs]
             live_video = concatenate_videoclips(live_clips).set_audio(audio_clip)
             
-            # আপনার দেওয়া নির্দিষ্ট সেটিংসে ভার্টিক্যাল ভিডিও রেন্ডারিং
+            # 🌟 [বাগ ফিক্স]: pix_fmt কে সরাসরি না পাঠিয়ে ffmpeg_params এর মধ্যে যুক্ত করা হয়েছে
             live_video.write_videofile(
                 live_video_file, fps=30, codec="libx264", 
                 audio_codec="aac", threads=4, preset="ultrafast",
-                pix_fmt="yuv420p",
-                ffmpeg_params=["-g", "60", "-keyint_min", "60", "-sc_threshold", "0"],
+                ffmpeg_params=["-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-pix_fmt", "yuv420p"],
                 logger=None
             )
             
-            # 🌟 [২য় কাজ]: আউটরো সহ ১৬:৯ (Landscape 1920x1080) ভিডিও তৈরি করা ইউটিউবের জন্য
-            print("Rendering 16:9 Landscape slideshow for YouTube upload...")
-            yt_clips = [make_video_frame(v, audio_clip.duration / len(video_imgs), target_w=1920, target_h=1080) for v in video_imgs]
-            youtube_video = concatenate_videoclips(yt_clips).set_audio(audio_clip)
+            # রেন্ডার হওয়া স্লাইডশোটি লোড করা
+            rendered_slideshow = VideoFileClip(live_video_file)
             
-            # Outro.mp4 ড্রাইভ সোর্স থেকে জোড়া দেওয়া
+            # --- Outro.mp4 ড্রাইভ সোর্স থেকে জোড়া দেওয়া ---
             outro = None
             outro_path = None
             for file in os.listdir(WORKSPACE_DIR):
@@ -248,27 +243,31 @@ def process_ready_videos(yt):
                 try:
                     outro = VideoFileClip(outro_path)
                     if outro.size != (1920, 1080): outro = outro.resize((1920, 1080))
-                    youtube_video = concatenate_videoclips([youtube_video, outro])
+                    youtube_video = concatenate_videoclips([rendered_slideshow, outro])
                 except Exception as ex:
                     print(f"Error appending outro: {ex}")
+                    youtube_video = rendered_slideshow
+            else:
+                youtube_video = rendered_slideshow
                 
-            # ইউটিউবের জন্য ল্যান্ডস্কেপ ভিডিও রেন্ডারিং
+            # ইউটিউবের জন্য ল্যান্ডস্কেপ ভিডিও রেন্ডারিং 
             print("Rendering final video with Outro for YouTube upload...")
+            # 🌟 [বাগ ফিক্স]: এখানেও pix_fmt ফিক্স করা হয়েছে 
             youtube_video.write_videofile(
                 out_video_file, fps=30, codec="libx264", 
                 audio_codec="aac", threads=4, preset="ultrafast",
-                pix_fmt="yuv420p",
-                ffmpeg_params=["-g", "60", "-keyint_min", "60", "-sc_threshold", "0"],
+                ffmpeg_params=["-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-pix_fmt", "yuv420p"],
                 logger=None
             )
             
-            # রিসোর্স ক্লোজ করা (মেমোরি সেফটি)
+            # রিসোর্স ক্লোজ করা
             live_video.close()
             for c in live_clips: c.close()
             
             youtube_video.close()
-            for c in yt_clips: c.close()
+            for c in yt_clips if 'yt_clips' in locals() else []: c.close()
             
+            rendered_slideshow.close()
             audio_clip.close()
             if outro: outro.close()
             
