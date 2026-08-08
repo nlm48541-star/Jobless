@@ -51,9 +51,14 @@ jobs:
         run: |
           rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}"
 
-      # 🌟 [নতুন ধাপ]: আউটরো ছাড়া মেইন ভিডিওর কপিটি নির্দিষ্ট 'JobLive' ফোল্ডারে সেভ করবে
+      # ১. আউটরো ছাড়া মেইন পোর্ট্রেট ভিডিওর কপিটি নির্দিষ্ট 'JobLive' ফোল্ডারে সেভ করবে
       - name: Push JobLive videos to Google Drive (Without Outro)
         run: |
           if [ -d "workspace_live" ]; then
             rclone copy ./workspace_live "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW"
           fi
+
+      # 🌟 [নতুন ধাপ]: 'JobLive' ফোল্ডার থেকে ১৫ দিনের পুরোনো ভিডিও ফাইলগুলো অটোমেটিক ডিলিট করবে
+      - name: Cleanup old JobLive videos (Older than 15 days)
+        run: |
+          rclone delete "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --min-age 15d
