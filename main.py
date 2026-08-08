@@ -103,37 +103,101 @@ def check_new_articles_and_prepare_folders():
                         if download_image(src, img_path):
                             img_count += 1
 
-# ==================== [ 2. DYNAMIC FRAME ENGINE (Supports 16:9 & 9:16) ] ====================
+# ==================== [ 2. DYNAMIC FRAME ENGINE (Supports 16:9 & Advanced 9:16) ] ====================
 def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
     pil_img = Image.open(img_path).convert("RGB")
     w, h = pil_img.size
     ratio = w / h
     target_ratio = target_w / target_h
 
-    if ratio >= target_ratio: 
-        new_h = target_h
-        new_w = int((target_h / h) * w)
-    else:
-        new_w = target_w
-        new_h = int((target_w / w) * h)
-        
-    if new_w < target_w:
-        new_w = target_w
-        new_h = int((new_w / w) * h)
-    if new_h < target_h:
-        new_h = target_h
-        new_w = int((new_h / h) * w)
+    is_vertical = target_w < target_h # ৯:১৬ মোড চেক করা 
 
-    resized = pil_img.resize((new_w, new_h), Image.LANCZOS)
-    img_np = np.array(resized)
-    
-    def make_frame(t):
-        progress = t / duration if duration > 0 else 0
-        y = int(progress * (new_h - target_h)) if (new_h - target_h) > 0 else 0 
-        x = int(progress * (new_w - target_w)) if (new_w - target_w) > 0 else 0 
-        return img_np[y:y+target_h, x:x+target_w]
+    if is_vertical:
+        # 🌟 রুল ১: ৯:১৬ এর চেয়েও লম্বালম্বি ছবি (Ratio < 9/16) হলে জুম এবং উপর-নিচে স্ক্রল হবে 
+        if ratio < (9.0 / 16.0) - 0.01:
+            new_w = target_w
+            new_h = int((target_w / w) * h)
+            if new_h < target_h:
+                new_h = target_h
+                
+            resized = pil_img.resize((new_w, new_h), Image.LANCZOS)
+            img_np = np.array(resized)
+            
+            def make_frame(t):
+                progress = t / duration if duration > 0 else 0
+                y = int(progress * (new_h - target_h)) if (new_h - target_h) > 0 else 0 
+                x = 0
+                return img_np[y:y+target_h, x:x+target_w]
+            
+            return VideoClip(make_frame, duration=duration)
+            
+        # 🌟 রুল ২: মাঝারি সাইজের ছবি (9/16 <= Ratio < 16/9) হলে ক্রপ না করে ব্ল্যাক ক্যানভাসে বসাবে 
+        elif (9.0 / 16.0) - 0.01 <= ratio < (16.0 / 9.0) - 0.01:
+            scale_w = target_w / w
+            scale_h = target_h / h
+            scale = min(scale_w, scale_h)
+            
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            resized = pil_img.resize((new_w, new_h), Image.LANCZOS)
+            
+            # কালো ব্যাকগ্রাউন্ডের ক্যানভাস তৈরি 
+            canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
+            offset_x = (target_w - new_w) // 2
+            offset_y = (target_h - new_h) // 2
+            canvas.paste(resized, (offset_x, offset_y))
+            
+            img_np = np.array(canvas)
+            
+            def make_frame(t):
+                return img_np
+                
+            return VideoClip(make_frame, duration=duration)
+            
+        # রুল ৩: যদি ৯:১৬ মোডে কোনো চওড়া ছবি (Ratio >= 16/9) আসে, তবে সেটিকে বাম-ডান স্ক্রল করবে
+        else:
+            new_h = target_h
+            new_w = int((target_h / h) * w)
+            if new_w < target_w:
+                new_w = target_w
+                
+            resized = pil_img.resize((new_w, new_h), Image.LANCZOS)
+            img_np = np.array(resized)
+            
+            def make_frame(t):
+                progress = t / duration if duration > 0 else 0
+                y = 0
+                x = int(progress * (new_w - target_w)) if (new_w - target_w) > 0 else 0 
+                return img_np[y:y+target_h, x:x+target_w]
+                
+            return VideoClip(make_frame, duration=duration)
+            
+    else:
+        # ১৬:৯ ল্যান্ডস্কেপ মোড (ইউটিউবের জন্য পূর্বের মতোই অপরিবর্তিত থাকবে)
+        if ratio >= target_ratio: 
+            new_h = target_h
+            new_w = int((target_h / h) * w)
+        else:
+            new_w = target_w
+            new_h = int((target_w / w) * h)
+            
+        if new_w < target_w:
+            new_w = target_w
+            new_h = int((new_w / w) * h)
+        if new_h < target_h:
+            new_h = target_h
+            new_w = int((new_h / h) * w)
+
+        resized = pil_img.resize((new_w, new_h), Image.LANCZOS)
+        img_np = np.array(resized)
         
-    return VideoClip(make_frame, duration=duration)
+        def make_frame(t):
+            progress = t / duration if duration > 0 else 0
+            y = int(progress * (new_h - target_h)) if (new_h - target_h) > 0 else 0 
+            x = int(progress * (new_w - target_w)) if (new_w - target_w) > 0 else 0 
+            return img_np[y:y+target_h, x:x+target_w]
+            
+        return VideoClip(make_frame, duration=duration)
 
 # ==================== [ 3. MOVIEPY PROCESS ] ====================
 def process_ready_videos(yt):
