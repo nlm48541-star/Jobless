@@ -12,8 +12,9 @@ from googleapiclient.http import MediaFileUpload
 
 from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips, VideoFileClip
 
-WORKSPACE_DIR = "workspace" # Rclone Sync Location
-TMP_DIR = "temp_assets"     # Temp Files processing
+WORKSPACE_DIR = "workspace"      # Rclone Sync Location
+LIVESTREAM_DIR = "workspace_live" # JobLive folder source
+TMP_DIR = "temp_assets"          # Temp Files processing
 
 def get_youtube_service():
     creds = Credentials(
@@ -102,23 +103,26 @@ def check_new_articles_and_prepare_folders():
                         if download_image(src, img_path):
                             img_count += 1
 
-# ==================== [ 2. FRAME ENGINE (Guaranteed 1920x1080) ] ====================
-def make_video_frame(img_path, duration):
-    TARGET_W, TARGET_H = 1920, 1080
+# ==================== [ 2. DYNAMIC FRAME ENGINE (Supports 16:9 & 9:16) ] ====================
+def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
     pil_img = Image.open(img_path).convert("RGB")
     w, h = pil_img.size
     ratio = w / h
+    target_ratio = target_w / target_h
 
-    if ratio >= 1.777: 
-        new_h, new_w = TARGET_H, int((TARGET_H / h) * w)
+    # ডায়নামিক্যালি রেশিও ক্যালকুলেট করা (১৬:৯ এবং ৯:১৬ উভয়ের জন্যই কাজ করবে)
+    if ratio >= target_ratio: 
+        new_h = target_h
+        new_w = int((target_h / h) * w)
     else:
-        new_w, new_h = TARGET_W, int((TARGET_W / w) * h)
+        new_w = target_w
+        new_h = int((target_w / w) * h)
         
-    if new_w < TARGET_W:
-        new_w = TARGET_W
+    if new_w < target_w:
+        new_w = target_w
         new_h = int((new_w / w) * h)
-    if new_h < TARGET_H:
-        new_h = TARGET_H
+    if new_h < target_h:
+        new_h = target_h
         new_w = int((new_h / h) * w)
 
     resized = pil_img.resize((new_w, new_h), Image.LANCZOS)
@@ -126,9 +130,9 @@ def make_video_frame(img_path, duration):
     
     def make_frame(t):
         progress = t / duration if duration > 0 else 0
-        y = int(progress * (new_h - TARGET_H)) if (new_h - TARGET_H) > 0 else 0 
-        x = int(progress * (new_w - TARGET_W)) if (new_w - TARGET_W) > 0 else 0 
-        return img_np[y:y+TARGET_H, x:x+TARGET_W]
+        y = int(progress * (new_h - target_h)) if (new_h - target_h) > 0 else 0 
+        x = int(progress * (new_w - target_w)) if (new_w - target_w) > 0 else 0 
+        return img_np[y:y+target_h, x:x+target_w]
         
     return VideoClip(make_frame, duration=duration)
 
@@ -204,11 +208,34 @@ def process_ready_videos(yt):
 
             # মুভি এডিটিং শুরু
             audio_clip = AudioFileClip(audio_path)
-            clips = [make_video_frame(v, audio_clip.duration / len(video_imgs)) for v in video_imgs]
             
-            final_video = concatenate_videoclips(clips).set_audio(audio_clip)
+            # 🌟 [১ম কাজ]: আউটরো ছাড়া ৯:১৬ (Vertical 1080x1920) ভিডিও তৈরি ও 'workspace_live' ফোল্ডারে সেভ করা
+            if not os.path.exists(LIVESTREAM_DIR):
+                os.makedirs(LIVESTREAM_DIR)
+                
+            safe_video_title = clean_filename(video_title)
+            live_video_file = os.path.join(LIVESTREAM_DIR, f"{safe_video_title}.mp4")
             
-            # --- Outro.mp4 ড্রাইভ সোর্স থেকে জোড়া দেওয়া (অপ্টিমাইজড এনিমেশন লজিক) ---
+            print(f"Rendering 9:16 Vertical slideshow (without Outro) for JobLive: {live_video_file}")
+            # ৯:১৬ রেশিওর ক্লিপসমূহ তৈরি
+            live_clips = [make_video_frame(v, audio_clip.duration / len(video_imgs), target_w=1080, target_h=1920) for v in video_imgs]
+            live_video = concatenate_videoclips(live_clips).set_audio(audio_clip)
+            
+            # আপনার দেওয়া নির্দিষ্ট সেটিংসে ভার্টিক্যাল ভিডিও রেন্ডারিং
+            live_video.write_videofile(
+                live_video_file, fps=30, codec="libx264", 
+                audio_codec="aac", threads=4, preset="ultrafast",
+                pix_fmt="yuv420p",
+                ffmpeg_params=["-g", "60", "-keyint_min", "60", "-sc_threshold", "0"],
+                logger=None
+            )
+            
+            # 🌟 [২য় কাজ]: আউটরো সহ ১৬:৯ (Landscape 1920x1080) ভিডিও তৈরি করা ইউটিউবের জন্য
+            print("Rendering 16:9 Landscape slideshow for YouTube upload...")
+            yt_clips = [make_video_frame(v, audio_clip.duration / len(video_imgs), target_w=1920, target_h=1080) for v in video_imgs]
+            youtube_video = concatenate_videoclips(yt_clips).set_audio(audio_clip)
+            
+            # Outro.mp4 ড্রাইভ সোর্স থেকে জোড়া দেওয়া
             outro = None
             outro_path = None
             for file in os.listdir(WORKSPACE_DIR):
@@ -217,22 +244,31 @@ def process_ready_videos(yt):
                     break
 
             if outro_path and os.path.exists(outro_path):
-                print(f"Outro.mp4 found in Drive ({outro_path}), attaching at the end...")
+                print(f"Outro.mp4 found in Drive ({outro_path}), attaching for YouTube upload...")
                 try:
                     outro = VideoFileClip(outro_path)
                     if outro.size != (1920, 1080): outro = outro.resize((1920, 1080))
-                    # 🌟 এখানে অপ্টিমাইজড চেইন মেথড ব্যবহার করা হয়েছে যাতে অডিও ক্র্যাশ না হয়
-                    final_video = concatenate_videoclips([final_video, outro])
+                    youtube_video = concatenate_videoclips([youtube_video, outro])
                 except Exception as ex:
                     print(f"Error appending outro: {ex}")
                 
-            print("Rendering started, Please wait...")
-            final_video.write_videofile(
-                out_video_file, fps=24, codec="libx264", 
-                audio_codec="aac", threads=4, preset="ultrafast", logger=None
+            # ইউটিউবের জন্য ল্যান্ডস্কেপ ভিডিও রেন্ডারিং
+            print("Rendering final video with Outro for YouTube upload...")
+            youtube_video.write_videofile(
+                out_video_file, fps=30, codec="libx264", 
+                audio_codec="aac", threads=4, preset="ultrafast",
+                pix_fmt="yuv420p",
+                ffmpeg_params=["-g", "60", "-keyint_min", "60", "-sc_threshold", "0"],
+                logger=None
             )
             
-            final_video.close()
+            # রিসোর্স ক্লোজ করা (মেমোরি সেফটি)
+            live_video.close()
+            for c in live_clips: c.close()
+            
+            youtube_video.close()
+            for c in yt_clips: c.close()
+            
             audio_clip.close()
             if outro: outro.close()
             
@@ -264,7 +300,6 @@ def process_shorts_folder(yt):
         print("No 'Shorts' folder found in Google Drive. Skipping Shorts process.")
         return
         
-    # 🌟 [CRITICAL FIX] : ফোল্ডার ডিলিট হওয়া আটকাতে একটি ডামি .keep ফাইল তৈরি করা হচ্ছে
     keep_file = os.path.join(shorts_dir, ".keep")
     if not os.path.exists(keep_file):
         try:
@@ -275,7 +310,6 @@ def process_shorts_folder(yt):
             print("Failed to create .keep file:", ke)
                 
     for file in os.listdir(shorts_dir):
-        # ডামি ফাইলটিকে আপলোড করা থেকে স্কিপ করবে
         if file == ".keep": 
             continue
             
