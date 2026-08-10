@@ -10,7 +10,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips
+from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips, ImageClip, CompositeVideoClip
 
 WORKSPACE_DIR = "workspace"      # Rclone Sync Location
 LIVESTREAM_DIR = "workspace_live" # JobLive folder source
@@ -113,7 +113,7 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
     is_vertical = target_w < target_h # ৯:১৬ মোড চেক করা 
 
     if is_vertical:
-        # 🌟 রুল ১: ৯:১৬ এর চেয়েও লম্বালম্বি ছবি (Ratio < 9/16) হলে জুম এবং উপর-নিচে স্ক্রল হবে 
+        # রুল ১: ৯:১৬ এর চেয়েও লম্বালম্বি ছবি (Ratio < 9/16) হলে জুম এবং উপর-নিচে স্ক্রল হবে 
         if ratio < (9.0 / 16.0) - 0.01:
             new_w = target_w
             new_h = int((target_w / w) * h)
@@ -131,7 +131,7 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             
             return VideoClip(make_frame, duration=duration)
             
-        # 🌟 রুল ২: মাঝারি সাইজের ছবি (9/16 <= Ratio < 16/9) হলে ক্রপ না করে ব্ল্যাক ক্যানভাসে বসাবে 
+        # রুল ২: মাঝারি সাইজের ছবি (9/16 <= Ratio < 16/9) হলে ক্রপ না করে ব্ল্যাক ক্যানভাসে বসাবে 
         elif (9.0 / 16.0) - 0.01 <= ratio < (16.0 / 9.0) - 0.01:
             scale_w = target_w / w
             scale_h = target_h / h
@@ -154,7 +154,7 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
                 
             return VideoClip(make_frame, duration=duration)
             
-        # রুল ৩: যদি ৯:১৬ মোডে কোনো চওড়া ছবি (Ratio >= 16/9) আসে, তবে সেটিকে বাম-ডান স্ক্রল করবে
+        # রুল ৩: চওড়া ছবি (Ratio >= 16/9) আসলে বাম-ডান স্ক্রল করবে
         else:
             new_h = target_h
             new_w = int((target_h / h) * w)
@@ -173,7 +173,7 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             return VideoClip(make_frame, duration=duration)
             
     else:
-        # ১৬:৯ ল্যান্ডস্কেপ মোড (ইউটিউবের জন্য পূর্বের মতোই অপরিবর্তিত থাকবে)
+        # ১৬:৯ ল্যান্ডস্কেপ মোড (ইউটিউবের জন্য)
         if ratio >= target_ratio: 
             new_h = target_h
             new_w = int((target_h / h) * w)
@@ -198,6 +198,32 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             return img_np[y:y+target_h, x:x+target_w]
             
         return VideoClip(make_frame, duration=duration)
+
+# ==================== [ 🌟 DYNAMIC WATERMARK/FRONT OVERLAY ENGINE ] ====================
+def apply_front_overlay(main_clip, target_w, target_h):
+    front_path = "front.png"
+    if os.path.exists(front_path):
+        try:
+            print(f"Applying front.png overlay at the bottom-center of the video...")
+            # ছবি লোড করা এবং ডিউরেশন ভিডিওর সমান করা
+            front_clip = ImageClip(front_path).set_duration(main_clip.duration)
+            
+            # ডায়নামিকালি উইডথ রিসাইজ (স্ক্রিনের উইডথ-এর ৪০% রাখা হবে)
+            scaled_w = int(target_w * 0.40)
+            front_clip = front_clip.resize(width=scaled_w)
+            
+            # পজিশন নির্ধারণ (নিচে মাঝখানে ৫% সেফটি মার্জিন সহ)
+            margin = int(target_h * 0.05)
+            y_pos = target_h - front_clip.h - margin
+            front_clip = front_clip.set_position(("center", y_pos))
+            
+            # ভিডিওর উপরে কম্পোজিট ওভারলে হিসেবে যুক্ত করা 
+            main_clip = CompositeVideoClip([main_clip, front_clip]).set_audio(main_clip.audio)
+        except Exception as e:
+            print(f"Error applying front.png overlay: {e}")
+    else:
+        print("front.png was not found in the root directory. Skipping overlay.")
+    return main_clip
 
 # ==================== [ 3. MOVIEPY PROCESS ] ====================
 def process_ready_videos(yt):
@@ -278,6 +304,9 @@ def process_ready_videos(yt):
             yt_clips = [make_video_frame(v, per_img_duration, target_w=1920, target_h=1080) for v in video_imgs]
             youtube_video = concatenate_videoclips(yt_clips).set_audio(audio_clip)
             
+            # 🌟 ইউটিউব ভিডিওতে front.png ওভারলে যুক্ত করা 
+            youtube_video = apply_front_overlay(youtube_video, target_w=1920, target_h=1080)
+            
             youtube_video.write_videofile(
                 out_video_file, fps=30, codec="libx264", 
                 audio_codec="aac", threads=4, preset="ultrafast",
@@ -285,7 +314,7 @@ def process_ready_videos(yt):
                 logger=None
             )
             
-            # YouTube-এ আপলোডিং (পাবলিক এবং ১৬:৯ রেশিওতে)
+            # YouTube-এ আপলোডিং
             upload_success = upload_to_youtube(
                 yt, out_video_file, video_title, 
                 thumbnail_path if os.path.exists(thumbnail_path) else None
@@ -303,9 +332,11 @@ def process_ready_videos(yt):
                 live_video_file = os.path.join(LIVESTREAM_DIR, f"{safe_video_title}.mp4")
                 
                 print(f"Rendering 9:16 Vertical slideshow for JobLive: {live_video_file}")
-                # ৯:১৬ ডাইমেনশন (১০৮০x১৯২০) দিয়ে রেন্ডারিং 
                 live_clips = [make_video_frame(v, per_img_duration, target_w=1080, target_h=1920) for v in video_imgs]
                 live_video = concatenate_videoclips(live_clips).set_audio(audio_clip)
+                
+                # 🌟 JobLive ড্রাইভ কপিতেও front.png ওভারলে যুক্ত করা 
+                live_video = apply_front_overlay(live_video, target_w=1080, target_h=1920)
                 
                 live_video.write_videofile(
                     live_video_file, fps=30, codec="libx264", 
