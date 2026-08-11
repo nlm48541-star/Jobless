@@ -17,6 +17,74 @@ LIVESTREAM_DIR = "workspace_live" # JobLive folder source
 TMP_DIR = "temp_assets"          # Temp Files processing
 FONT_PATH = "BengaliFont.ttf"    # Auto downloaded Bengali Font
 
+# 🌟 চটকদার কালার প্যালেট থিমসমূহ (ডিজাইন একই থাকবে, কালার রোটেশন হবে)
+COLOR_THEMES = [
+    # Theme 1: Classic Navy & Red/Yellow
+    {
+        'top_bot_bg': '#00054d', 'top_bot_fg': '#ffffff',
+        'row1_bg': '#ffea00', 'row1_fg': '#000000',
+        'row2_bg': '#ff0000', 'row2_fg': '#ffffff',
+        'row3_bg': '#ffea00', 'row3_fg': '#000000'
+    },
+    # Theme 2: Dark Forest Green & Red/Yellow
+    {
+        'top_bot_bg': '#013a1a', 'top_bot_fg': '#ffffff',
+        'row1_bg': '#ffffff', 'row1_fg': '#013a1a',
+        'row2_bg': '#dc2626', 'row2_fg': '#ffea00',
+        'row3_bg': '#ffea00', 'row3_fg': '#000000'
+    },
+    # Theme 3: Deep Maroon & Cyan/Red
+    {
+        'top_bot_bg': '#4a000d', 'top_bot_fg': '#ffffff',
+        'row1_bg': '#00e5ff', 'row1_fg': '#000000',
+        'row2_bg': '#ff0000', 'row2_fg': '#ffffff',
+        'row3_bg': '#ffea00', 'row3_fg': '#000000'
+    },
+    # Theme 4: Royal Purple & Orange/Yellow
+    {
+        'top_bot_bg': '#2a004e', 'top_bot_fg': '#ffffff',
+        'row1_bg': '#ffea00', 'row1_fg': '#000000',
+        'row2_bg': '#d97706', 'row2_fg': '#ffffff',
+        'row3_bg': '#ffffff', 'row3_fg': '#000000'
+    },
+    # Theme 5: Slate Dark & Lime Green/Red
+    {
+        'top_bot_bg': '#0f172a', 'top_bot_fg': '#ffffff',
+        'row1_bg': '#00ff66', 'row1_fg': '#000000',
+        'row2_bg': '#dc2626', 'row2_fg': '#ffffff',
+        'row3_bg': '#ffea00', 'row3_fg': '#000000'
+    }
+]
+
+# 🌟 Photos/ ফোল্ডারের লোগো ম্যাচিং টেবিল
+LOGO_MAPPING = {
+    'সেনাবাহিনী': 'Army.png',
+    'নৌবাহিনী': 'Navy.png',
+    'বিমান বাহিনী': 'AirForce.png',
+    'বর্ডার গার্ড': 'BGB.png',
+    'বিজিবি': 'BGB.png',
+    'পুলিশ': 'Police.png',
+    'আনসার': 'Ansar.png',
+    'কোস্ট গার্ড': 'CoastGuard.png',
+    'র‍্যাব': 'RAB.png',
+    'ফায়ার সার্ভিস': 'FireService.png',
+    'রেলওয়ে': 'Railway.png',
+    'বিসিএস': 'BCS.png',
+    'প্রাথমিক শিক্ষক': 'PrimaryTeacher.png',
+    'প্রাথমিক': 'PrimaryTeacher.png',
+    'বাংলাদেশ ব্যাংক': 'BangladeshBank.png',
+    'ব্যাংক': 'BangladeshBank.png',
+    'খাদ্য অধিদপ্তর': 'Food.png',
+    'খাদ্য': 'Food.png',
+    'ডাক বিভাগ': 'PostOffice.png',
+    'পোস্ট': 'PostOffice.png',
+    'কারা অধিদপ্তর': 'Jail.png',
+    'কারাগার': 'Jail.png',
+    'পাসপোর্ট অধিদপ্তর': 'Passport.png',
+    'পাসপোর্ট': 'Passport.png',
+    'পরিবার পরিকল্পনা': 'FamilyPlanning.png'
+}
+
 def get_youtube_service():
     creds = Credentials(
         None,
@@ -40,7 +108,7 @@ def download_image(url, output_path):
     except: pass
     return False
 
-# ==================== [ 🌟 YUSUF ADNAN TITLE TUNED THUMBNAIL ENGINE ] ====================
+# ==================== [ 🌟 BENGALI FONT & LOGO ENGINE ] ====================
 def ensure_bengali_font():
     if not os.path.exists(FONT_PATH):
         print("Downloading Bold Bengali font for News Thumbnails...")
@@ -59,81 +127,88 @@ def ensure_bengali_font():
             except Exception as e:
                 print(f"Font download attempt failed: {e}")
 
-def parse_title_for_thumbnail(title):
-    # ডিফল্ট ভ্যালু
-    top_text = "সরকারি চাকরি নিয়োগ ২০২৬"
-    main_text = "🔥 নতুন নিয়োগ বিজ্ঞপ্তি ২০২৬"
-    sub_text = "৬৪ জেলা থেকে আবেদনের সুযোগ"
-    bottom_text = "সকল জেলার পুরুষ ও মহিলা আবেদনযোগ্য"
+def get_logo_for_title(title):
+    t = title.strip()
+    for kw, img_name in LOGO_MAPPING.items():
+        if kw in t:
+            path = os.path.join("Photos", img_name)
+            if os.path.exists(path):
+                return path
+    # Default Fallback Logo
+    default_path = os.path.join("Photos", "Govbd.png")
+    return default_path if os.path.exists(default_path) else None
 
+def parse_title_for_thumbnail(title):
     t = title.strip()
     
-    # ১. ইংরেজি শর্ট কোড বা বন্ধনীর লেখা আলাদা করা (যেমন: BPDB, BRDB, CGA, TMSS NGO, AAUB)
-    bracket_match = re.search(r'\((.*?)\)', t)
-    short_code = bracket_match.group(1) if bracket_match else ""
-    
-    # ২. পদের সংখ্যা আলাদা করা (যেমন: ৫৮৭ পদে, ৪৮ পদে, ৫৭৫ পদে, ১৮৫ পদে)
-    vac_match = re.search(r'(\d+|[০-৯]+)\s*পদে', t)
-    vac_text = vac_match.group(0) if vac_match else ""
-
-    # ৩. প্রতিষ্ঠানের নাম নিখুঁতভাবে ফিল্টার করা
-    # যদি 'পদে' থাকে, তবে তার পর থেকে 'নিয়োগ' পর্যন্ত প্রতিষ্ঠানের নাম ধরা হবে 
-    if "পদে" in t and "নিয়োগ" in t:
-        try:
-            org_part = t.split("পদে")[1].split("নিয়োগ")[0].strip()
-            org_part = re.sub(r'\((.*?)\)', '', org_part).strip() # বন্ধনী রিমুভ
-            if org_part:
-                top_text = org_part
-        except: pass
-    elif "নিয়োগ" in t:
-        try:
-            org_part = t.split("নিয়োগ")[0].strip()
-            org_part = re.sub(r'\((.*?)\)', '', org_part).strip()
-            if org_part:
-                top_text = org_part
-        except: pass
-
-    # ৪. কাস্টম স্পেশাল কেস ফিল্টারিং
-    if "অফিসার ক্যাডেট" in t or "যোগ দিন" in t:
-        top_text = "বাংলাদেশ সেনাবাহিনী"
-        main_text = "🔥 অফিসার ক্যাডেট হিসেবে যোগ দিন"
-        sub_text = "৮৯তম বিএমএ দীর্ঘমেয়াদী কোর্স"
-    elif "এডমিট" in t or "কার্ড" in t:
-        main_text = "🔥 পরীক্ষার এডমিট কার্ড প্রকাশ ২০২৬"
-    elif "প্রশ্ন" in t or "সাজেশন" in t:
-        main_text = "🔥 পরীক্ষার প্রশ্ন ও সাজেশন ২০২৬"
-    elif "ফলাফল" in t or "রেজাল্ট" in t:
-        main_text = "🔥 পরীক্ষার চূড়ান্ত ফলাফল প্রকাশ"
-    else:
-        main_text = "🔥 নতুন জরুরি নিয়োগ বিজ্ঞপ্তি ২০২৬"
-
-    # ৫. সাব-টেক্সট সেটিং (পদের সংখ্যা বা শর্ট নেম হাইলাইট করা)
-    if vac_text and short_code:
-        sub_text = f"({vac_text}) {short_code} নিয়োগ বিজ্ঞপ্তি"
-    elif vac_text:
-        sub_text = f"({vac_text}) বড় নিয়োগ বিজ্ঞপ্তি প্রকাশিত"
-    elif short_code:
-        sub_text = f"({short_code}) নতুন নিয়োগ বিজ্ঞপ্তি"
+    # 1. Top Bar Text (প্রতিষ্ঠানের নাম)
+    top_text = "সরকারি চাকরি নিয়োগ"
+    if "ব্যাংক" in t or "Bank" in t:
+        top_text = "সরকারি ব্যাংকে নিয়োগ"
+    elif "সেনাবাহিনী" in t:
+        top_text = "বাংলাদেশ সেনাবাহিনীতে নিয়োগ"
+    elif "মাদ্রাসা" in t:
+        top_text = "বাংলাদেশ মাদ্রাসা শিক্ষা বোর্ড"
+    elif "এনজিও" in t or "NGO" in t:
+        top_text = "এনজিও খাতে বিশাল নিয়োগ"
     elif "গার্মেন্টস" in t or "টেক্সটাইল" in t:
-        sub_text = "গার্মেন্টস ও টেক্সটাইল খাতে চাকরি"
-    elif "মেডিক্যাল" in t or "হাসপাতাল" in t:
-        sub_text = "মেডিকেল কলেজ ও হাসপাতালে নিয়োগ"
+        top_text = "সকল গার্মেন্টস ও টেক্সটাইল নিয়োগ"
+    elif "মেডিকেল" in t or "হাসপাতাল" in t:
+        top_text = "মেডিকেল কলেজ ও হাসপাতালে নিয়োগ"
+    elif "বেসামরিক বিমান" in t:
+        top_text = "বেসামরিক বিমান চলাচল কর্তৃপক্ষ"
+    elif "হিসাব মহানিয়ন্ত্রক" in t or "CGA" in t:
+        top_text = "হিসাব মহানিয়ন্ত্রকের কার্যালয়"
+    else:
+        # 'পদে' বা 'নিয়োগ' এর আগের অংশ নেওয়া
+        if "পদে" in t and "নিয়োগ" in t:
+            try:
+                org = t.split("পদে")[1].split("নিয়োগ")[0].strip()
+                org = re.sub(r'\((.*?)\)', '', org).strip()
+                if org: top_text = f"{org} নিয়োগ"
+            except: pass
+        elif "নিয়োগ" in t:
+            try:
+                org = t.split("নিয়োগ")[0].strip()
+                org = re.sub(r'\((.*?)\)', '', org).strip()
+                if org: top_text = f"{org} নিয়োগ"
+            except: pass
 
-    return top_text, main_text, sub_text, bottom_text
+    # 2. Row 1 Text
+    row1_text = "সরকারি চাকরি"
+    if "অফিস সহায়ক" in t: row1_text = "অফিস সহায়ক পদে"
+    elif "এনজিও" in t or "NGO" in t: row1_text = "এনজিও চাকরি"
+    elif "অফিসার ক্যাডেট" in t: row1_text = "অফিসার ক্যাডেট"
 
-def draw_text_box(draw, text, box, bg_color, text_color, font_path, max_font_size=55, radius=15):
+    # 3. Row 2 Text (পদের সংখ্যা / মূল হাইলাইট)
+    row2_text = "বিশাল নিয়োগ"
+    vac_match = re.search(r'(\d+|[০-৯]+)\s*পদে', t)
+    if vac_match:
+        row2_text = f"{vac_match.group(0)}"
+    elif "অফিসার ক্যাডেট" in t or "যোগ দিন" in t:
+        row2_text = "যোগ দিন"
+
+    # 4. Row 3 Text
+    row3_text = "ছেলে/মেয়ে/৬৪ জেলা"
+    if "SSC" in t or "এইচএসসি" in t or "৮ম" in t:
+        row3_text = "৮ম/SSC/HSC পাশে"
+
+    # 5. Bottom Text
+    bot_text = "বিশাল নিয়োগ প্রকাশ ২০২৬"
+
+    return top_text, row1_text, row2_text, row3_text, bot_text
+
+def draw_centered_text(draw, text, box, text_color, font_path, max_font_size=65):
     x1, y1, x2, y2 = box
     w_box = x2 - x1
     h_box = y2 - y1
     
-    draw.rounded_rectangle([x1, y1, x2, y2], radius=radius, fill=bg_color)
-    
     if font_path and os.path.exists(font_path):
         font_size = max_font_size
         
-        # প্রতিষ্ঠানের নাম অনেক বড় হলে লেখাটিকে অটোমেটিক ২-লাইনে বিভক্ত করার স্মার্ট লজিক
+        # প্রতিষ্ঠানের নাম অনেক বড় হলে টেক্সট ২-লাইনে সুন্দরভাবে সাজিয়ে দেওয়ার লজিক
         words = text.split()
-        if len(text) > 28 and len(words) >= 2:
+        if len(text) > 26 and len(words) >= 2:
             mid = len(words) // 2
             line1 = " ".join(words[:mid])
             line2 = " ".join(words[mid:])
@@ -141,16 +216,14 @@ def draw_text_box(draw, text, box, bg_color, text_color, font_path, max_font_siz
         else:
             lines = [text]
             
-        # ফন্ট সাইজ অ্যাডজাস্টমেন্ট 
         while font_size > 18:
             font = ImageFont.truetype(font_path, font_size)
             max_line_w = max([font.getbbox(l)[2] - font.getbbox(l)[0] for l in lines])
             total_h = sum([font.getbbox(l)[3] - font.getbbox(l)[1] for l in lines]) + (len(lines)-1)*8
-            if max_line_w <= w_box - 35 and total_h <= h_box - 15:
+            if max_line_w <= w_box - 25 and total_h <= h_box - 10:
                 break
             font_size -= 2
             
-        # টেক্সট সেন্টারে ড্র করা
         total_h = sum([font.getbbox(l)[3] - font.getbbox(l)[1] for l in lines]) + (len(lines)-1)*8
         start_y = y1 + (h_box - total_h) / 2
         
@@ -163,35 +236,77 @@ def draw_text_box(draw, text, box, bg_color, text_color, font_path, max_font_siz
             draw.text((lx, curr_y - bbox[1]), line, fill=text_color, font=font)
             curr_y += lh + 8
     else:
-        draw.text((x1 + 20, y1 + 10), text, fill=text_color)
+        draw.text((x1 + 10, y1 + 10), text, fill=text_color)
 
+# ==================== [ 🌟 EXACT SCREENSHOT-14 THUMBNAIL GENERATOR ] ====================
 def generate_dynamic_thumbnail(title, output_path):
-    print(f"Generating Custom News Banner Thumbnail for: {title}")
+    print(f"Generating Exact Screenshot-14 Style Thumbnail for: {title}")
     ensure_bengali_font()
-    
+    font_path = FONT_PATH if os.path.exists(FONT_PATH) else None
+
     W, H = 1280, 720
-    img = Image.new("RGB", (W, H), "#071126") # Deep Dark Blue Background
+    img = Image.new("RGB", (W, H), "#ffffff")
     draw = ImageDraw.Draw(img)
-    
-    # Outer Yellow Border
-    draw.rectangle([0, 0, W, H], outline="#facc15", width=14)
-    
-    top_text, main_text, sub_text, bottom_text = parse_title_for_thumbnail(title)
-    
-    # 1. Top Green Banner (প্রতিষ্ঠানের নাম)
-    draw_text_box(draw, top_text, (30, 35, W - 30, 175), bg_color="#047857", text_color="#ffffff", font_path=FONT_PATH, max_font_size=60)
-    
-    # 2. Middle Red Highlight Banner (মূল হেডলাইন)
-    draw_text_box(draw, main_text, (30, 195, W - 30, 375), bg_color="#dc2626", text_color="#ffffff", font_path=FONT_PATH, max_font_size=65)
-    
-    # 3. Sub Middle Yellow Banner (পদের সংখ্যা / যোগ্যতা)
-    draw_text_box(draw, sub_text, (30, 395, W - 30, 545), bg_color="#facc15", text_color="#000000", font_path=FONT_PATH, max_font_size=55)
-    
-    # 4. Bottom Dark Banner (জেলার তথ্য)
-    draw_text_box(draw, bottom_text, (30, 565, W - 30, 685), bg_color="#1e293b", text_color="#facc15", font_path=FONT_PATH, max_font_size=45)
+
+    # কালার থিম রোটেশন 
+    theme_index = abs(hash(title)) % len(COLOR_THEMES)
+    theme = COLOR_THEMES[theme_index]
+
+    top_text, row1_text, row2_text, row3_text, bot_text = parse_title_for_thumbnail(title)
+
+    # 1. Top Bar (Y: 0..150)
+    draw.rectangle([0, 0, W, 150], fill=theme['top_bot_bg'])
+
+    # Top-Left & Top-Right Government Monograms (Govbd.png)
+    gov_logo_path = os.path.join("Photos", "Govbd.png")
+    if os.path.exists(gov_logo_path):
+        try:
+            gov_logo = Image.open(gov_logo_path).convert("RGBA")
+            gov_logo = gov_logo.resize((120, 120), Image.LANCZOS)
+            img.paste(gov_logo, (20, 15), gov_logo)
+            img.paste(gov_logo, (W - 140, 15), gov_logo)
+        except Exception as e:
+            print(f"Error pasting top Govbd.png: {e}")
+
+    # Top Bar Text
+    draw_centered_text(draw, top_text, (150, 0, W - 150, 150), theme['top_bot_fg'], font_path, max_font_size=65)
+
+    # 2. Bottom Bar (Y: 570..720)
+    draw.rectangle([0, 570, W, H], fill=theme['top_bot_bg'])
+    draw_centered_text(draw, bot_text, (0, 570, W, H), theme['top_bot_fg'], font_path, max_font_size=65)
+
+    # 3. Right Logo Box (X: 780..1280, Y: 150..570)
+    draw.rectangle([780, 150, W, 570], fill="#ffffff")
+    logo_path = get_logo_for_title(title)
+    if logo_path and os.path.exists(logo_path):
+        try:
+            org_logo = Image.open(logo_path).convert("RGBA")
+            scale = min(380 / org_logo.width, 380 / org_logo.height)
+            new_lw = int(org_logo.width * scale)
+            new_lh = int(org_logo.height * scale)
+            org_logo = org_logo.resize((new_lw, new_lh), Image.LANCZOS)
+            
+            lx = 780 + (500 - new_lw) // 2
+            ly = 150 + (420 - new_lh) // 2
+            img.paste(org_logo, (lx, ly), org_logo)
+        except Exception as e:
+            print(f"Error pasting org logo ({logo_path}): {e}")
+
+    # 4. Left Text Rows (X: 0..780, Y: 150..570)
+    # Row 1 (Y: 150..280)
+    draw.rectangle([0, 150, 780, 280], fill=theme['row1_bg'])
+    draw_centered_text(draw, row1_text, (0, 150, 780, 280), theme['row1_fg'], font_path, max_font_size=60)
+
+    # Row 2 (Y: 280..440)
+    draw.rectangle([0, 280, 780, 440], fill=theme['row2_bg'])
+    draw_centered_text(draw, row2_text, (0, 280, 780, 440), theme['row2_fg'], font_path, max_font_size=80)
+
+    # Row 3 (Y: 440..570)
+    draw.rectangle([0, 440, 780, 570], fill=theme['row3_bg'])
+    draw_centered_text(draw, row3_text, (0, 440, 780, 570), theme['row3_fg'], font_path, max_font_size=55)
 
     img.save(output_path, "JPEG", quality=95)
-    print("Attractive Dynamic Thumbnail generated successfully!")
+    print(f"Generated exact Screenshot-14 style thumbnail for: {title}")
 
 # ==================== [ 1. FEED PARSING (Anti-Redownload Loop) ] ====================
 def check_new_articles_and_prepare_folders():
@@ -409,7 +524,7 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # 🌟 [আপনার টাইটেল অনুযায়ী টিউন করা ডায়নামিক নিউজ ব্যানার থাম্বনেইল তৈরি]
+            # 🌟 [স্ক্রিনশট ১৪-এর হুবহু ডাইনামিক থিম থাম্বনেইল তৈরি]
             generate_dynamic_thumbnail(video_title, thumbnail_path)
             video_imgs = img_files
 
