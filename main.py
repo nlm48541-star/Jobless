@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, json, time, re, shutil
+import os, json, time, re, shutil, random
 import requests, feedparser
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
@@ -15,39 +15,34 @@ from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips, Ima
 WORKSPACE_DIR = "workspace"      # Rclone Sync Location
 LIVESTREAM_DIR = "workspace_live" # JobLive folder source
 TMP_DIR = "temp_assets"          # Temp Files processing
-FONT_PATH = "BengaliFont.ttf"    # Auto downloaded Bengali Font
+FONT_PATH = "BengaliFont.ttf"    # Auto downloaded fallback Bengali Font
 
-# 🌟 চটকদার কালার প্যালেট থিমসমূহ (ডিজাইন একই থাকবে, কালার রোটেশন হবে)
+# 🌟 চটকদার কালার প্যালেট থিমসমূহ
 COLOR_THEMES = [
-    # Theme 1: Classic Navy & Red/Yellow
     {
         'top_bot_bg': '#00054d', 'top_bot_fg': '#ffffff',
         'row1_bg': '#ffea00', 'row1_fg': '#000000',
         'row2_bg': '#ff0000', 'row2_fg': '#ffffff',
         'row3_bg': '#ffea00', 'row3_fg': '#000000'
     },
-    # Theme 2: Dark Forest Green & Red/Yellow
     {
         'top_bot_bg': '#013a1a', 'top_bot_fg': '#ffffff',
         'row1_bg': '#ffffff', 'row1_fg': '#013a1a',
         'row2_bg': '#dc2626', 'row2_fg': '#ffea00',
         'row3_bg': '#ffea00', 'row3_fg': '#000000'
     },
-    # Theme 3: Deep Maroon & Cyan/Red
     {
         'top_bot_bg': '#4a000d', 'top_bot_fg': '#ffffff',
         'row1_bg': '#00e5ff', 'row1_fg': '#000000',
         'row2_bg': '#ff0000', 'row2_fg': '#ffffff',
         'row3_bg': '#ffea00', 'row3_fg': '#000000'
     },
-    # Theme 4: Royal Purple & Orange/Yellow
     {
         'top_bot_bg': '#2a004e', 'top_bot_fg': '#ffffff',
         'row1_bg': '#ffea00', 'row1_fg': '#000000',
         'row2_bg': '#d97706', 'row2_fg': '#ffffff',
         'row3_bg': '#ffffff', 'row3_fg': '#000000'
     },
-    # Theme 5: Slate Dark & Lime Green/Red
     {
         'top_bot_bg': '#0f172a', 'top_bot_fg': '#ffffff',
         'row1_bg': '#00ff66', 'row1_fg': '#000000',
@@ -108,10 +103,10 @@ def download_image(url, output_path):
     except: pass
     return False
 
-# ==================== [ 🌟 BENGALI FONT & LOGO ENGINE ] ====================
+# ==================== [ 🌟 RANDOM FONT SELECTION ENGINE ] ====================
 def ensure_bengali_font():
     if not os.path.exists(FONT_PATH):
-        print("Downloading Bold Bengali font for News Thumbnails...")
+        print("Downloading Fallback Bengali font for News Thumbnails...")
         urls = [
             "https://github.com/google/fonts/raw/main/ofl/notosansbengali/NotoSansBengali%5Bwdth%2Cwght%5D.ttf",
             "https://raw.githubusercontent.com/maateen/kalpurush/master/Kalpurush.ttf"
@@ -122,10 +117,23 @@ def ensure_bengali_font():
                 if r.status_code == 200 and len(r.content) > 10000:
                     with open(FONT_PATH, "wb") as f:
                         f.write(r.content)
-                    print("Bengali font downloaded successfully.")
+                    print("Fallback Bengali font downloaded successfully.")
                     break
             except Exception as e:
                 print(f"Font download attempt failed: {e}")
+
+def get_random_font():
+    fonts_dir = "Fonts"
+    valid_fonts = []
+    if os.path.exists(fonts_dir) and os.path.isdir(fonts_dir):
+        for f in os.listdir(fonts_dir):
+            if f.lower().endswith(('.ttf', '.otf')):
+                valid_fonts.append(os.path.join(fonts_dir, f))
+    if valid_fonts:
+        return random.choice(valid_fonts)
+    
+    ensure_bengali_font()
+    return FONT_PATH if os.path.exists(FONT_PATH) else None
 
 def get_logo_for_title(title):
     t = title.strip()
@@ -134,79 +142,86 @@ def get_logo_for_title(title):
             path = os.path.join("Photos", img_name)
             if os.path.exists(path):
                 return path
-    # Default Fallback Logo
     default_path = os.path.join("Photos", "Govbd.png")
     return default_path if os.path.exists(default_path) else None
 
+# ==================== [ 🌟 SMART UNIQUE TITLE PARSER ] ====================
 def parse_title_for_thumbnail(title):
-    t = title.strip()
+    clean_title = title.split('|')[0].split('||')[0].strip()
+    words = clean_title.split()
     
-    # 1. Top Bar Text (প্রতিষ্ঠানের নাম)
-    top_text = "সরকারি চাকরি নিয়োগ"
-    if "ব্যাংক" in t or "Bank" in t:
-        top_text = "সরকারি ব্যাংকে নিয়োগ"
-    elif "সেনাবাহিনী" in t:
-        top_text = "বাংলাদেশ সেনাবাহিনীতে নিয়োগ"
-    elif "মাদ্রাসা" in t:
-        top_text = "বাংলাদেশ মাদ্রাসা শিক্ষা বোর্ড"
-    elif "এনজিও" in t or "NGO" in t:
-        top_text = "এনজিও খাতে বিশাল নিয়োগ"
-    elif "গার্মেন্টস" in t or "টেক্সটাইল" in t:
-        top_text = "সকল গার্মেন্টস ও টেক্সটাইল নিয়োগ"
-    elif "মেডিকেল" in t or "হাসপাতাল" in t:
-        top_text = "মেডিকেল কলেজ ও হাসপাতালে নিয়োগ"
-    elif "বেসামরিক বিমান" in t:
-        top_text = "বেসামরিক বিমান চলাচল কর্তৃপক্ষ"
-    elif "হিসাব মহানিয়ন্ত্রক" in t or "CGA" in t:
-        top_text = "হিসাব মহানিয়ন্ত্রকের কার্যালয়"
-    else:
-        # 'পদে' বা 'নিয়োগ' এর আগের অংশ নেওয়া
-        if "পদে" in t and "নিয়োগ" in t:
-            try:
-                org = t.split("পদে")[1].split("নিয়োগ")[0].strip()
-                org = re.sub(r'\((.*?)\)', '', org).strip()
-                if org: top_text = f"{org} নিয়োগ"
+    # 1. Top Text: Institutions / Organization name extraction
+    top_text = ""
+    if "নিয়োগ" in clean_title:
+        before_niyog = clean_title.split("নিয়োগ")[0].strip()
+        if "পদে" in before_niyog:
+            try: before_niyog = before_niyog.split("পদে")[1].strip()
             except: pass
-        elif "নিয়োগ" in t:
-            try:
-                org = t.split("নিয়োগ")[0].strip()
-                org = re.sub(r'\((.*?)\)', '', org).strip()
-                if org: top_text = f"{org} নিয়োগ"
-            except: pass
+        if len(before_niyog) > 2:
+            top_text = before_niyog
+    
+    if not top_text:
+        top_text = " ".join(words[:min(3, len(words))]) if words else "সরকারি চাকরি নিয়োগ"
+        
+    if not any(top_text.endswith(w) for w in ["নিয়োগ", "বোর্ড", "অধিদপ্তর", "কার্যালয়", "বিশ্ববিদ্যালয়", "কর্তৃপক্ষ", "প্রোগ্রাম"]):
+        top_text += " নিয়োগ"
 
     # 2. Row 1 Text
-    row1_text = "সরকারি চাকরি"
-    if "অফিস সহায়ক" in t: row1_text = "অফিস সহায়ক পদে"
-    elif "এনজিও" in t or "NGO" in t: row1_text = "এনজিও চাকরি"
-    elif "অফিসার ক্যাডেট" in t: row1_text = "অফিসার ক্যাডেট"
+    if "বিশ্ববিদ্যালয়" in title or "University" in title:
+        row1_text = "বিশ্ববিদ্যালয়ে চাকরি"
+    elif "মেডিকেল" in title or "হাসপাতাল" in title:
+        row1_text = "হাসপাতালে চাকরি"
+    elif "স্কিলস" in title or "SICIP" in title:
+        row1_text = "বিশেষ প্রজেক্টে নিয়োগ"
+    elif "অফিস সহায়ক" in title:
+        row1_text = "অফিস সহায়ক পদে"
+    elif "ব্যাংক" in title or "Bank" in title:
+        row1_text = "ব্যাংক খাতে চাকরি"
+    elif "এনজিও" in title or "NGO" in title:
+        row1_text = "এনজিও খাতে চাকরি"
+    else:
+        row1_text = "সরকারি চাকরি"
 
-    # 3. Row 2 Text (পদের সংখ্যা / মূল হাইলাইট)
-    row2_text = "বিশাল নিয়োগ"
-    vac_match = re.search(r'(\d+|[০-৯]+)\s*পদে', t)
+    # 3. Row 2 Text (Big Red Highlight)
+    vac_match = re.search(r'(\d+|[০-৯]+)\s*পদে', title)
     if vac_match:
-        row2_text = f"{vac_match.group(0)}"
-    elif "অফিসার ক্যাডেট" in t or "যোগ দিন" in t:
-        row2_text = "যোগ দিন"
+        row2_text = f"🔥 {vac_match.group(0)}"
+    elif "এডমিট" in title or "কার্ড" in title:
+        row2_text = "🔥 এডমিট কার্ড প্রকাশ"
+    elif "ফলাফল" in title or "রেজাল্ট" in title:
+        row2_text = "🔥 চূড়ান্ত ফলাফল প্রকাশ"
+    elif "অফিসার" in title or "ক্যাডেট" in title:
+        row2_text = "🔥 অফিসার পদে সুযোগ"
+    else:
+        hooks = ["🔥 জরুরি নিয়োগ ২০২৬", "🔥 বিশাল নিয়োগ বিজ্ঞপ্তি", "🔥 বড় নিয়োগ প্রকাশ", "🔥 নতুন সার্কুলার ২০২৬"]
+        row2_text = hooks[abs(hash(title)) % len(hooks)]
 
     # 4. Row 3 Text
-    row3_text = "ছেলে/মেয়ে/৬৪ জেলা"
-    if "SSC" in t or "এইচএসসি" in t or "৮ম" in t:
-        row3_text = "৮ম/SSC/HSC পাশে"
+    if "SSC" in title or "এসএসসি" in title or "এইচএসসি" in title or "HSC" in title or "৮ম" in title:
+        row3_text = "৮ম/SSC/HSC পাশে আবেদন"
+    elif "ডিগ্রী" in title or "অনার্স" in title or "বিএসসি" in title:
+        row3_text = "ডিগ্রী/অনার্স পাশে আবেদন"
+    else:
+        elig_options = ["ছেলে/মেয়ে/৬৪ জেলা", "৬৪ জেলা থেকে আবেদনযোগ্য", "সকল জেলার জন্য প্রযোজ্য", "নারী ও পুরুষ আবেদনযোগ্য"]
+        row3_text = elig_options[abs(hash(title)) % len(elig_options)]
 
     # 5. Bottom Text
-    bot_text = "বিশাল নিয়োগ প্রকাশ ২০২৬"
+    bot_options = ["আবেদনের সময় ও নিয়ম দেখুন", "বিজ্ঞপ্তি প্রকাশ ২০২৬", "আজই আবেদন সম্পন্ন করুন", "বিস্তারিত দেখে আবেদন করুন"]
+    bot_text = bot_options[abs(hash(title)) % len(bot_options)]
 
     return top_text, row1_text, row2_text, row3_text, bot_text
 
-def draw_centered_text(draw, text, box, text_color, font_path, max_font_size=65):
+def draw_centered_text(draw, text, box, text_color, max_font_size=65):
     x1, y1, x2, y2 = box
     w_box = x2 - x1
     h_box = y2 - y1
     
+    # 🌟 র্যান্ডম ফন্ট সিলেক্টর
+    font_path = get_random_font()
+    
     if font_path and os.path.exists(font_path):
         font_size = max_font_size
         
-        # প্রতিষ্ঠানের নাম অনেক বড় হলে টেক্সট ২-লাইনে সুন্দরভাবে সাজিয়ে দেওয়ার লজিক
         words = text.split()
         if len(text) > 26 and len(words) >= 2:
             mid = len(words) // 2
@@ -238,17 +253,14 @@ def draw_centered_text(draw, text, box, text_color, font_path, max_font_size=65)
     else:
         draw.text((x1 + 10, y1 + 10), text, fill=text_color)
 
-# ==================== [ 🌟 EXACT SCREENSHOT-14 THUMBNAIL GENERATOR ] ====================
+# ==================== [ 🌟 DYNAMIC THUMBNAIL GENERATOR ] ====================
 def generate_dynamic_thumbnail(title, output_path):
-    print(f"Generating Exact Screenshot-14 Style Thumbnail for: {title}")
-    ensure_bengali_font()
-    font_path = FONT_PATH if os.path.exists(FONT_PATH) else None
-
+    print(f"Generating Unique Dynamic Thumbnail for: {title}")
+    
     W, H = 1280, 720
     img = Image.new("RGB", (W, H), "#ffffff")
     draw = ImageDraw.Draw(img)
 
-    # কালার থিম রোটেশন 
     theme_index = abs(hash(title)) % len(COLOR_THEMES)
     theme = COLOR_THEMES[theme_index]
 
@@ -257,7 +269,6 @@ def generate_dynamic_thumbnail(title, output_path):
     # 1. Top Bar (Y: 0..150)
     draw.rectangle([0, 0, W, 150], fill=theme['top_bot_bg'])
 
-    # Top-Left & Top-Right Government Monograms (Govbd.png)
     gov_logo_path = os.path.join("Photos", "Govbd.png")
     if os.path.exists(gov_logo_path):
         try:
@@ -268,12 +279,12 @@ def generate_dynamic_thumbnail(title, output_path):
         except Exception as e:
             print(f"Error pasting top Govbd.png: {e}")
 
-    # Top Bar Text
-    draw_centered_text(draw, top_text, (150, 0, W - 150, 150), theme['top_bot_fg'], font_path, max_font_size=65)
+    # Top Bar Text (প্রতিরোটির জন্য র্যান্ডম ফন্ট কল করবে)
+    draw_centered_text(draw, top_text, (150, 0, W - 150, 150), theme['top_bot_fg'], max_font_size=65)
 
     # 2. Bottom Bar (Y: 570..720)
     draw.rectangle([0, 570, W, H], fill=theme['top_bot_bg'])
-    draw_centered_text(draw, bot_text, (0, 570, W, H), theme['top_bot_fg'], font_path, max_font_size=65)
+    draw_centered_text(draw, bot_text, (0, 570, W, H), theme['top_bot_fg'], max_font_size=65)
 
     # 3. Right Logo Box (X: 780..1280, Y: 150..570)
     draw.rectangle([780, 150, W, 570], fill="#ffffff")
@@ -295,18 +306,18 @@ def generate_dynamic_thumbnail(title, output_path):
     # 4. Left Text Rows (X: 0..780, Y: 150..570)
     # Row 1 (Y: 150..280)
     draw.rectangle([0, 150, 780, 280], fill=theme['row1_bg'])
-    draw_centered_text(draw, row1_text, (0, 150, 780, 280), theme['row1_fg'], font_path, max_font_size=60)
+    draw_centered_text(draw, row1_text, (0, 150, 780, 280), theme['row1_fg'], max_font_size=60)
 
     # Row 2 (Y: 280..440)
     draw.rectangle([0, 280, 780, 440], fill=theme['row2_bg'])
-    draw_centered_text(draw, row2_text, (0, 280, 780, 440), theme['row2_fg'], font_path, max_font_size=80)
+    draw_centered_text(draw, row2_text, (0, 280, 780, 440), theme['row2_fg'], max_font_size=80)
 
     # Row 3 (Y: 440..570)
     draw.rectangle([0, 440, 780, 570], fill=theme['row3_bg'])
-    draw_centered_text(draw, row3_text, (0, 440, 780, 570), theme['row3_fg'], font_path, max_font_size=55)
+    draw_centered_text(draw, row3_text, (0, 440, 780, 570), theme['row3_fg'], max_font_size=55)
 
     img.save(output_path, "JPEG", quality=95)
-    print(f"Generated exact Screenshot-14 style thumbnail for: {title}")
+    print(f"Generated dynamic thumbnail for: {title}")
 
 # ==================== [ 1. FEED PARSING (Anti-Redownload Loop) ] ====================
 def check_new_articles_and_prepare_folders():
@@ -460,24 +471,31 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             
         return VideoClip(make_frame, duration=duration)
 
-# ==================== [ DYNAMIC WATERMARK/FRONT OVERLAY ENGINE ] ====================
+# ==================== [ 🌟 PILLOW DYNAMIC FRONT.PNG OVERLAY ENGINE (ANTIALIAS BUG FIX) ] ====================
 def apply_front_overlay(main_clip, target_w, target_h):
     front_path = "front.png"
     if os.path.exists(front_path):
         try:
             print("Applying front.png overlay at the bottom-center of the video...")
-            front_clip = ImageClip(front_path).set_duration(main_clip.duration)
-            
+            # Pillow দিয়ে সরাসরি রিসাইজ করা হলো যাতে MoviePy-এর ANTIALIAS এরর না দেয় 
+            pil_front = Image.open(front_path).convert("RGBA")
             scaled_w = int(target_w * 0.40)
-            front_clip = front_clip.resize(width=scaled_w)
+            scaled_h = int((scaled_w / pil_front.width) * pil_front.height)
+            pil_front_resized = pil_front.resize((scaled_w, scaled_h), Image.LANCZOS)
+            
+            front_np = np.array(pil_front_resized)
+            front_clip = ImageClip(front_np).set_duration(main_clip.duration)
             
             margin = int(target_h * 0.05)
-            y_pos = target_h - front_clip.h - margin
+            y_pos = target_h - scaled_h - margin
             front_clip = front_clip.set_position(("center", y_pos))
             
             main_clip = CompositeVideoClip([main_clip, front_clip]).set_audio(main_clip.audio)
+            print("Successfully applied front.png overlay!")
         except Exception as e:
             print(f"Error applying front.png overlay: {e}")
+    else:
+        print("front.png was not found in the root directory. Skipping overlay.")
     return main_clip
 
 # ==================== [ 3. MOVIEPY PROCESS ] ====================
@@ -524,7 +542,7 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # 🌟 [স্ক্রিনশট ১৪-এর হুবহু ডাইনামিক থিম থাম্বনেইল তৈরি]
+            # 🌟 [ডায়নামিক নিউজ থাম্বনেইল তৈরি]
             generate_dynamic_thumbnail(video_title, thumbnail_path)
             video_imgs = img_files
 
@@ -535,6 +553,8 @@ def process_ready_videos(yt):
             print("Rendering 16:9 Landscape slideshow for YouTube upload...")
             yt_clips = [make_video_frame(v, per_img_duration, target_w=1920, target_h=1080) for v in video_imgs]
             youtube_video = concatenate_videoclips(yt_clips).set_audio(audio_clip)
+            
+            # Pillow ভিত্তিক ওভারলে (ANTIALIAS বাগ ফিক্সড)
             youtube_video = apply_front_overlay(youtube_video, target_w=1920, target_h=1080)
             
             youtube_video.write_videofile(
@@ -563,6 +583,8 @@ def process_ready_videos(yt):
                 print(f"Rendering 9:16 Vertical slideshow for JobLive: {live_video_file}")
                 live_clips = [make_video_frame(v, per_img_duration, target_w=1080, target_h=1920) for v in video_imgs]
                 live_video = concatenate_videoclips(live_clips).set_audio(audio_clip)
+                
+                # Pillow ভিত্তিক ওভারলে
                 live_video = apply_front_overlay(live_video, target_w=1080, target_h=1920)
                 
                 live_video.write_videofile(
