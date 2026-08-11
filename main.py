@@ -3,7 +3,7 @@ import os, json, time, re, shutil
 import requests, feedparser
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
 from google.oauth2.credentials import Credentials
@@ -15,6 +15,7 @@ from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips, Ima
 WORKSPACE_DIR = "workspace"      # Rclone Sync Location
 LIVESTREAM_DIR = "workspace_live" # JobLive folder source
 TMP_DIR = "temp_assets"          # Temp Files processing
+FONT_PATH = "BengaliFont.ttf"    # Auto downloaded Bengali Font
 
 def get_youtube_service():
     creds = Credentials(
@@ -39,6 +40,159 @@ def download_image(url, output_path):
     except: pass
     return False
 
+# ==================== [ 🌟 YUSUF ADNAN TITLE TUNED THUMBNAIL ENGINE ] ====================
+def ensure_bengali_font():
+    if not os.path.exists(FONT_PATH):
+        print("Downloading Bold Bengali font for News Thumbnails...")
+        urls = [
+            "https://github.com/google/fonts/raw/main/ofl/notosansbengali/NotoSansBengali%5Bwdth%2Cwght%5D.ttf",
+            "https://raw.githubusercontent.com/maateen/kalpurush/master/Kalpurush.ttf"
+        ]
+        for url in urls:
+            try:
+                r = requests.get(url, timeout=10)
+                if r.status_code == 200 and len(r.content) > 10000:
+                    with open(FONT_PATH, "wb") as f:
+                        f.write(r.content)
+                    print("Bengali font downloaded successfully.")
+                    break
+            except Exception as e:
+                print(f"Font download attempt failed: {e}")
+
+def parse_title_for_thumbnail(title):
+    # ডিফল্ট ভ্যালু
+    top_text = "সরকারি চাকরি নিয়োগ ২০২৬"
+    main_text = "🔥 নতুন নিয়োগ বিজ্ঞপ্তি ২০২৬"
+    sub_text = "৬৪ জেলা থেকে আবেদনের সুযোগ"
+    bottom_text = "সকল জেলার পুরুষ ও মহিলা আবেদনযোগ্য"
+
+    t = title.strip()
+    
+    # ১. ইংরেজি শর্ট কোড বা বন্ধনীর লেখা আলাদা করা (যেমন: BPDB, BRDB, CGA, TMSS NGO, AAUB)
+    bracket_match = re.search(r'\((.*?)\)', t)
+    short_code = bracket_match.group(1) if bracket_match else ""
+    
+    # ২. পদের সংখ্যা আলাদা করা (যেমন: ৫৮৭ পদে, ৪৮ পদে, ৫৭৫ পদে, ১৮৫ পদে)
+    vac_match = re.search(r'(\d+|[০-৯]+)\s*পদে', t)
+    vac_text = vac_match.group(0) if vac_match else ""
+
+    # ৩. প্রতিষ্ঠানের নাম নিখুঁতভাবে ফিল্টার করা
+    # যদি 'পদে' থাকে, তবে তার পর থেকে 'নিয়োগ' পর্যন্ত প্রতিষ্ঠানের নাম ধরা হবে 
+    if "পদে" in t and "নিয়োগ" in t:
+        try:
+            org_part = t.split("পদে")[1].split("নিয়োগ")[0].strip()
+            org_part = re.sub(r'\((.*?)\)', '', org_part).strip() # বন্ধনী রিমুভ
+            if org_part:
+                top_text = org_part
+        except: pass
+    elif "নিয়োগ" in t:
+        try:
+            org_part = t.split("নিয়োগ")[0].strip()
+            org_part = re.sub(r'\((.*?)\)', '', org_part).strip()
+            if org_part:
+                top_text = org_part
+        except: pass
+
+    # ৪. কাস্টম স্পেশাল কেস ফিল্টারিং
+    if "অফিসার ক্যাডেট" in t or "যোগ দিন" in t:
+        top_text = "বাংলাদেশ সেনাবাহিনী"
+        main_text = "🔥 অফিসার ক্যাডেট হিসেবে যোগ দিন"
+        sub_text = "৮৯তম বিএমএ দীর্ঘমেয়াদী কোর্স"
+    elif "এডমিট" in t or "কার্ড" in t:
+        main_text = "🔥 পরীক্ষার এডমিট কার্ড প্রকাশ ২০২৬"
+    elif "প্রশ্ন" in t or "সাজেশন" in t:
+        main_text = "🔥 পরীক্ষার প্রশ্ন ও সাজেশন ২০২৬"
+    elif "ফলাফল" in t or "রেজাল্ট" in t:
+        main_text = "🔥 পরীক্ষার চূড়ান্ত ফলাফল প্রকাশ"
+    else:
+        main_text = "🔥 নতুন জরুরি নিয়োগ বিজ্ঞপ্তি ২০২৬"
+
+    # ৫. সাব-টেক্সট সেটিং (পদের সংখ্যা বা শর্ট নেম হাইলাইট করা)
+    if vac_text and short_code:
+        sub_text = f"({vac_text}) {short_code} নিয়োগ বিজ্ঞপ্তি"
+    elif vac_text:
+        sub_text = f"({vac_text}) বড় নিয়োগ বিজ্ঞপ্তি প্রকাশিত"
+    elif short_code:
+        sub_text = f"({short_code}) নতুন নিয়োগ বিজ্ঞপ্তি"
+    elif "গার্মেন্টস" in t or "টেক্সটাইল" in t:
+        sub_text = "গার্মেন্টস ও টেক্সটাইল খাতে চাকরি"
+    elif "মেডিক্যাল" in t or "হাসপাতাল" in t:
+        sub_text = "মেডিকেল কলেজ ও হাসপাতালে নিয়োগ"
+
+    return top_text, main_text, sub_text, bottom_text
+
+def draw_text_box(draw, text, box, bg_color, text_color, font_path, max_font_size=55, radius=15):
+    x1, y1, x2, y2 = box
+    w_box = x2 - x1
+    h_box = y2 - y1
+    
+    draw.rounded_rectangle([x1, y1, x2, y2], radius=radius, fill=bg_color)
+    
+    if font_path and os.path.exists(font_path):
+        font_size = max_font_size
+        
+        # প্রতিষ্ঠানের নাম অনেক বড় হলে লেখাটিকে অটোমেটিক ২-লাইনে বিভক্ত করার স্মার্ট লজিক
+        words = text.split()
+        if len(text) > 28 and len(words) >= 2:
+            mid = len(words) // 2
+            line1 = " ".join(words[:mid])
+            line2 = " ".join(words[mid:])
+            lines = [line1, line2]
+        else:
+            lines = [text]
+            
+        # ফন্ট সাইজ অ্যাডজাস্টমেন্ট 
+        while font_size > 18:
+            font = ImageFont.truetype(font_path, font_size)
+            max_line_w = max([font.getbbox(l)[2] - font.getbbox(l)[0] for l in lines])
+            total_h = sum([font.getbbox(l)[3] - font.getbbox(l)[1] for l in lines]) + (len(lines)-1)*8
+            if max_line_w <= w_box - 35 and total_h <= h_box - 15:
+                break
+            font_size -= 2
+            
+        # টেক্সট সেন্টারে ড্র করা
+        total_h = sum([font.getbbox(l)[3] - font.getbbox(l)[1] for l in lines]) + (len(lines)-1)*8
+        start_y = y1 + (h_box - total_h) / 2
+        
+        curr_y = start_y
+        for line in lines:
+            bbox = font.getbbox(line)
+            lw = bbox[2] - bbox[0]
+            lh = bbox[3] - bbox[1]
+            lx = x1 + (w_box - lw) / 2
+            draw.text((lx, curr_y - bbox[1]), line, fill=text_color, font=font)
+            curr_y += lh + 8
+    else:
+        draw.text((x1 + 20, y1 + 10), text, fill=text_color)
+
+def generate_dynamic_thumbnail(title, output_path):
+    print(f"Generating Custom News Banner Thumbnail for: {title}")
+    ensure_bengali_font()
+    
+    W, H = 1280, 720
+    img = Image.new("RGB", (W, H), "#071126") # Deep Dark Blue Background
+    draw = ImageDraw.Draw(img)
+    
+    # Outer Yellow Border
+    draw.rectangle([0, 0, W, H], outline="#facc15", width=14)
+    
+    top_text, main_text, sub_text, bottom_text = parse_title_for_thumbnail(title)
+    
+    # 1. Top Green Banner (প্রতিষ্ঠানের নাম)
+    draw_text_box(draw, top_text, (30, 35, W - 30, 175), bg_color="#047857", text_color="#ffffff", font_path=FONT_PATH, max_font_size=60)
+    
+    # 2. Middle Red Highlight Banner (মূল হেডলাইন)
+    draw_text_box(draw, main_text, (30, 195, W - 30, 375), bg_color="#dc2626", text_color="#ffffff", font_path=FONT_PATH, max_font_size=65)
+    
+    # 3. Sub Middle Yellow Banner (পদের সংখ্যা / যোগ্যতা)
+    draw_text_box(draw, sub_text, (30, 395, W - 30, 545), bg_color="#facc15", text_color="#000000", font_path=FONT_PATH, max_font_size=55)
+    
+    # 4. Bottom Dark Banner (জেলার তথ্য)
+    draw_text_box(draw, bottom_text, (30, 565, W - 30, 685), bg_color="#1e293b", text_color="#facc15", font_path=FONT_PATH, max_font_size=45)
+
+    img.save(output_path, "JPEG", quality=95)
+    print("Attractive Dynamic Thumbnail generated successfully!")
+
 # ==================== [ 1. FEED PARSING (Anti-Redownload Loop) ] ====================
 def check_new_articles_and_prepare_folders():
     print("Checking for new RSS items (Last 24 Hours)...")
@@ -54,7 +208,6 @@ def check_new_articles_and_prepare_folders():
     time_limit = datetime.now() - timedelta(hours=24)
     existing_folders = [f for f in os.listdir(WORKSPACE_DIR) if os.path.isdir(os.path.join(WORKSPACE_DIR, f))]
     
-    # history.txt ট্র্যাকিং লজিক 
     history_file = os.path.join(WORKSPACE_DIR, "history.txt")
     history_logs = []
     if os.path.exists(history_file):
@@ -78,13 +231,11 @@ def check_new_articles_and_prepare_folders():
                 if not folder_title or folder_title in existing_folders or folder_title in history_logs: 
                     continue 
 
-                # নতুন ফোল্ডার তৈরি 
                 print(f"New Article Found: {folder_title}. Generating...")
                 folder_path = os.path.join(WORKSPACE_DIR, folder_title)
                 os.makedirs(folder_path)
                 existing_folders.append(folder_title)
                 
-                # history তে সেভ করা
                 history_logs.append(folder_title)
                 with open(history_file, 'a', encoding='utf-8') as hf:
                     hf.write(f"{folder_title}\n")
@@ -110,10 +261,9 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
     ratio = w / h
     target_ratio = target_w / target_h
 
-    is_vertical = target_w < target_h # ৯:১৬ মোড চেক করা 
+    is_vertical = target_w < target_h 
 
     if is_vertical:
-        # রুল ১: ৯:১৬ এর চেয়েও লম্বালম্বি ছবি (Ratio < 9/16) হলে জুম এবং উপর-নিচে স্ক্রল হবে 
         if ratio < (9.0 / 16.0) - 0.01:
             new_w = target_w
             new_h = int((target_w / w) * h)
@@ -131,7 +281,6 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             
             return VideoClip(make_frame, duration=duration)
             
-        # রুল ২: মাঝারি সাইজের ছবি (9/16 <= Ratio < 16/9) হলে ক্রপ না করে ব্ল্যাক ক্যানভাসে বসাবে 
         elif (9.0 / 16.0) - 0.01 <= ratio < (16.0 / 9.0) - 0.01:
             scale_w = target_w / w
             scale_h = target_h / h
@@ -141,7 +290,6 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             new_h = int(h * scale)
             resized = pil_img.resize((new_w, new_h), Image.LANCZOS)
             
-            # কালো ব্যাকগ্রাউন্ডের ক্যানভাস তৈরি 
             canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
             offset_x = (target_w - new_w) // 2
             offset_y = (target_h - new_h) // 2
@@ -154,7 +302,6 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
                 
             return VideoClip(make_frame, duration=duration)
             
-        # রুল ৩: চওড়া ছবি (Ratio >= 16/9) আসলে বাম-ডান স্ক্রল করবে
         else:
             new_h = target_h
             new_w = int((target_h / h) * w)
@@ -173,7 +320,6 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             return VideoClip(make_frame, duration=duration)
             
     else:
-        # ১৬:৯ ল্যান্ডস্কেপ মোড (ইউটিউবের জন্য)
         if ratio >= target_ratio: 
             new_h = target_h
             new_w = int((target_h / h) * w)
@@ -199,30 +345,24 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             
         return VideoClip(make_frame, duration=duration)
 
-# ==================== [ 🌟 DYNAMIC WATERMARK/FRONT OVERLAY ENGINE ] ====================
+# ==================== [ DYNAMIC WATERMARK/FRONT OVERLAY ENGINE ] ====================
 def apply_front_overlay(main_clip, target_w, target_h):
     front_path = "front.png"
     if os.path.exists(front_path):
         try:
-            print(f"Applying front.png overlay at the bottom-center of the video...")
-            # ছবি লোড করা এবং ডিউরেশন ভিডিওর সমান করা
+            print("Applying front.png overlay at the bottom-center of the video...")
             front_clip = ImageClip(front_path).set_duration(main_clip.duration)
             
-            # ডায়নামিকালি উইডথ রিসাইজ (স্ক্রিনের উইডথ-এর ৪০% রাখা হবে)
             scaled_w = int(target_w * 0.40)
             front_clip = front_clip.resize(width=scaled_w)
             
-            # পজিশন নির্ধারণ (নিচে মাঝখানে ৫% সেফটি মার্জিন সহ)
             margin = int(target_h * 0.05)
             y_pos = target_h - front_clip.h - margin
             front_clip = front_clip.set_position(("center", y_pos))
             
-            # ভিডিওর উপরে কম্পোজিট ওভারলে হিসেবে যুক্ত করা 
             main_clip = CompositeVideoClip([main_clip, front_clip]).set_audio(main_clip.audio)
         except Exception as e:
             print(f"Error applying front.png overlay: {e}")
-    else:
-        print("front.png was not found in the root directory. Skipping overlay.")
     return main_clip
 
 # ==================== [ 3. MOVIEPY PROCESS ] ====================
@@ -263,39 +403,16 @@ def process_ready_videos(yt):
                 print("No images found inside folder, skipping...")
                 continue
                 
-            # আগের ওভাররাইট ক্লিনিং
             thumbnail_path = os.path.join(TMP_DIR, "thumbnail.jpg")
             if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
             
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # ক্রপিং এবং থাম্বনেইল ডিসিশন 
-            wide_img, video_imgs = None, []
-            for lp in img_files:
-                try:
-                    img = Image.open(lp)
-                    if (img.width / img.height) >= 1.769:
-                        wide_img = lp
-                        break
-                except: pass
-                    
-            if wide_img:
-                img = Image.open(wide_img).convert("RGB")
-                scale = max(720 / img.height, 1280 / img.width)
-                rs_img = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
-                left = (rs_img.width - 1280) // 2
-                rs_img.crop((left, 0, left+1280, 720)).save(thumbnail_path, "JPEG", quality=95)
-                video_imgs = [ip for ip in img_files if ip != wide_img]
-                if not video_imgs: video_imgs.append(wide_img)
-            else:
-                img = Image.open(img_files[0]).convert("RGB")
-                scale = max(720 / img.height, 1280 / img.width)
-                rs_img = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
-                rs_img.crop((0, 0, 1280, 720)).save(thumbnail_path, "JPEG", quality=95)
-                video_imgs = img_files
+            # 🌟 [আপনার টাইটেল অনুযায়ী টিউন করা ডায়নামিক নিউজ ব্যানার থাম্বনেইল তৈরি]
+            generate_dynamic_thumbnail(video_title, thumbnail_path)
+            video_imgs = img_files
 
-            # মুভি এডিটিং শুরু
             audio_clip = AudioFileClip(audio_path)
             per_img_duration = audio_clip.duration / len(video_imgs)
             
@@ -303,8 +420,6 @@ def process_ready_videos(yt):
             print("Rendering 16:9 Landscape slideshow for YouTube upload...")
             yt_clips = [make_video_frame(v, per_img_duration, target_w=1920, target_h=1080) for v in video_imgs]
             youtube_video = concatenate_videoclips(yt_clips).set_audio(audio_clip)
-            
-            # 🌟 ইউটিউব ভিডিওতে front.png ওভারলে যুক্ত করা 
             youtube_video = apply_front_overlay(youtube_video, target_w=1920, target_h=1080)
             
             youtube_video.write_videofile(
@@ -314,7 +429,6 @@ def process_ready_videos(yt):
                 logger=None
             )
             
-            # YouTube-এ আপলোডিং
             upload_success = upload_to_youtube(
                 yt, out_video_file, video_title, 
                 thumbnail_path if os.path.exists(thumbnail_path) else None
@@ -334,8 +448,6 @@ def process_ready_videos(yt):
                 print(f"Rendering 9:16 Vertical slideshow for JobLive: {live_video_file}")
                 live_clips = [make_video_frame(v, per_img_duration, target_w=1080, target_h=1920) for v in video_imgs]
                 live_video = concatenate_videoclips(live_clips).set_audio(audio_clip)
-                
-                # 🌟 JobLive ড্রাইভ কপিতেও front.png ওভারলে যুক্ত করা 
                 live_video = apply_front_overlay(live_video, target_w=1080, target_h=1920)
                 
                 live_video.write_videofile(
@@ -348,7 +460,6 @@ def process_ready_videos(yt):
                 live_video.close()
                 for c in live_clips: c.close()
                 
-                # ড্রাইভ ফোল্ডার ক্লিনআপ
                 print("Task Accomplished! Requesting Drive Cleanup.")
                 shutil.rmtree(folder_path, ignore_errors=True)
             else:
@@ -360,7 +471,7 @@ def process_ready_videos(yt):
             print(f"\n❌ Error occurred while processing folder '{folder_name}': {folder_error}")
             print("Moving on to the next available folder...\n")
 
-# ==================== [ 4. DEDICATED SHORTS LOADER (Anti-Deletion keep system) ] ====================
+# ==================== [ 4. DEDICATED SHORTS LOADER ] ====================
 def process_shorts_folder(yt):
     print("\nScanning for pre-made Shorts in 'Shorts' folder...")
     shorts_dir = None
