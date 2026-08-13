@@ -23,41 +23,40 @@ LIVESTREAM_DIR = "workspace_live" # JobLive folder source
 TMP_DIR = "temp_assets"          # Temp Files processing
 FONT_PATH = "BengaliFont.ttf"    # Auto downloaded fallback Bengali Font
 
-# 🌟 চটকদার কালার প্যালেট থিমসমূহ
+# 🌟 চটকদার হাই-কনট্রাস্ট কালার প্যালেট
 COLOR_THEMES = [
     {
-        'top_bot_bg': '#000839', 'top_bot_fg': '#ffffff',
-        'row1_bg': '#ffea00', 'row1_fg': '#000000',
-        'row2_bg': '#dc2626', 'row2_fg': '#ffffff',
-        'row3_bg': '#ffea00', 'row3_fg': '#000000'
+        'top_bot_bg': '#000839', 'top_bot_fg': '#ffffff', 'top_bot_stroke': '#000000',
+        'row1_bg': '#ffe600', 'row1_fg': '#000000', 'row1_stroke': '#ffffff',
+        'row2_bg': '#dc2626', 'row2_fg': '#ffffff', 'row2_stroke': '#000000',
+        'row3_bg': '#ffe600', 'row3_fg': '#000000', 'row3_stroke': '#ffffff'
     },
     {
-        'top_bot_bg': '#013a1a', 'top_bot_fg': '#ffffff',
-        'row1_bg': '#ffffff', 'row1_fg': '#013a1a',
-        'row2_bg': '#dc2626', 'row2_fg': '#ffea00',
-        'row3_bg': '#ffea00', 'row3_fg': '#000000'
+        'top_bot_bg': '#013a1a', 'top_bot_fg': '#ffffff', 'top_bot_stroke': '#000000',
+        'row1_bg': '#ffffff', 'row1_fg': '#013a1a', 'row1_stroke': '#ffea00',
+        'row2_bg': '#dc2626', 'row2_fg': '#ffe600', 'row2_stroke': '#000000',
+        'row3_bg': '#ffe600', 'row3_fg': '#000000', 'row3_stroke': '#ffffff'
     },
     {
-        'top_bot_bg': '#4a000d', 'top_bot_fg': '#ffffff',
-        'row1_bg': '#00e5ff', 'row1_fg': '#000000',
-        'row2_bg': '#ff0000', 'row2_fg': '#ffffff',
-        'row3_bg': '#ffea00', 'row3_fg': '#000000'
+        'top_bot_bg': '#4a000d', 'top_bot_fg': '#ffffff', 'top_bot_stroke': '#000000',
+        'row1_bg': '#00f0ff', 'row1_fg': '#000000', 'row1_stroke': '#ffffff',
+        'row2_bg': '#dc2626', 'row2_fg': '#ffffff', 'row2_stroke': '#000000',
+        'row3_bg': '#ffe600', 'row3_fg': '#000000', 'row3_stroke': '#ffffff'
     },
     {
-        'top_bot_bg': '#1e1035', 'top_bot_fg': '#ffffff',
-        'row1_bg': '#ffea00', 'row1_fg': '#000000',
-        'row2_bg': '#ea580c', 'row2_fg': '#ffffff',
-        'row3_bg': '#ffffff', 'row3_fg': '#000000'
+        'top_bot_bg': '#1e1035', 'top_bot_fg': '#ffffff', 'top_bot_stroke': '#000000',
+        'row1_bg': '#ffe600', 'row1_fg': '#000000', 'row1_stroke': '#ffffff',
+        'row2_bg': '#ea580c', 'row2_fg': '#ffffff', 'row2_stroke': '#000000',
+        'row3_bg': '#ffffff', 'row3_fg': '#000000', 'row3_stroke': '#ffe600'
     },
     {
-        'top_bot_bg': '#0f172a', 'top_bot_fg': '#ffffff',
-        'row1_bg': '#00ff66', 'row1_fg': '#000000',
-        'row2_bg': '#dc2626', 'row2_fg': '#ffffff',
-        'row3_bg': '#ffea00', 'row3_fg': '#000000'
+        'top_bot_bg': '#0f172a', 'top_bot_fg': '#ffffff', 'top_bot_stroke': '#000000',
+        'row1_bg': '#00ff66', 'row1_fg': '#000000', 'row1_stroke': '#ffffff',
+        'row2_bg': '#dc2626', 'row2_fg': '#ffffff', 'row2_stroke': '#000000',
+        'row3_bg': '#ffe600', 'row3_fg': '#000000', 'row3_stroke': '#ffffff'
     }
 ]
 
-# 🌟 Photos/ ফোল্ডারের লোগো ম্যাচিং টেবিল
 LOGO_MAPPING = {
     'পল্লী বিদ্যুৎ': 'PalliBidyut.png',
     'বিদ্যুৎ': 'PalliBidyut.png',
@@ -134,7 +133,7 @@ def is_valid_bengali_unicode_font(font_path):
             except Exception:
                 pass
                 
-        if any(good in fname for good in ['kalpurush', 'unicode', 'noto', 'siliguri', 'solaiman', 'bangla', 'bengali', 'akhand']):
+        if any(good in fname for good in ['kalpurush', 'unicode', 'noto', 'siliguri', 'solaiman', 'bangla', 'bengali', 'akhand', 'shorif', 'shokuntola']):
             return True
             
         return False
@@ -152,11 +151,11 @@ def ensure_bengali_font():
     ]
 
     if not verified_fonts:
-        print("Downloading verified Unicode Bengali fonts...")
+        print("Downloading high-quality bold Bengali fonts...")
         urls = {
-            "Kalpurush.ttf": "https://raw.githubusercontent.com/maateen/kalpurush/master/Kalpurush.ttf",
+            "HindSiliguri-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/hindsiliguri/HindSiliguri-Bold.ttf",
             "NotoSansBengali-Bold.ttf": "https://github.com/google/fonts/raw/main/ofl/notosansbengali/NotoSansBengali%5Bwdth%2Cwght%5D.ttf",
-            "HindSiliguri-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/hindsiliguri/HindSiliguri-Bold.ttf"
+            "Kalpurush.ttf": "https://raw.githubusercontent.com/maateen/kalpurush/master/Kalpurush.ttf"
         }
         for fname, url in urls.items():
             out_p = os.path.join(fonts_dir, fname)
@@ -168,9 +167,10 @@ def ensure_bengali_font():
                             f.write(r.content)
                         print(f"Downloaded: {fname}")
                 except Exception as e:
-                    print(f"Failed to download {fname}: {e}")
+                    print(f"Download failed for {fname}: {e}")
 
-def get_best_font():
+def get_all_verified_fonts():
+    """সবগুলো ভেরিফাইড ফন্টের লিস্ট রিটার্ন করে"""
     ensure_bengali_font()
     fonts_dir = "Fonts"
     valid_fonts = []
@@ -182,11 +182,27 @@ def get_best_font():
                 if is_valid_bengali_unicode_font(full_p):
                     valid_fonts.append(full_p)
 
-    if valid_fonts:
-        bold_fonts = [f for f in valid_fonts if any(k in os.path.basename(f).lower() for k in ['bold', 'shorif', 'kalpurush', 'siliguri', 'noto', 'extrabold', 'akhand'])]
-        return random.choice(bold_fonts) if bold_fonts else random.choice(valid_fonts)
+    if not valid_fonts and os.path.exists(FONT_PATH):
+        valid_fonts.append(FONT_PATH)
+        
+    return valid_fonts
 
-    return FONT_PATH if os.path.exists(FONT_PATH) else None
+def get_distinct_fonts_for_rows(count=5):
+    """🌟 প্রতিটি লাইনের জন্য সম্পূর্ণ আলাদা আলাদা ফন্ট নির্বাচন করে"""
+    valid_fonts = get_all_verified_fonts()
+    if not valid_fonts:
+        return [None] * count
+        
+    # ফন্ট পুল তৈরি
+    pool = valid_fonts.copy()
+    random.shuffle(pool)
+    
+    while len(pool) < count:
+        pool.extend(valid_fonts)
+        
+    # বোল্ড ও এক্সট্রাবোল্ড ফন্টগুলোকে অগ্রাধিকার দেওয়া
+    selected = pool[:count]
+    return selected
 
 def get_logo_for_title(title):
     t = title.strip()
@@ -259,16 +275,16 @@ def parse_title_for_thumbnail(title):
 
     return top_text, row1_text, row2_text, row3_text, bot_text
 
-# ==================== [ 🌟 ডায়নামিক বড় ও বোল্ড টেক্সট রেন্ডারার ] ====================
-def draw_auto_sized_text(draw, text, box, font_path, text_color, max_font_size=115, min_font_size=40):
+# ==================== [ 🌟 আল্ট্রা-শার্প বড় টেক্সট + স্ট্রোক রেন্ডারার ] ====================
+def draw_ultra_bold_text(draw, text, box, font_path, text_color, stroke_color="#000000", max_font_size=140, min_font_size=50):
     x1, y1, x2, y2 = box
     w_box = x2 - x1
     h_box = y2 - y1
     cx = x1 + w_box / 2
     cy = y1 + h_box / 2
     
-    pad_x = 40
-    pad_y = 20
+    pad_x = 35
+    pad_y = 15
     avail_w = w_box - pad_x * 2
     avail_h = h_box - pad_y * 2
     
@@ -280,7 +296,8 @@ def draw_auto_sized_text(draw, text, box, font_path, text_color, max_font_size=1
     best_font_size = None
     best_lines = [text]
     
-    for fs in range(max_font_size, int(max_font_size * 0.70), -2):
+    # ১ লাইনে সর্বোচ্চ বড় সাইজে ট্রাই করা
+    for fs in range(max_font_size, int(max_font_size * 0.72), -2):
         f = ImageFont.truetype(font_path, fs)
         bbox = f.getbbox(text)
         tw = bbox[2] - bbox[0]
@@ -290,6 +307,7 @@ def draw_auto_sized_text(draw, text, box, font_path, text_color, max_font_size=1
             best_lines = [text]
             break
             
+    # না ধরলে সুন্দর ২-লাইন ব্যালান্স করা (লেখা সবসময় বড় রাখার জন্য)
     if best_font_size is None and len(words) >= 2:
         splits = []
         for i in range(1, len(words)):
@@ -302,7 +320,7 @@ def draw_auto_sized_text(draw, text, box, font_path, text_color, max_font_size=1
                 bb1, bb2 = f.getbbox(l1), f.getbbox(l2)
                 w1, w2 = bb1[2] - bb1[0], bb2[2] - bb2[0]
                 h1, h2 = bb1[3] - bb1[1], bb2[3] - bb2[1]
-                total_h = h1 + h2 + fs * 0.20
+                total_h = h1 + h2 + fs * 0.15
                 if max(w1, w2) <= avail_w and total_h <= avail_h:
                     best_font_size = fs
                     best_lines = [l1, l2]
@@ -318,14 +336,18 @@ def draw_auto_sized_text(draw, text, box, font_path, text_color, max_font_size=1
     font = ImageFont.truetype(font_path, best_font_size)
     full_text = "\n".join(best_lines)
     
+    # 🌟 ৩D স্পষ্টতার জন্য ডাইনামিক স্ট্রোক/বর্ডার উইথ
+    stroke_w = max(2, int(best_font_size * 0.04))
+    
     draw.multiline_text(
         (cx, cy), full_text, fill=text_color, font=font,
-        anchor="mm", align="center", spacing=int(best_font_size * 0.15)
+        anchor="mm", align="center", spacing=int(best_font_size * 0.12),
+        stroke_width=stroke_w, stroke_fill=stroke_color
     )
 
 # ==================== [ 🌟 FULL HD 1080P ডায়নামিক থাম্বনেইল জেনারেটর ] ====================
 def generate_dynamic_thumbnail(title, output_path):
-    print(f"Generating Ultra-HD 1080p Thumbnail for: {title}")
+    print(f"Generating Ultra-HD 1080p Multi-Font Thumbnail for: {title}")
     
     W, H = 1920, 1080
     img = Image.new("RGB", (W, H), "#ffffff")
@@ -334,10 +356,12 @@ def generate_dynamic_thumbnail(title, output_path):
     theme_index = abs(hash(title)) % len(COLOR_THEMES)
     theme = COLOR_THEMES[theme_index]
     
-    font_path = get_best_font()
+    # 🌟 প্রতিটি লাইনের জন্য ৫টি আলাদা ফন্ট নেওয়া
+    f_top, f_row1, f_row2, f_row3, f_bot = get_distinct_fonts_for_rows(5)
+
     top_text, row1_text, row2_text, row3_text, bot_text = parse_title_for_thumbnail(title)
 
-    # ১. টপ বার
+    # ১. টপ বার (Y: 0..180)
     draw.rectangle([0, 0, W, 180], fill=theme['top_bot_bg'])
     gov_logo_path = os.path.join("Photos", "Govbd.png")
     if os.path.exists(gov_logo_path):
@@ -349,19 +373,21 @@ def generate_dynamic_thumbnail(title, output_path):
         except Exception as e:
             print(f"Error pasting Govbd.png: {e}")
 
-    draw_auto_sized_text(draw, top_text, (180, 0, W - 180, 180), font_path, theme['top_bot_fg'], max_font_size=85, min_font_size=40)
+    # টপ বার টেক্সট (Font 1)
+    draw_ultra_bold_text(draw, top_text, (180, 0, W - 180, 180), f_top, theme['top_bot_fg'], stroke_color=theme['top_bot_stroke'], max_font_size=95, min_font_size=45)
 
-    # ২. বটম বার
+    # ২. বটম বার (Y: 900..1080)
     draw.rectangle([0, 900, W, H], fill=theme['top_bot_bg'])
-    draw_auto_sized_text(draw, bot_text, (50, 900, W - 50, 1080), font_path, theme['top_bot_fg'], max_font_size=80, min_font_size=40)
+    # বটম বার টেক্সট (Font 5)
+    draw_ultra_bold_text(draw, bot_text, (50, 900, W - 50, 1080), f_bot, theme['top_bot_fg'], stroke_color=theme['top_bot_stroke'], max_font_size=90, min_font_size=45)
 
-    # ৩. ডানপাশের লোগো কার্ড
+    # ৩. ডানপাশের লোগো কার্ড (X: 1320..1920, Y: 180..900)
     draw.rectangle([1320, 180, W, 900], fill="#ffffff")
     logo_path = get_logo_for_title(title)
     if logo_path and os.path.exists(logo_path):
         try:
             org_logo = Image.open(logo_path).convert("RGBA")
-            scale = min(500 / org_logo.width, 500 / org_logo.height)
+            scale = min(520 / org_logo.width, 520 / org_logo.height)
             new_lw = int(org_logo.width * scale)
             new_lh = int(org_logo.height * scale)
             org_logo = org_logo.resize((new_lw, new_lh), Image.LANCZOS)
@@ -372,27 +398,31 @@ def generate_dynamic_thumbnail(title, output_path):
         except Exception as e:
             print(f"Error pasting org logo ({logo_path}): {e}")
 
-    # ৪. বামপাশের ৩টি টেক্সট রো
+    # ৪. বামপাশের ৩টি টেক্সট রো (X: 0..1320)
+    # Row 1 (Font 2)
     draw.rectangle([0, 180, 1320, 420], fill=theme['row1_bg'])
-    draw_auto_sized_text(draw, row1_text, (0, 180, 1320, 420), font_path, theme['row1_fg'], max_font_size=110, min_font_size=45)
+    draw_ultra_bold_text(draw, row1_text, (0, 180, 1320, 420), f_row1, theme['row1_fg'], stroke_color=theme['row1_stroke'], max_font_size=125, min_font_size=55)
 
+    # Row 2 - মূল হেডলাইন (Font 3 - সবচেয়ে বড় ও বোল্ড)
     draw.rectangle([0, 420, 1320, 660], fill=theme['row2_bg'])
-    draw_auto_sized_text(draw, row2_text, (0, 420, 1320, 660), font_path, theme['row2_fg'], max_font_size=130, min_font_size=55)
+    draw_ultra_bold_text(draw, row2_text, (0, 420, 1320, 660), f_row2, theme['row2_fg'], stroke_color=theme['row2_stroke'], max_font_size=150, min_font_size=65)
 
+    # Row 3 (Font 4)
     draw.rectangle([0, 660, 1320, 900], fill=theme['row3_bg'])
-    draw_auto_sized_text(draw, row3_text, (0, 660, 1320, 900), font_path, theme['row3_fg'], max_font_size=100, min_font_size=40)
+    draw_ultra_bold_text(draw, row3_text, (0, 660, 1320, 900), f_row3, theme['row3_fg'], stroke_color=theme['row3_stroke'], max_font_size=115, min_font_size=50)
 
-    # ৫. সেপারেটর বর্ডার
-    draw.line([(0, 180), (W, 180)], fill="#ffffff", width=4)
-    draw.line([(0, 900), (W, 900)], fill="#ffffff", width=4)
-    draw.line([(1320, 180), (1320, 900)], fill="#e2e8f0", width=4)
-    draw.line([(0, 420), (1320, 420)], fill="#ffffff", width=3)
-    draw.line([(0, 660), (1320, 660)], fill="#ffffff", width=3)
+    # ৫. প্রিমিয়াম বর্ডার সেপারেটর
+    draw.line([(0, 180), (W, 180)], fill="#ffffff", width=5)
+    draw.line([(0, 900), (W, 900)], fill="#ffffff", width=5)
+    draw.line([(1320, 180), (1320, 900)], fill="#cbd5e1", width=5)
+    draw.line([(0, 420), (1320, 420)], fill="#ffffff", width=4)
+    draw.line([(0, 660), (1320, 660)], fill="#ffffff", width=4)
 
-    img.save(output_path, "JPEG", quality=98, subsampling=0)
-    print(f"Generated 1080p Dynamic Thumbnail successfully for: {title}")
+    # 🌟 ১০০% ফুল এইচডি কোয়ালিটিতে সেভ
+    img.save(output_path, "JPEG", quality=100, subsampling=0)
+    print(f"Generated Ultra-Sharp 1080p Thumbnail successfully for: {title}")
 
-# ==================== [ 1. FEED PARSING (SAFE REQUESTS ENGINE) ] ====================
+# ==================== [ 1. FEED PARSING ] ====================
 def check_new_articles_and_prepare_folders():
     print("Checking for new RSS items (Last 24 Hours)...")
     if not os.path.exists(WORKSPACE_DIR): os.makedirs(WORKSPACE_DIR)
@@ -427,7 +457,6 @@ def check_new_articles_and_prepare_folders():
     for feed_url in rss_links:
         print(f"Parsing Feed: {feed_url}")
         try:
-            # 🌟 [I/O Closed File Error Fix]: requests দিয়ে ফেচ করে feedparser এ বাইনারি কনটেন্ট পাস করা
             resp = requests.get(feed_url, headers=req_headers, timeout=15)
             if resp.status_code == 200:
                 feed = feedparser.parse(resp.content)
@@ -635,7 +664,7 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # 🌟 ডায়নামিক থাম্বনেইল তৈরি
+            # 🌟 মাল্টি-ফন্ট আল্ট্রা-শার্প থাম্বনেইল তৈরি
             generate_dynamic_thumbnail(video_title, thumbnail_path)
             video_imgs = img_files
 
@@ -694,7 +723,7 @@ def process_ready_videos(yt):
                 except Exception as live_err:
                     print(f"⚠️ JobLive generation warning: {live_err}")
 
-                # 🌟 লোকাল ফোল্ডার মুছে ফেলা
+                # 🌟 লোকাল ফোল্ডার ডিলিট করা (যা ড্রাইভ থেকেও মুছে যাবে)
                 print(f"🗑️ Deleting completed local folder: {folder_path}")
                 shutil.rmtree(folder_path, ignore_errors=True)
                 print(f"✅ Folder '{folder_name}' successfully removed locally.\n")
