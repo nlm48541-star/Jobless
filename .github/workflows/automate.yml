@@ -45,20 +45,22 @@ jobs:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+          GDRIVE_PARENT_FOLDER_ID: ${{ secrets.GDRIVE_PARENT_FOLDER_ID }}
         run: python main.py
 
+      # 🌟 [ফোল্ডার ডিলিট ফিক্স]: --rmdirs যুক্ত করা হয়েছে যাতে প্রসেস হওয়া ফোল্ডারটি গুগল ড্রাইভ থেকে পার্মানেন্টলি মুছে যায়
       - name: Push updates back to Google Drive
         run: |
-          rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}"
+          rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --rmdirs
 
-      # ১. আউটরো ছাড়া মেইন পোর্ট্রেট ভিডিওর কপিটি নির্দিষ্ট 'JobLive' ফোল্ডারে সেভ করবে
+      # আউটরো ছাড়া মেইন পোর্ট্রেট ভিডিওর কপিটি নির্দিষ্ট 'JobLive' ফোল্ডারে সেভ করবে
       - name: Push JobLive videos to Google Drive (Without Outro)
         run: |
           if [ -d "workspace_live" ]; then
             rclone copy ./workspace_live "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW"
           fi
 
-      # 🌟 [নতুন ধাপ]: 'JobLive' ফোল্ডার থেকে ১৫ দিনের পুরোনো ভিডিও ফাইলগুলো অটোমেটিক ডিলিট করবে
+      # 'JobLive' ফোল্ডার থেকে ১৫ দিনের পুরোনো ভিডিও ফাইলগুলো অটোমেটিক ডিলিট করবে
       - name: Cleanup old JobLive videos (Older than 15 days)
         run: |
           rclone delete "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --min-age 15d
