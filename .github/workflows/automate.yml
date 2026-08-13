@@ -10,14 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 🌟 বাংলা ফন্ট ও যুক্তাক্ষর ফ্রেমওয়ার্ক ইনস্টলেশন
+      # 🌟 বাংলা ফন্ট ও লেআউট প্যাকেজ ইনস্টল
       - name: Install Bengali Fonts & Text Engine
         run: |
           sudo apt-get update
@@ -54,11 +54,11 @@ jobs:
           GDRIVE_PARENT_FOLDER_ID: ${{ secrets.GDRIVE_PARENT_FOLDER_ID }}
         run: python main.py
 
-      # 🌟 [গুগল ড্রাইভ ফোল্ডার ডিলিট ফিক্স]: প্রসেস হওয়া ফোল্ডার তাৎক্ষণিকভাবে স্থায়ীভাবে ডিলিট
+      # 🌟 [গুগল ড্রাইভ ফোল্ডার ডিলিট ফিক্স]: রিমুভ করা ফোল্ডার স্থায়ীভাবে ডিলিট করবে
       - name: Push updates back to Google Drive (Permanent Folder Cleanup)
         if: always()
         run: |
-          rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --rmdirs --drive-use-trash=false --fast-list
+          rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --drive-use-trash=false --fast-list
           rclone rmdirs "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --leave-root || true
 
       # আউটরো ছাড়া মেইন পোর্ট্রেট ভিডিওর কপিটি 'JobLive' ফোল্ডারে সেভ করবে
