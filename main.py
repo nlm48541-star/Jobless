@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, json, time, re, shutil, random
+import os, json, time, re, shutil, random, traceback
 import requests, feedparser
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
@@ -23,7 +23,7 @@ LIVESTREAM_DIR = "workspace_live" # JobLive folder source
 TMP_DIR = "temp_assets"          # Temp Files processing
 FONT_PATH = "BengaliFont.ttf"    # Auto downloaded fallback Bengali Font
 
-# 🌟 চটকদার হাই-কনট্রাস্ট কালার প্যালেট
+# 🌟 চটকদার কালার প্যালেট থিমসমূহ
 COLOR_THEMES = [
     {
         'top_bot_bg': '#000839', 'top_bot_fg': '#ffffff',
@@ -111,22 +111,19 @@ def download_image(url, output_path):
     except: pass
     return False
 
-# ==================== [ 🌟 ১০০% ভেরিফাইড ইউনিকোড বাংলা ফন্ট ইঞ্জিন ] ====================
+# ==================== [ 🌟 ইউনিকোড বাংলা ফন্ট ইঞ্জিন ] ====================
 def is_valid_bengali_unicode_font(font_path):
-    """যাচাই করে ফন্টটিতে আসলেই বাংলা ইউনিকোড গ্লিফ আছে কি না (ANSI ও বক্স গ্লিফ বাদ দেয়)"""
     try:
         if not os.path.exists(font_path):
             return False
             
         fname = os.path.basename(font_path).lower()
-        # ANSI, Bijoy এবং Variable ফন্ট সরাসরি বাদ দেওয়া
         if any(bad in fname for bad in ['ansi', 'sutonny', 'mj', 'bijoy', 'durbar', '-vf', 'variable']):
             return False
             
         if HAS_FONTTOOLS:
             try:
                 tt = TTFont(font_path)
-                # বাংলা অক্ষরের কোড পয়েন্ট চেক: অ (0x0985), ক (0x0995), ব (0x09AC), া (0x09BE), ল (0x09B2)
                 bengali_chars = [0x0985, 0x0995, 0x09AC, 0x09BE, 0x09B2]
                 for table in tt['cmap'].tables:
                     if table.isUnicode():
@@ -137,8 +134,7 @@ def is_valid_bengali_unicode_font(font_path):
             except Exception:
                 pass
                 
-        # ফন্টটুলস না থাকলে সাধারণ যাচাই
-        if any(good in fname for good in ['kalpurush', 'unicode', 'noto', 'siliguri', 'solaiman', 'bangla', 'bengali']):
+        if any(good in fname for good in ['kalpurush', 'unicode', 'noto', 'siliguri', 'solaiman', 'bangla', 'bengali', 'akhand']):
             return True
             
         return False
@@ -156,7 +152,7 @@ def ensure_bengali_font():
     ]
 
     if not verified_fonts:
-        print("ভেরিফাইড ইউনিকোড বাংলা ফন্ট ডাউনলোড করা হচ্ছে...")
+        print("Downloading verified Unicode Bengali fonts...")
         urls = {
             "Kalpurush.ttf": "https://raw.githubusercontent.com/maateen/kalpurush/master/Kalpurush.ttf",
             "NotoSansBengali-Bold.ttf": "https://github.com/google/fonts/raw/main/ofl/notosansbengali/NotoSansBengali%5Bwdth%2Cwght%5D.ttf",
@@ -175,7 +171,6 @@ def ensure_bengali_font():
                     print(f"Failed to download {fname}: {e}")
 
 def get_best_font():
-    """একই থাম্বনেইলের সব লেখার জন্য একটি শতভাগ ভ্যালিড ইউনিকোড ফন্ট রিটার্ন করে"""
     ensure_bengali_font()
     fonts_dir = "Fonts"
     valid_fonts = []
@@ -188,8 +183,7 @@ def get_best_font():
                     valid_fonts.append(full_p)
 
     if valid_fonts:
-        # বোল্ড এবং ক্লিয়ার ফন্টগুলোকে অগ্রাধিকার দেওয়া
-        bold_fonts = [f for f in valid_fonts if any(k in os.path.basename(f).lower() for k in ['bold', 'shorif', 'kalpurush', 'siliguri', 'noto'])]
+        bold_fonts = [f for f in valid_fonts if any(k in os.path.basename(f).lower() for k in ['bold', 'shorif', 'kalpurush', 'siliguri', 'noto', 'extrabold', 'akhand'])]
         return random.choice(bold_fonts) if bold_fonts else random.choice(valid_fonts)
 
     return FONT_PATH if os.path.exists(FONT_PATH) else None
@@ -204,12 +198,11 @@ def get_logo_for_title(title):
     default_path = os.path.join("Photos", "Govbd.png")
     return default_path if os.path.exists(default_path) else None
 
-# ==================== [ 🌟 SMART UNIQUE TITLE PARSER ] ====================
+# ==================== [ 🌟 SMART TITLE PARSER ] ====================
 def parse_title_for_thumbnail(title):
     clean_title = title.split('|')[0].split('||')[0].strip()
     words = clean_title.split()
     
-    # 1. Top Text: Institutions / Organization name extraction
     top_text = ""
     if "নিয়োগ" in clean_title:
         before_niyog = clean_title.split("নিয়োগ")[0].strip()
@@ -225,7 +218,6 @@ def parse_title_for_thumbnail(title):
     if not any(top_text.endswith(w) for w in ["নিয়োগ", "বোর্ড", "অধিদপ্তর", "কার্যালয়", "বিশ্ববিদ্যালয়", "কর্তৃপক্ষ", "প্রোগ্রাম", "ব্যাংক", "সমিতি"]):
         top_text += " নিয়োগ"
 
-    # 2. Row 1 Text
     if "বিশ্ববিদ্যালয়" in title or "University" in title:
         row1_text = "বিশ্ববিদ্যালয়ে চাকরি"
     elif "মেডিকেল" in title or "হাসপাতাল" in title:
@@ -241,7 +233,6 @@ def parse_title_for_thumbnail(title):
     else:
         row1_text = "সরকারি চাকরি"
 
-    # 3. Row 2 Text (Big Red Highlight)
     vac_match = re.search(r'(\d+|[০-৯]+)\s*পদে', title)
     if vac_match:
         row2_text = f"{vac_match.group(0)}"
@@ -255,7 +246,6 @@ def parse_title_for_thumbnail(title):
         hooks = ["জরুরি নিয়োগ ২০২৬", "বিশাল নিয়োগ বিজ্ঞপ্তি", "বড় নিয়োগ প্রকাশ", "নতুন সার্কুলার ২০২৬"]
         row2_text = hooks[abs(hash(title)) % len(hooks)]
 
-    # 4. Row 3 Text
     if "SSC" in title or "এসএসসি" in title or "এইচএসসি" in title or "HSC" in title or "৮ম" in title:
         row3_text = "৮ম/SSC/HSC পাশে আবেদন"
     elif "ডিগ্রী" in title or "অনার্স" in title or "বিএসসি" in title:
@@ -264,7 +254,6 @@ def parse_title_for_thumbnail(title):
         elig_options = ["ছেলে/মেয়ে/৬৪ জেলা", "৬৪ জেলা থেকে আবেদনযোগ্য", "সকল জেলার জন্য প্রযোজ্য", "নারী ও পুরুষ আবেদনযোগ্য"]
         row3_text = elig_options[abs(hash(title)) % len(elig_options)]
 
-    # 5. Bottom Text
     bot_options = ["আবেদনের সময় ও নিয়ম দেখুন", "বিজ্ঞপ্তি প্রকাশ ২০২৬", "আজই আবেদন সম্পন্ন করুন", "বিস্তারিত দেখে আবেদন করুন"]
     bot_text = bot_options[abs(hash(title)) % len(bot_options)]
 
@@ -291,7 +280,6 @@ def draw_auto_sized_text(draw, text, box, font_path, text_color, max_font_size=1
     best_font_size = None
     best_lines = [text]
     
-    # প্রথমে ১ লাইনে বড় ফন্টে ট্রাই করা
     for fs in range(max_font_size, int(max_font_size * 0.70), -2):
         f = ImageFont.truetype(font_path, fs)
         bbox = f.getbbox(text)
@@ -302,7 +290,6 @@ def draw_auto_sized_text(draw, text, box, font_path, text_color, max_font_size=1
             best_lines = [text]
             break
             
-    # ১ লাইনে না ধরলে ব্যালান্সড ২ লাইনে ট্রাই করা (যাতে লেখা সবসময় বড় সাইজে থাকে)
     if best_font_size is None and len(words) >= 2:
         splits = []
         for i in range(1, len(words)):
@@ -331,7 +318,6 @@ def draw_auto_sized_text(draw, text, box, font_path, text_color, max_font_size=1
     font = ImageFont.truetype(font_path, best_font_size)
     full_text = "\n".join(best_lines)
     
-    # আল্ট্রা-শার্প সেন্টারিং
     draw.multiline_text(
         (cx, cy), full_text, fill=text_color, font=font,
         anchor="mm", align="center", spacing=int(best_font_size * 0.15)
@@ -348,14 +334,11 @@ def generate_dynamic_thumbnail(title, output_path):
     theme_index = abs(hash(title)) % len(COLOR_THEMES)
     theme = COLOR_THEMES[theme_index]
     
-    # এই থাম্বনেইলের সব লেখার জন্য একটি একক ইউনিকোড ফন্ট সিলেক্ট করা
     font_path = get_best_font()
-
     top_text, row1_text, row2_text, row3_text, bot_text = parse_title_for_thumbnail(title)
 
-    # ১. টপ বার (Y: 0..180)
+    # ১. টপ বার
     draw.rectangle([0, 0, W, 180], fill=theme['top_bot_bg'])
-
     gov_logo_path = os.path.join("Photos", "Govbd.png")
     if os.path.exists(gov_logo_path):
         try:
@@ -368,11 +351,11 @@ def generate_dynamic_thumbnail(title, output_path):
 
     draw_auto_sized_text(draw, top_text, (180, 0, W - 180, 180), font_path, theme['top_bot_fg'], max_font_size=85, min_font_size=40)
 
-    # ২. বটম বার (Y: 900..1080)
+    # ২. বটম বার
     draw.rectangle([0, 900, W, H], fill=theme['top_bot_bg'])
     draw_auto_sized_text(draw, bot_text, (50, 900, W - 50, 1080), font_path, theme['top_bot_fg'], max_font_size=80, min_font_size=40)
 
-    # ৩. ডানপাশের লোগো কার্ড (X: 1320..1920, Y: 180..900)
+    # ৩. ডানপাশের লোগো কার্ড
     draw.rectangle([1320, 180, W, 900], fill="#ffffff")
     logo_path = get_logo_for_title(title)
     if logo_path and os.path.exists(logo_path):
@@ -389,31 +372,27 @@ def generate_dynamic_thumbnail(title, output_path):
         except Exception as e:
             print(f"Error pasting org logo ({logo_path}): {e}")
 
-    # ৪. বামপাশের ৩টি টেক্সট রো (X: 0..1320, Y: 180..900)
-    # Row 1 (ক্যাটাগরি)
+    # ৪. বামপাশের ৩টি টেক্সট রো
     draw.rectangle([0, 180, 1320, 420], fill=theme['row1_bg'])
     draw_auto_sized_text(draw, row1_text, (0, 180, 1320, 420), font_path, theme['row1_fg'], max_font_size=110, min_font_size=45)
 
-    # Row 2 (মেইন হাইলাইট - লাল ব্যাকগ্রাউন্ড ও সবচেয়ে বড় লেখা)
     draw.rectangle([0, 420, 1320, 660], fill=theme['row2_bg'])
     draw_auto_sized_text(draw, row2_text, (0, 420, 1320, 660), font_path, theme['row2_fg'], max_font_size=130, min_font_size=55)
 
-    # Row 3 (যোগ্যতা / জেলা)
     draw.rectangle([0, 660, 1320, 900], fill=theme['row3_bg'])
     draw_auto_sized_text(draw, row3_text, (0, 660, 1320, 900), font_path, theme['row3_fg'], max_font_size=100, min_font_size=40)
 
-    # ৫. হাই-ডেফিনিশন বর্ডার সেপারেটর
+    # ৫. সেপারেটর বর্ডার
     draw.line([(0, 180), (W, 180)], fill="#ffffff", width=4)
     draw.line([(0, 900), (W, 900)], fill="#ffffff", width=4)
     draw.line([(1320, 180), (1320, 900)], fill="#e2e8f0", width=4)
     draw.line([(0, 420), (1320, 420)], fill="#ffffff", width=3)
     draw.line([(0, 660), (1320, 660)], fill="#ffffff", width=3)
 
-    # আল্ট্রা-শার্প কোয়ালিটিতে সেভ করা
     img.save(output_path, "JPEG", quality=98, subsampling=0)
     print(f"Generated 1080p Dynamic Thumbnail successfully for: {title}")
 
-# ==================== [ 1. FEED PARSING ] ====================
+# ==================== [ 1. FEED PARSING (SAFE REQUESTS ENGINE) ] ====================
 def check_new_articles_and_prepare_folders():
     print("Checking for new RSS items (Last 24 Hours)...")
     if not os.path.exists(WORKSPACE_DIR): os.makedirs(WORKSPACE_DIR)
@@ -422,8 +401,13 @@ def check_new_articles_and_prepare_folders():
         print("config.json not found!")
         return
 
-    with open('config.json', 'r', encoding='utf-8') as f:
-        rss_links = json.load(f).get('rss_links', [])
+    try:
+        with open('config.json', 'r', encoding='utf-8') as f:
+            config_data = json.load(f)
+            rss_links = config_data.get('rss_links', [])
+    except Exception as ce:
+        print(f"Error reading config.json: {ce}")
+        return
 
     time_limit = datetime.now() - timedelta(hours=24)
     existing_folders = [f for f in os.listdir(WORKSPACE_DIR) if os.path.isdir(os.path.join(WORKSPACE_DIR, f))]
@@ -431,18 +415,33 @@ def check_new_articles_and_prepare_folders():
     history_file = os.path.join(WORKSPACE_DIR, "history.txt")
     history_logs = []
     if os.path.exists(history_file):
-        with open(history_file, 'r', encoding='utf-8') as hf:
-            history_logs = f.read().splitlines()
+        try:
+            with open(history_file, 'r', encoding='utf-8') as hf:
+                history_logs = [line.strip() for line in hf if line.strip()]
+        except Exception: pass
+
+    req_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+    }
 
     for feed_url in rss_links:
         print(f"Parsing Feed: {feed_url}")
         try:
-            feed = feedparser.parse(feed_url)
-        except: continue
+            # 🌟 [I/O Closed File Error Fix]: requests দিয়ে ফেচ করে feedparser এ বাইনারি কনটেন্ট পাস করা
+            resp = requests.get(feed_url, headers=req_headers, timeout=15)
+            if resp.status_code == 200:
+                feed = feedparser.parse(resp.content)
+            else:
+                feed = feedparser.parse(feed_url)
+        except Exception as fe:
+            print(f"Feed fetch error for {feed_url}: {fe}")
+            continue
         
         for entry in feed.entries:
-            try: published_time = datetime.fromtimestamp(time.mktime(entry.published_parsed))
-            except: continue
+            try:
+                published_time = datetime.fromtimestamp(time.mktime(entry.published_parsed))
+            except:
+                continue
 
             if published_time >= time_limit:
                 folder_title = clean_filename(entry.title).strip()
@@ -457,8 +456,10 @@ def check_new_articles_and_prepare_folders():
                 existing_folders.append(folder_title)
                 
                 history_logs.append(folder_title)
-                with open(history_file, 'a', encoding='utf-8') as hf:
-                    hf.write(f"{folder_title}\n")
+                try:
+                    with open(history_file, 'a', encoding='utf-8') as hf:
+                        hf.write(f"{folder_title}\n")
+                except Exception: pass
 
                 with open(os.path.join(folder_path, "title.txt"), "w", encoding="utf-8") as text_file:
                     text_file.write(entry.title)
@@ -619,8 +620,10 @@ def process_ready_videos(yt):
             
             video_title = folder_name
             if txt_path and os.path.exists(txt_path):
-                with open(txt_path, 'r', encoding='utf-8') as tf:
-                    video_title = tf.read().strip()
+                try:
+                    with open(txt_path, 'r', encoding='utf-8') as tf:
+                        video_title = tf.read().strip()
+                except Exception: pass
 
             if not img_files:
                 print("No images found inside folder, skipping...")
@@ -652,13 +655,12 @@ def process_ready_videos(yt):
                 logger=None
             )
             
-            # ভিডিও আপলোড করা
+            # ভিডিও আপলোড
             upload_success = upload_to_youtube(
                 yt, out_video_file, video_title, 
                 thumbnail_path if os.path.exists(thumbnail_path) else None
             )
             
-            # মেমরি এবং ফাইল হ্যান্ডেল রিলিজ করা
             youtube_video.close()
             audio_clip_yt.close()
             for c in yt_clips: c.close()
@@ -692,15 +694,16 @@ def process_ready_videos(yt):
                 except Exception as live_err:
                     print(f"⚠️ JobLive generation warning: {live_err}")
 
-                # 🌟 প্রসেস হওয়া ফোল্ডারটি লোকালি ডিলিট করা (যা পরবর্তীতে rclone গুগল ড্রাইভ থেকে ডিলিট করবে)
+                # 🌟 লোকাল ফোল্ডার মুছে ফেলা
                 print(f"🗑️ Deleting completed local folder: {folder_path}")
                 shutil.rmtree(folder_path, ignore_errors=True)
-                print(f"✅ Folder '{folder_name}' successfully queued for Google Drive deletion.\n")
+                print(f"✅ Folder '{folder_name}' successfully removed locally.\n")
             else:
                 print("❌ YouTube upload failed! Skipping deletion to prevent data loss.")
 
         except Exception as folder_error:
             print(f"\n❌ Error occurred while processing folder '{folder_name}': {folder_error}")
+            traceback.print_exc()
 
 # ==================== [ 4. DEDICATED SHORTS LOADER ] ====================
 def process_shorts_folder(yt):
@@ -774,11 +777,28 @@ if __name__ == "__main__":
     print("\n====== [ Google Drive Bot Active | Process Start ] ======\n")
     try:
         yt_service = get_youtube_service()
-        check_new_articles_and_prepare_folders()
-        process_ready_videos(yt_service)
-        process_shorts_folder(yt_service) 
+        
+        try:
+            check_new_articles_and_prepare_folders()
+        except Exception as rss_err:
+            print("⚠️ RSS check warning:", rss_err)
+            traceback.print_exc()
+
+        try:
+            process_ready_videos(yt_service)
+        except Exception as vid_err:
+            print("⚠️ Video processing warning:", vid_err)
+            traceback.print_exc()
+
+        try:
+            process_shorts_folder(yt_service)
+        except Exception as sh_err:
+            print("⚠️ Shorts processing warning:", sh_err)
+            traceback.print_exc()
+
     except Exception as critical:
         print("\nFATAL ERROR DETECTED: ", critical)
+        traceback.print_exc()
     finally:
         if os.path.exists(TMP_DIR): shutil.rmtree(TMP_DIR, ignore_errors=True)
         print("\nAll Tasks Finalized Perfectly.\n======================================")
