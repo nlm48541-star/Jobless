@@ -17,6 +17,12 @@ jobs:
         with:
           python-version: '3.10'
 
+      # 🌟 বাংলা ফন্ট ও যুক্তাক্ষর ফ্রেমওয়ার্ক ইনস্টলেশন
+      - name: Install Bengali Fonts & Text Engine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-beng fonts-beng-extra fonts-noto-extra libraqm-dev libraqm0 libfribidi0 libharfbuzz0b
+
       - name: Install Dependencies
         run: pip install -r requirements.txt
 
@@ -38,7 +44,7 @@ jobs:
       - name: Download Files from Google Drive
         run: |
           mkdir -p workspace
-          rclone sync "gdrive:" ./workspace --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}"
+          rclone sync "gdrive:" ./workspace --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --fast-list
 
       - name: Run Python Process (Movie & YouTube upload)
         env:
@@ -48,19 +54,23 @@ jobs:
           GDRIVE_PARENT_FOLDER_ID: ${{ secrets.GDRIVE_PARENT_FOLDER_ID }}
         run: python main.py
 
-      # 🌟 [ফোল্ডার ডিলিট ফিক্স]: --rmdirs যুক্ত করা হয়েছে যাতে প্রসেস হওয়া ফোল্ডারটি গুগল ড্রাইভ থেকে পার্মানেন্টলি মুছে যায়
-      - name: Push updates back to Google Drive
+      # 🌟 [গুগল ড্রাইভ ফোল্ডার ডিলিট ফিক্স]: প্রসেস হওয়া ফোল্ডার তাৎক্ষণিকভাবে স্থায়ীভাবে ডিলিট
+      - name: Push updates back to Google Drive (Permanent Folder Cleanup)
+        if: always()
         run: |
-          rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --rmdirs
+          rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --rmdirs --drive-use-trash=false --fast-list
+          rclone rmdirs "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --leave-root || true
 
-      # আউটরো ছাড়া মেইন পোর্ট্রেট ভিডিওর কপিটি নির্দিষ্ট 'JobLive' ফোল্ডারে সেভ করবে
-      - name: Push JobLive videos to Google Drive (Without Outro)
+      # আউটরো ছাড়া মেইন পোর্ট্রেট ভিডিওর কপিটি 'JobLive' ফোল্ডারে সেভ করবে
+      - name: Push JobLive videos to Google Drive
+        if: always()
         run: |
           if [ -d "workspace_live" ]; then
-            rclone copy ./workspace_live "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW"
+            rclone copy ./workspace_live "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --fast-list
           fi
 
       # 'JobLive' ফোল্ডার থেকে ১৫ দিনের পুরোনো ভিডিও ফাইলগুলো অটোমেটিক ডিলিট করবে
       - name: Cleanup old JobLive videos (Older than 15 days)
+        if: always()
         run: |
-          rclone delete "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --min-age 15d
+          rclone delete "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --min-age 15d --fast-list || true
