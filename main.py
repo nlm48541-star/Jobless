@@ -6,6 +6,12 @@ from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
+try:
+    from fontTools.ttLib import TTFont
+    HAS_FONTTOOLS = True
+except ImportError:
+    HAS_FONTTOOLS = False
+
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -17,12 +23,12 @@ LIVESTREAM_DIR = "workspace_live" # JobLive folder source
 TMP_DIR = "temp_assets"          # Temp Files processing
 FONT_PATH = "BengaliFont.ttf"    # Auto downloaded fallback Bengali Font
 
-# 🌟 চটকদার কালার প্যালেট থিমসমূহ
+# 🌟 চটকদার হাই-কনট্রাস্ট কালার প্যালেট
 COLOR_THEMES = [
     {
-        'top_bot_bg': '#00054d', 'top_bot_fg': '#ffffff',
+        'top_bot_bg': '#000839', 'top_bot_fg': '#ffffff',
         'row1_bg': '#ffea00', 'row1_fg': '#000000',
-        'row2_bg': '#ff0000', 'row2_fg': '#ffffff',
+        'row2_bg': '#dc2626', 'row2_fg': '#ffffff',
         'row3_bg': '#ffea00', 'row3_fg': '#000000'
     },
     {
@@ -38,9 +44,9 @@ COLOR_THEMES = [
         'row3_bg': '#ffea00', 'row3_fg': '#000000'
     },
     {
-        'top_bot_bg': '#2a004e', 'top_bot_fg': '#ffffff',
+        'top_bot_bg': '#1e1035', 'top_bot_fg': '#ffffff',
         'row1_bg': '#ffea00', 'row1_fg': '#000000',
-        'row2_bg': '#d97706', 'row2_fg': '#ffffff',
+        'row2_bg': '#ea580c', 'row2_fg': '#ffffff',
         'row3_bg': '#ffffff', 'row3_fg': '#000000'
     },
     {
@@ -53,6 +59,8 @@ COLOR_THEMES = [
 
 # 🌟 Photos/ ফোল্ডারের লোগো ম্যাচিং টেবিল
 LOGO_MAPPING = {
+    'পল্লী বিদ্যুৎ': 'PalliBidyut.png',
+    'বিদ্যুৎ': 'PalliBidyut.png',
     'সেনাবাহিনী': 'Army.png',
     'নৌবাহিনী': 'Navy.png',
     'বিমান বাহিনী': 'AirForce.png',
@@ -103,48 +111,87 @@ def download_image(url, output_path):
     except: pass
     return False
 
-# ==================== [ 🌟 UNICODE BENGALI FONT FILTER ENGINE ] ====================
-def ensure_bengali_font():
-    if not os.path.exists(FONT_PATH):
-        print("Downloading Fallback Bengali font for News Thumbnails...")
-        urls = [
-            "https://github.com/google/fonts/raw/main/ofl/notosansbengali/NotoSansBengali%5Bwdth%2Cwght%5D.ttf",
-            "https://raw.githubusercontent.com/maateen/kalpurush/master/Kalpurush.ttf"
-        ]
-        for url in urls:
+# ==================== [ 🌟 ১০০% ভেরিফাইড ইউনিকোড বাংলা ফন্ট ইঞ্জিন ] ====================
+def is_valid_bengali_unicode_font(font_path):
+    """যাচাই করে ফন্টটিতে আসলেই বাংলা ইউনিকোড গ্লিফ আছে কি না (ANSI ও বক্স গ্লিফ বাদ দেয়)"""
+    try:
+        if not os.path.exists(font_path):
+            return False
+            
+        fname = os.path.basename(font_path).lower()
+        # ANSI, Bijoy এবং Variable ফন্ট সরাসরি বাদ দেওয়া
+        if any(bad in fname for bad in ['ansi', 'sutonny', 'mj', 'bijoy', 'durbar', '-vf', 'variable']):
+            return False
+            
+        if HAS_FONTTOOLS:
             try:
-                r = requests.get(url, timeout=10)
-                if r.status_code == 200 and len(r.content) > 10000:
-                    with open(FONT_PATH, "wb") as f:
-                        f.write(r.content)
-                    print("Fallback Bengali font downloaded successfully.")
-                    break
-            except Exception as e:
-                print(f"Font download attempt failed: {e}")
+                tt = TTFont(font_path)
+                # বাংলা অক্ষরের কোড পয়েন্ট চেক: অ (0x0985), ক (0x0995), ব (0x09AC), া (0x09BE), ল (0x09B2)
+                bengali_chars = [0x0985, 0x0995, 0x09AC, 0x09BE, 0x09B2]
+                for table in tt['cmap'].tables:
+                    if table.isUnicode():
+                        matches = sum(1 for c in bengali_chars if c in table.cmap and table.cmap[c] != '.notdef')
+                        if matches >= 4:
+                            return True
+                return False
+            except Exception:
+                pass
+                
+        # ফন্টটুলস না থাকলে সাধারণ যাচাই
+        if any(good in fname for good in ['kalpurush', 'unicode', 'noto', 'siliguri', 'solaiman', 'bangla', 'bengali']):
+            return True
+            
+        return False
+    except Exception:
+        return False
 
-def get_random_font():
+def ensure_bengali_font():
+    fonts_dir = "Fonts"
+    if not os.path.exists(fonts_dir):
+        os.makedirs(fonts_dir, exist_ok=True)
+
+    verified_fonts = [
+        os.path.join(fonts_dir, f) for f in os.listdir(fonts_dir)
+        if f.lower().endswith(('.ttf', '.otf')) and is_valid_bengali_unicode_font(os.path.join(fonts_dir, f))
+    ]
+
+    if not verified_fonts:
+        print("ভেরিফাইড ইউনিকোড বাংলা ফন্ট ডাউনলোড করা হচ্ছে...")
+        urls = {
+            "Kalpurush.ttf": "https://raw.githubusercontent.com/maateen/kalpurush/master/Kalpurush.ttf",
+            "NotoSansBengali-Bold.ttf": "https://github.com/google/fonts/raw/main/ofl/notosansbengali/NotoSansBengali%5Bwdth%2Cwght%5D.ttf",
+            "HindSiliguri-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/hindsiliguri/HindSiliguri-Bold.ttf"
+        }
+        for fname, url in urls.items():
+            out_p = os.path.join(fonts_dir, fname)
+            if not os.path.exists(out_p):
+                try:
+                    r = requests.get(url, timeout=12)
+                    if r.status_code == 200 and len(r.content) > 10000:
+                        with open(out_p, "wb") as f:
+                            f.write(r.content)
+                        print(f"Downloaded: {fname}")
+                except Exception as e:
+                    print(f"Failed to download {fname}: {e}")
+
+def get_best_font():
+    """একই থাম্বনেইলের সব লেখার জন্য একটি শতভাগ ভ্যালিড ইউনিকোড ফন্ট রিটার্ন করে"""
+    ensure_bengali_font()
     fonts_dir = "Fonts"
     valid_fonts = []
-    if os.path.exists(fonts_dir) and os.path.isdir(fonts_dir):
+    
+    if os.path.exists(fonts_dir):
         for f in os.listdir(fonts_dir):
-            fname_lower = f.lower()
-            # ANSI / Bijoy / Non-Unicode বাংলা ফন্টগুলো ফিল্টার আউট করা
-            if any(bad in fname_lower for bad in ['ansi', 'sutonny', 'mj', 'bijoy', 'akhand']):
-                continue
-            if fname_lower.endswith(('.ttf', '.otf')):
+            if f.lower().endswith(('.ttf', '.otf')):
                 full_p = os.path.join(fonts_dir, f)
-                try:
-                    # ফন্টটি ইউনিকোড বাংলা রেন্ডার করতে পারে কি না তা যাচাই করা
-                    test_f = ImageFont.truetype(full_p, 30)
-                    bbox = test_f.getbbox("বাংলা")
-                    if bbox and (bbox[2] - bbox[0] > 10):
-                        valid_fonts.append(full_p)
-                except: pass
+                if is_valid_bengali_unicode_font(full_p):
+                    valid_fonts.append(full_p)
 
     if valid_fonts:
-        return random.choice(valid_fonts)
-    
-    ensure_bengali_font()
+        # বোল্ড এবং ক্লিয়ার ফন্টগুলোকে অগ্রাধিকার দেওয়া
+        bold_fonts = [f for f in valid_fonts if any(k in os.path.basename(f).lower() for k in ['bold', 'shorif', 'kalpurush', 'siliguri', 'noto'])]
+        return random.choice(bold_fonts) if bold_fonts else random.choice(valid_fonts)
+
     return FONT_PATH if os.path.exists(FONT_PATH) else None
 
 def get_logo_for_title(title):
@@ -175,7 +222,7 @@ def parse_title_for_thumbnail(title):
     if not top_text:
         top_text = " ".join(words[:min(3, len(words))]) if words else "সরকারি চাকরি নিয়োগ"
         
-    if not any(top_text.endswith(w) for w in ["নিয়োগ", "বোর্ড", "অধিদপ্তর", "কার্যালয়", "বিশ্ববিদ্যালয়", "কর্তৃপক্ষ", "প্রোগ্রাম"]):
+    if not any(top_text.endswith(w) for w in ["নিয়োগ", "বোর্ড", "অধিদপ্তর", "কার্যালয়", "বিশ্ববিদ্যালয়", "কর্তৃপক্ষ", "প্রোগ্রাম", "ব্যাংক", "সমিতি"]):
         top_text += " নিয়োগ"
 
     # 2. Row 1 Text
@@ -194,7 +241,7 @@ def parse_title_for_thumbnail(title):
     else:
         row1_text = "সরকারি চাকরি"
 
-    # 3. Row 2 Text (Big Red Highlight - Emojis removed to prevent square boxes)
+    # 3. Row 2 Text (Big Red Highlight)
     vac_match = re.search(r'(\d+|[০-৯]+)\s*পদে', title)
     if vac_match:
         row2_text = f"{vac_match.group(0)}"
@@ -223,111 +270,150 @@ def parse_title_for_thumbnail(title):
 
     return top_text, row1_text, row2_text, row3_text, bot_text
 
-def draw_centered_text(draw, text, box, text_color, max_font_size=65):
+# ==================== [ 🌟 ডায়নামিক বড় ও বোল্ড টেক্সট রেন্ডারার ] ====================
+def draw_auto_sized_text(draw, text, box, font_path, text_color, max_font_size=115, min_font_size=40):
     x1, y1, x2, y2 = box
     w_box = x2 - x1
     h_box = y2 - y1
+    cx = x1 + w_box / 2
+    cy = y1 + h_box / 2
     
-    # Filtered Unicode Bengali Random Font
-    font_path = get_random_font()
+    pad_x = 40
+    pad_y = 20
+    avail_w = w_box - pad_x * 2
+    avail_h = h_box - pad_y * 2
     
-    if font_path and os.path.exists(font_path):
-        font_size = max_font_size
+    if not font_path or not os.path.exists(font_path):
+        draw.text((cx, cy), text, fill=text_color, anchor="mm")
+        return
         
-        words = text.split()
-        if len(text) > 26 and len(words) >= 2:
-            mid = len(words) // 2
-            line1 = " ".join(words[:mid])
-            line2 = " ".join(words[mid:])
-            lines = [line1, line2]
-        else:
-            lines = [text]
+    words = text.split()
+    best_font_size = None
+    best_lines = [text]
+    
+    # প্রথমে ১ লাইনে বড় ফন্টে ট্রাই করা
+    for fs in range(max_font_size, int(max_font_size * 0.70), -2):
+        f = ImageFont.truetype(font_path, fs)
+        bbox = f.getbbox(text)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+        if tw <= avail_w and th <= avail_h:
+            best_font_size = fs
+            best_lines = [text]
+            break
             
-        while font_size > 18:
-            font = ImageFont.truetype(font_path, font_size)
-            max_line_w = max([font.getbbox(l)[2] - font.getbbox(l)[0] for l in lines])
-            total_h = sum([font.getbbox(l)[3] - font.getbbox(l)[1] for l in lines]) + (len(lines)-1)*8
-            if max_line_w <= w_box - 25 and total_h <= h_box - 10:
+    # ১ লাইনে না ধরলে ব্যালান্সড ২ লাইনে ট্রাই করা (যাতে লেখা সবসময় বড় সাইজে থাকে)
+    if best_font_size is None and len(words) >= 2:
+        splits = []
+        for i in range(1, len(words)):
+            splits.append((" ".join(words[:i]), " ".join(words[i:])))
+            
+        for fs in range(max_font_size, min_font_size, -2):
+            f = ImageFont.truetype(font_path, fs)
+            found = False
+            for l1, l2 in splits:
+                bb1, bb2 = f.getbbox(l1), f.getbbox(l2)
+                w1, w2 = bb1[2] - bb1[0], bb2[2] - bb2[0]
+                h1, h2 = bb1[3] - bb1[1], bb2[3] - bb2[1]
+                total_h = h1 + h2 + fs * 0.20
+                if max(w1, w2) <= avail_w and total_h <= avail_h:
+                    best_font_size = fs
+                    best_lines = [l1, l2]
+                    found = True
+                    break
+            if found:
                 break
-            font_size -= 2
-            
-        total_h = sum([font.getbbox(l)[3] - font.getbbox(l)[1] for l in lines]) + (len(lines)-1)*8
-        start_y = y1 + (h_box - total_h) / 2
+                
+    if best_font_size is None:
+        best_font_size = min_font_size
+        best_lines = [text]
         
-        curr_y = start_y
-        for line in lines:
-            bbox = font.getbbox(line)
-            lw = bbox[2] - bbox[0]
-            lh = bbox[3] - bbox[1]
-            lx = x1 + (w_box - lw) / 2
-            draw.text((lx, curr_y - bbox[1]), line, fill=text_color, font=font)
-            curr_y += lh + 8
-    else:
-        draw.text((x1 + 10, y1 + 10), text, fill=text_color)
-
-# ==================== [ 🌟 DYNAMIC THUMBNAIL GENERATOR ] ====================
-def generate_dynamic_thumbnail(title, output_path):
-    print(f"Generating Unique Dynamic Thumbnail for: {title}")
+    font = ImageFont.truetype(font_path, best_font_size)
+    full_text = "\n".join(best_lines)
     
-    W, H = 1280, 720
+    # আল্ট্রা-শার্প সেন্টারিং
+    draw.multiline_text(
+        (cx, cy), full_text, fill=text_color, font=font,
+        anchor="mm", align="center", spacing=int(best_font_size * 0.15)
+    )
+
+# ==================== [ 🌟 FULL HD 1080P ডায়নামিক থাম্বনেইল জেনারেটর ] ====================
+def generate_dynamic_thumbnail(title, output_path):
+    print(f"Generating Ultra-HD 1080p Thumbnail for: {title}")
+    
+    W, H = 1920, 1080
     img = Image.new("RGB", (W, H), "#ffffff")
     draw = ImageDraw.Draw(img)
 
     theme_index = abs(hash(title)) % len(COLOR_THEMES)
     theme = COLOR_THEMES[theme_index]
+    
+    # এই থাম্বনেইলের সব লেখার জন্য একটি একক ইউনিকোড ফন্ট সিলেক্ট করা
+    font_path = get_best_font()
 
     top_text, row1_text, row2_text, row3_text, bot_text = parse_title_for_thumbnail(title)
 
-    # 1. Top Bar (Y: 0..150)
-    draw.rectangle([0, 0, W, 150], fill=theme['top_bot_bg'])
+    # ১. টপ বার (Y: 0..180)
+    draw.rectangle([0, 0, W, 180], fill=theme['top_bot_bg'])
 
     gov_logo_path = os.path.join("Photos", "Govbd.png")
     if os.path.exists(gov_logo_path):
         try:
             gov_logo = Image.open(gov_logo_path).convert("RGBA")
-            gov_logo = gov_logo.resize((120, 120), Image.LANCZOS)
-            img.paste(gov_logo, (20, 15), gov_logo)
-            img.paste(gov_logo, (W - 140, 15), gov_logo)
+            gov_logo = gov_logo.resize((140, 140), Image.LANCZOS)
+            img.paste(gov_logo, (25, 20), gov_logo)
+            img.paste(gov_logo, (W - 165, 20), gov_logo)
         except Exception as e:
-            print(f"Error pasting top Govbd.png: {e}")
+            print(f"Error pasting Govbd.png: {e}")
 
-    draw_centered_text(draw, top_text, (150, 0, W - 150, 150), theme['top_bot_fg'], max_font_size=65)
+    draw_auto_sized_text(draw, top_text, (180, 0, W - 180, 180), font_path, theme['top_bot_fg'], max_font_size=85, min_font_size=40)
 
-    # 2. Bottom Bar (Y: 570..720)
-    draw.rectangle([0, 570, W, H], fill=theme['top_bot_bg'])
-    draw_centered_text(draw, bot_text, (0, 570, W, H), theme['top_bot_fg'], max_font_size=65)
+    # ২. বটম বার (Y: 900..1080)
+    draw.rectangle([0, 900, W, H], fill=theme['top_bot_bg'])
+    draw_auto_sized_text(draw, bot_text, (50, 900, W - 50, 1080), font_path, theme['top_bot_fg'], max_font_size=80, min_font_size=40)
 
-    # 3. Right Logo Box (X: 780..1280, Y: 150..570)
-    draw.rectangle([780, 150, W, 570], fill="#ffffff")
+    # ৩. ডানপাশের লোগো কার্ড (X: 1320..1920, Y: 180..900)
+    draw.rectangle([1320, 180, W, 900], fill="#ffffff")
     logo_path = get_logo_for_title(title)
     if logo_path and os.path.exists(logo_path):
         try:
             org_logo = Image.open(logo_path).convert("RGBA")
-            scale = min(380 / org_logo.width, 380 / org_logo.height)
+            scale = min(500 / org_logo.width, 500 / org_logo.height)
             new_lw = int(org_logo.width * scale)
             new_lh = int(org_logo.height * scale)
             org_logo = org_logo.resize((new_lw, new_lh), Image.LANCZOS)
             
-            lx = 780 + (500 - new_lw) // 2
-            ly = 150 + (420 - new_lh) // 2
+            lx = 1320 + (600 - new_lw) // 2
+            ly = 180 + (720 - new_lh) // 2
             img.paste(org_logo, (lx, ly), org_logo)
         except Exception as e:
             print(f"Error pasting org logo ({logo_path}): {e}")
 
-    # 4. Left Text Rows (X: 0..780, Y: 150..570)
-    draw.rectangle([0, 150, 780, 280], fill=theme['row1_bg'])
-    draw_centered_text(draw, row1_text, (0, 150, 780, 280), theme['row1_fg'], max_font_size=60)
+    # ৪. বামপাশের ৩টি টেক্সট রো (X: 0..1320, Y: 180..900)
+    # Row 1 (ক্যাটাগরি)
+    draw.rectangle([0, 180, 1320, 420], fill=theme['row1_bg'])
+    draw_auto_sized_text(draw, row1_text, (0, 180, 1320, 420), font_path, theme['row1_fg'], max_font_size=110, min_font_size=45)
 
-    draw.rectangle([0, 280, 780, 440], fill=theme['row2_bg'])
-    draw_centered_text(draw, row2_text, (0, 280, 780, 440), theme['row2_fg'], max_font_size=80)
+    # Row 2 (মেইন হাইলাইট - লাল ব্যাকগ্রাউন্ড ও সবচেয়ে বড় লেখা)
+    draw.rectangle([0, 420, 1320, 660], fill=theme['row2_bg'])
+    draw_auto_sized_text(draw, row2_text, (0, 420, 1320, 660), font_path, theme['row2_fg'], max_font_size=130, min_font_size=55)
 
-    draw.rectangle([0, 440, 780, 570], fill=theme['row3_bg'])
-    draw_centered_text(draw, row3_text, (0, 440, 780, 570), theme['row3_fg'], max_font_size=55)
+    # Row 3 (যোগ্যতা / জেলা)
+    draw.rectangle([0, 660, 1320, 900], fill=theme['row3_bg'])
+    draw_auto_sized_text(draw, row3_text, (0, 660, 1320, 900), font_path, theme['row3_fg'], max_font_size=100, min_font_size=40)
 
-    img.save(output_path, "JPEG", quality=95)
-    print(f"Generated dynamic thumbnail for: {title}")
+    # ৫. হাই-ডেফিনিশন বর্ডার সেপারেটর
+    draw.line([(0, 180), (W, 180)], fill="#ffffff", width=4)
+    draw.line([(0, 900), (W, 900)], fill="#ffffff", width=4)
+    draw.line([(1320, 180), (1320, 900)], fill="#e2e8f0", width=4)
+    draw.line([(0, 420), (1320, 420)], fill="#ffffff", width=3)
+    draw.line([(0, 660), (1320, 660)], fill="#ffffff", width=3)
 
-# ==================== [ 1. FEED PARSING (Anti-Redownload Loop) ] ====================
+    # আল্ট্রা-শার্প কোয়ালিটিতে সেভ করা
+    img.save(output_path, "JPEG", quality=98, subsampling=0)
+    print(f"Generated 1080p Dynamic Thumbnail successfully for: {title}")
+
+# ==================== [ 1. FEED PARSING ] ====================
 def check_new_articles_and_prepare_folders():
     print("Checking for new RSS items (Last 24 Hours)...")
     if not os.path.exists(WORKSPACE_DIR): os.makedirs(WORKSPACE_DIR)
@@ -345,7 +431,7 @@ def check_new_articles_and_prepare_folders():
     history_file = os.path.join(WORKSPACE_DIR, "history.txt")
     history_logs = []
     if os.path.exists(history_file):
-        with open(history_file, 'r', encoding='utf-8') as f:
+        with open(history_file, 'r', encoding='utf-8') as hf:
             history_logs = f.read().splitlines()
 
     for feed_url in rss_links:
@@ -365,9 +451,9 @@ def check_new_articles_and_prepare_folders():
                 if not folder_title or folder_title in existing_folders or folder_title in history_logs: 
                     continue 
 
-                print(f"New Article Found: {folder_title}. Generating...")
+                print(f"New Article Found: {folder_title}. Generating folder...")
                 folder_path = os.path.join(WORKSPACE_DIR, folder_title)
-                os.makedirs(folder_path)
+                os.makedirs(folder_path, exist_ok=True)
                 existing_folders.append(folder_title)
                 
                 history_logs.append(folder_title)
@@ -388,7 +474,7 @@ def check_new_articles_and_prepare_folders():
                         if download_image(src, img_path):
                             img_count += 1
 
-# ==================== [ 2. DYNAMIC FRAME ENGINE (Supports 16:9 & Advanced 9:16) ] ====================
+# ==================== [ 2. DYNAMIC FRAME ENGINE ] ====================
 def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
     pil_img = Image.open(img_path).convert("RGB")
     w, h = pil_img.size
@@ -430,11 +516,7 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             canvas.paste(resized, (offset_x, offset_y))
             
             img_np = np.array(canvas)
-            
-            def make_frame(t):
-                return img_np
-                
-            return VideoClip(make_frame, duration=duration)
+            return VideoClip(lambda t: img_np, duration=duration)
             
         else:
             new_h = target_h
@@ -479,12 +561,11 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             
         return VideoClip(make_frame, duration=duration)
 
-# ==================== [ 🌟 PILLOW DYNAMIC FRONT.PNG OVERLAY ENGINE ] ====================
+# ==================== [ FRONT OVERLAY ENGINE ] ====================
 def apply_front_overlay(main_clip, target_w, target_h):
     front_path = "front.png"
     if os.path.exists(front_path):
         try:
-            print("Applying front.png overlay at the bottom-center of the video...")
             pil_front = Image.open(front_path).convert("RGBA")
             scaled_w = int(target_w * 0.40)
             scaled_h = int((scaled_w / pil_front.width) * pil_front.height)
@@ -503,18 +584,15 @@ def apply_front_overlay(main_clip, target_w, target_h):
             front_clip = front_clip.set_position(("center", y_pos))
             
             main_clip = CompositeVideoClip([main_clip, front_clip]).set_audio(main_clip.audio)
-            print("Successfully applied front.png overlay!")
         except Exception as e:
-            print(f"Error applying front.png overlay: {e}")
-    else:
-        print("front.png was not found in the root directory. Skipping overlay.")
+            print(f"Error applying front.png: {e}")
     return main_clip
 
-# ==================== [ 3. MOVIEPY PROCESS ] ====================
+# ==================== [ 3. MOVIEPY PROCESS & DRIVE CLEANUP ] ====================
 def process_ready_videos(yt):
     print("\nScanning Drive folders for Audios...")
     if not os.path.exists(WORKSPACE_DIR): return
-    if not os.path.exists(TMP_DIR): os.makedirs(TMP_DIR)
+    if not os.path.exists(TMP_DIR): os.makedirs(TMP_DIR, exist_ok=True)
     
     folders = [f for f in os.listdir(WORKSPACE_DIR) if os.path.isdir(os.path.join(WORKSPACE_DIR, f)) and f.lower() != "shorts"]
     
@@ -536,7 +614,7 @@ def process_ready_videos(yt):
             if not audio_file: 
                 continue
                 
-            print(f"========== Process started: {folder_name} ==========")
+            print(f"\n========== Process started: {folder_name} ==========")
             audio_path = os.path.join(folder_path, audio_file)
             
             video_title = folder_name
@@ -554,18 +632,17 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # 🌟 [ইউনিকোড ফন্ট ফিল্টার সহ ডায়নামিক থাম্বনেইল তৈরি]
+            # 🌟 ডায়নামিক থাম্বনেইল তৈরি
             generate_dynamic_thumbnail(video_title, thumbnail_path)
             video_imgs = img_files
 
-            # ------------------ [১ম কাজ: ১৬:৯ ল্যান্ডস্কেপ ভিডিও (ইউটিউবের জন্য)] ------------------
+            # ------------------ [১ম কাজ: ১৬:৯ ল্যান্ডস্কেপ ভিডিও (YouTube)] ------------------
             print("Rendering 16:9 Landscape slideshow for YouTube upload...")
             audio_clip_yt = AudioFileClip(audio_path)
             per_img_duration = audio_clip_yt.duration / len(video_imgs)
 
             yt_clips = [make_video_frame(v, per_img_duration, target_w=1920, target_h=1080) for v in video_imgs]
             youtube_video = concatenate_videoclips(yt_clips).set_audio(audio_clip_yt)
-            
             youtube_video = apply_front_overlay(youtube_video, target_w=1920, target_h=1080)
             
             youtube_video.write_videofile(
@@ -575,49 +652,55 @@ def process_ready_videos(yt):
                 logger=None
             )
             
+            # ভিডিও আপলোড করা
             upload_success = upload_to_youtube(
                 yt, out_video_file, video_title, 
                 thumbnail_path if os.path.exists(thumbnail_path) else None
             )
             
+            # মেমরি এবং ফাইল হ্যান্ডেল রিলিজ করা
             youtube_video.close()
             audio_clip_yt.close()
             for c in yt_clips: c.close()
             
-            # ------------------ [২য় কাজ: ৯:১৬ পোর্ট্রেট ভিডিও (JobLive গুগল ড্রাইভের জন্য)] ------------------
+            # ------------------ [২য় কাজ: ৯:১৬ পোর্ট্রেট ভিডিও (JobLive)] ------------------
             if upload_success:
-                if not os.path.exists(LIVESTREAM_DIR):
-                    os.makedirs(LIVESTREAM_DIR)
+                try:
+                    if not os.path.exists(LIVESTREAM_DIR):
+                        os.makedirs(LIVESTREAM_DIR, exist_ok=True)
+                        
+                    safe_video_title = clean_filename(video_title)
+                    live_video_file = os.path.join(LIVESTREAM_DIR, f"{safe_video_title}.mp4")
                     
-                safe_video_title = clean_filename(video_title)
-                live_video_file = os.path.join(LIVESTREAM_DIR, f"{safe_video_title}.mp4")
-                
-                print(f"Rendering 9:16 Vertical slideshow for JobLive: {live_video_file}")
-                audio_clip_live = AudioFileClip(audio_path)
-                
-                live_clips = [make_video_frame(v, audio_clip_live.duration / len(video_imgs), target_w=1080, target_h=1920) for v in video_imgs]
-                live_video = concatenate_videoclips(live_clips).set_audio(audio_clip_live)
-                live_video = apply_front_overlay(live_video, target_w=1080, target_h=1920)
-                
-                live_video.write_videofile(
-                    live_video_file, fps=30, codec="libx264", 
-                    audio_codec="aac", threads=4, preset="ultrafast",
-                    ffmpeg_params=["-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-pix_fmt", "yuv420p"],
-                    logger=None
-                )
-                
-                live_video.close()
-                audio_clip_live.close()
-                for c in live_clips: c.close()
-                
-                print("Task Accomplished! Requesting Drive Cleanup.")
+                    print(f"Rendering 9:16 Vertical slideshow for JobLive: {live_video_file}")
+                    audio_clip_live = AudioFileClip(audio_path)
+                    
+                    live_clips = [make_video_frame(v, audio_clip_live.duration / len(video_imgs), target_w=1080, target_h=1920) for v in video_imgs]
+                    live_video = concatenate_videoclips(live_clips).set_audio(audio_clip_live)
+                    live_video = apply_front_overlay(live_video, target_w=1080, target_h=1920)
+                    
+                    live_video.write_videofile(
+                        live_video_file, fps=30, codec="libx264", 
+                        audio_codec="aac", threads=4, preset="ultrafast",
+                        ffmpeg_params=["-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-pix_fmt", "yuv420p"],
+                        logger=None
+                    )
+                    
+                    live_video.close()
+                    audio_clip_live.close()
+                    for c in live_clips: c.close()
+                except Exception as live_err:
+                    print(f"⚠️ JobLive generation warning: {live_err}")
+
+                # 🌟 প্রসেস হওয়া ফোল্ডারটি লোকালি ডিলিট করা (যা পরবর্তীতে rclone গুগল ড্রাইভ থেকে ডিলিট করবে)
+                print(f"🗑️ Deleting completed local folder: {folder_path}")
                 shutil.rmtree(folder_path, ignore_errors=True)
+                print(f"✅ Folder '{folder_name}' successfully queued for Google Drive deletion.\n")
             else:
-                print("❌ YouTube upload failed! Skipping JobLive copy and deletion to prevent data loss.")
+                print("❌ YouTube upload failed! Skipping deletion to prevent data loss.")
 
         except Exception as folder_error:
             print(f"\n❌ Error occurred while processing folder '{folder_name}': {folder_error}")
-            print("Moving on to the next available folder...\n")
 
 # ==================== [ 4. DEDICATED SHORTS LOADER ] ====================
 def process_shorts_folder(yt):
@@ -630,7 +713,6 @@ def process_shorts_folder(yt):
                 break
                 
     if not shorts_dir:
-        print("No 'Shorts' folder found in Google Drive. Skipping Shorts process.")
         return
         
     keep_file = os.path.join(shorts_dir, ".keep")
@@ -638,9 +720,7 @@ def process_shorts_folder(yt):
         try:
             with open(keep_file, 'w') as kf:
                 kf.write("keep")
-            print("Created .keep file inside Shorts folder to preserve it.")
-        except Exception as ke:
-            print("Failed to create .keep file:", ke)
+        except Exception: pass
                 
     for file in os.listdir(shorts_dir):
         if file == ".keep": 
@@ -665,13 +745,11 @@ def process_shorts_folder(yt):
 def upload_to_youtube(yt, video_file, title, thumbnail_path):
     print(f"Now Uploading: '{title}'")
     try:
-        description_text = "" 
-        
         body = {
             'snippet': { 
                 'title': title[:100], 
-                'description': description_text, 
-                'tags': ['Job Circular BD', 'Today Govt Jobs'] 
+                'description': "", 
+                'tags': ['Job Circular BD', 'Today Govt Jobs', 'Niyog Biggopti'] 
             },
             'status': { 'privacyStatus': 'public' } 
         }
@@ -680,18 +758,17 @@ def upload_to_youtube(yt, video_file, title, thumbnail_path):
         video_id = res['id']
         print(f"» Successfully Uploaded! Video Link: https://youtu.be/{video_id}")
         
-        if thumbnail_path:
+        if thumbnail_path and os.path.exists(thumbnail_path):
             try: 
                 media_thmb = MediaFileUpload(thumbnail_path, mimetype="image/jpeg")
                 yt.thumbnails().set(videoId=video_id, media_body=media_thmb).execute()
                 print("» Attached perfect Custom Thumbnail!")
             except Exception as e: 
-                print("\n⚠️ Custom Thumbnail Add Failed! -> Check if YouTube Account is Phone Verified!\n")
+                print(f"\n⚠️ Custom Thumbnail Add Failed: {e}\n")
         return True
     except Exception as e:
-        print("\n❌ Upload failed by error API limits! Detail:", e)
+        print("\n❌ Upload failed! Error:", e)
         return False
-
 
 if __name__ == "__main__":
     print("\n====== [ Google Drive Bot Active | Process Start ] ======\n")
