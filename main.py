@@ -23,6 +23,9 @@ LIVESTREAM_DIR = "workspace_live" # JobLive folder source
 TMP_DIR = "temp_assets"          # Temp Files processing
 FONT_PATH = "BengaliFont.ttf"    # Fallback Bengali Font
 
+# 🌟 GitHub Secrets থেকে GROQ_API নেওয়া হচ্ছে
+GROQ_API = os.environ.get("GROQ_API", "").strip()
+
 # 🌟 হাই-কনট্রাস্ট কালার প্যালেট
 COLOR_THEMES = [
     {
@@ -189,7 +192,6 @@ def get_distinct_fonts_for_top_rows(count=4):
     if os.path.exists(fonts_dir):
         for f in os.listdir(fonts_dir):
             if f.lower().endswith(('.ttf', '.otf')):
-                # kalpurush বাদ দেওয়া যাতে উপরের ৪টি লাইনে এটি না আসে
                 if "kalpurush" in f.lower():
                     continue
                 full_p = os.path.join(fonts_dir, f)
@@ -217,12 +219,12 @@ def get_logo_for_title(title):
     default_path = os.path.join("Photos", "Govbd.png")
     return default_path if os.path.exists(default_path) else None
 
-# ==================== [ 🌟 স্মার্ট টাইটেল পার্সার ] ====================
-def parse_title_for_thumbnail(title):
+# ==================== [ 🌟 GROQ AI DYNAMIC THUMBNAIL TEXT GENERATOR ] ====================
+def parse_title_with_groq_ai(title):
     clean_title = title.split('|')[0].split('||')[0].strip()
     words = clean_title.split()
     
-    # ১. 'নিয়োগ' শব্দের আগের অংশ বের করা (যা মাঝখানের লাল লাইনে যাবে)
+    # 🌟 ১. 'নিয়োগ' শব্দের আগের মূল নাম বের করা (যা মাঝখানের লাইনে ফিক্সড থাকবে)
     org_name = ""
     if "নিয়োগ" in clean_title:
         before_niyog = clean_title.split("নিয়োগ")[0].strip()
@@ -235,45 +237,82 @@ def parse_title_for_thumbnail(title):
     if not org_name:
         org_name = " ".join(words[:min(3, len(words))]) if words else "সরকারি চাকরি"
 
-    # Row 2 (মাঝখানের লাল লাইন): সরাসরি 'নিয়োগ'-এর আগের প্রতিষ্ঠান/সংস্থার নাম
     row2_text = org_name
 
-    # Top Text (টপ বার): অফিসিয়াল হেডার
+    # 🌟 ২. Secrets-এর GROQ_API দিয়ে বাকি ৪টি লাইনের জন্য আকর্ষণীয় ও ইউনিক কথা তৈরি
+    if GROQ_API:
+        try:
+            prompt = f"""You are an expert YouTube thumbnail copywriter for Bangladeshi Job Circulars (চাকরির খবর).
+Job Title: "{clean_title}"
+Organization: "{org_name}"
+
+Create 4 very short, catchy, unique, high-CTR, click-worthy lines in Bengali for the YouTube thumbnail:
+1. "top_text": Catchy Top Bar header (2-4 words in Bengali, e.g., "গণপ্রজাতন্ত্রী বাংলাদেশ সরকার", "নতুন নিয়োগ বিজ্ঞপ্তি ২০২৬", "জরুরি সরকারি চাকরি").
+2. "row1_text": Engaging Category / Opportunity Hook above org name (2-4 words in Bengali, e.g., "স্থায়ী পদে চাকরির সুযোগ", "অফিসার পদে বিশাল নিয়োগ", "সরকারি চাকরি সুযোগ").
+3. "row3_text": Educational qualification / eligibility highlight (3-5 words in Bengali, e.g., "৮ম/SSC/HSC পাশে আবেদন", "নারী ও পুরুষ আবেদনযোগ্য", "সকল জেলার প্রার্থীরা আবেদন করুন").
+4. "bot_text": Urgent Call to action at bottom (3-5 words in Bengali, e.g., "অনলাইনে দ্রুত আবেদন করুন", "আবেদনের নিয়ম ও শেষ সময়", "বিস্তারিত দেখে আজই আবেদন করুন").
+
+Return strictly valid JSON only:
+{{
+  "top_text": "...",
+  "row1_text": "...",
+  "row3_text": "...",
+  "bot_text": "..."
+}}"""
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {GROQ_API}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": "You are a professional Bengali YouTube thumbnail copywriter. Output strictly valid JSON only."},
+                    {"role": "user", "content": prompt}
+                ],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.7,
+                "max_tokens": 250
+            }
+            resp = requests.post(url, headers=headers, json=payload, timeout=7)
+            if resp.status_code == 200:
+                data = resp.json()
+                content = data['choices'][0]['message']['content']
+                parsed = json.loads(content)
+                top = parsed.get("top_text", "").strip()
+                r1 = parsed.get("row1_text", "").strip()
+                r3 = parsed.get("row3_text", "").strip()
+                bot = parsed.get("bot_text", "").strip()
+                if top and r1 and r3 and bot:
+                    print(f"✨ AI Generated Dynamic Texts:\n   Top: {top}\n   Row1: {r1}\n   Row2: {row2_text}\n   Row3: {r3}\n   Bot: {bot}")
+                    return top, r1, row2_text, r3, bot
+        except Exception as e:
+            print(f"⚠️ Groq AI text generation warning ({e}). Using smart rule-based text.")
+
+    # 🌟 ৩. ফলব্যাক (এআই রেসপন্স না দিলে এটি স্বয়ংক্রিয়ভাবে কাজ করবে)
     top_options = ["গণপ্রজাতন্ত্রী বাংলাদেশ সরকার", "জরুরি নিয়োগ বিজ্ঞপ্তি ২০২৬", "নতুন নিয়োগ বিজ্ঞপ্তি ২০২৬", "সর্বশেষ সরকারি সার্কুলার"]
-    top_text = top_options[abs(hash(title)) % len(top_options)]
+    top_text = top_options[abs(hash(clean_title)) % len(top_options)]
 
-    # Row 1 Text (১ম রো): চাকরির ক্যাটাগরি
-    if "বিশ্ববিদ্যালয়" in title or "University" in title:
+    if "বিশ্ববিদ্যালয়" in clean_title or "University" in clean_title:
         row1_text = "বিশ্ববিদ্যালয়ে চাকরি"
-    elif "মেডিকেল" in title or "হাসপাতাল" in title:
+    elif "মেডিকেল" in clean_title or "হাসপাতাল" in clean_title:
         row1_text = "হাসপাতালে চাকরি"
-    elif "স্কিলস" in title or "SICIP" in title:
-        row1_text = "বিশেষ প্রজেক্টে নিয়োগ"
-    elif "অফিস সহায়ক" in title:
-        row1_text = "অফিস সহায়ক পদে"
-    elif "ব্যাংক" in title or "Bank" in title:
+    elif "ব্যাংক" in clean_title or "Bank" in clean_title:
         row1_text = "ব্যাংক খাতে চাকরি"
-    elif "এনজিও" in title or "NGO" in title:
-        row1_text = "এনজিও খাতে চাকরি"
     else:
-        vac_match = re.search(r'(\d+|[০-৯]+)\s*পদে', title)
-        if vac_match:
-            row1_text = f"সরকারি চাকরি ({vac_match.group(0)})"
-        else:
-            row1_text = "সরকারি চাকরি"
+        vac_match = re.search(r'(\d+|[০-৯]+)\s*পদে', clean_title)
+        row1_text = f"সরকারি চাকরি ({vac_match.group(0)})" if vac_match else "সরকারি চাকরির বিশাল সুযোগ"
 
-    # Row 3 Text (৩য় রো): শিক্ষাগত যোগ্যতা ও জেলার আবেদন
-    if "SSC" in title or "এসএসসি" in title or "এইচএসসি" in title or "HSC" in title or "৮ম" in title:
+    if "SSC" in clean_title or "এসএসসি" in clean_title or "এইচএসসি" in clean_title or "HSC" in clean_title or "৮ম" in clean_title:
         row3_text = "৮ম/SSC/HSC পাশে আবেদন"
-    elif "ডিগ্রী" in title or "অনার্স" in title or "বিএসসি" in title:
+    elif "ডিগ্রী" in clean_title or "অনার্স" in clean_title:
         row3_text = "ডিগ্রী/অনার্স পাশে আবেদন"
     else:
         elig_options = ["ছেলে/মেয়ে/৬৪ জেলা", "৬৪ জেলা থেকে আবেদনযোগ্য", "সকল জেলার জন্য প্রযোজ্য", "নারী ও পুরুষ আবেদনযোগ্য"]
-        row3_text = elig_options[abs(hash(title)) % len(elig_options)]
+        row3_text = elig_options[abs(hash(clean_title)) % len(elig_options)]
 
-    # Bottom Text (বটম বার): আবেদন সংক্রান্ত তথ্য
     bot_options = ["আবেদনের সময় ও নিয়ম দেখুন", "বিজ্ঞপ্তি প্রকাশ ২০২৬", "আজই আবেদন সম্পন্ন করুন", "বিস্তারিত দেখে আবেদন করুন"]
-    bot_text = bot_options[abs(hash(title)) % len(bot_options)]
+    bot_text = bot_options[abs(hash(clean_title)) % len(bot_options)]
 
     return top_text, row1_text, row2_text, row3_text, bot_text
 
@@ -298,7 +337,6 @@ def draw_clean_text(draw, text, box, font_path, text_color, max_font_size=135, m
     best_font_size = None
     best_lines = [text]
     
-    # প্রথমে ১ লাইনে বড় ফন্ট সাইজে ট্রাই করা
     for fs in range(max_font_size, int(max_font_size * 0.72), -2):
         f = ImageFont.truetype(font_path, fs)
         bbox = f.getbbox(text)
@@ -309,7 +347,6 @@ def draw_clean_text(draw, text, box, font_path, text_color, max_font_size=135, m
             best_lines = [text]
             break
             
-    # ১ লাইনে না ধরলে ব্যালান্সড ২ লাইনে বিভক্ত করা
     if best_font_size is None and len(words) >= 2:
         splits = []
         for i in range(1, len(words)):
@@ -345,7 +382,7 @@ def draw_clean_text(draw, text, box, font_path, text_color, max_font_size=135, m
 
 # ==================== [ 🌟 FULL HD 1080P ডায়নামিক থাম্বনেইল জেনারেটর ] ====================
 def generate_dynamic_thumbnail(title, output_path):
-    print(f"Generating Ultra-HD 1080p Thumbnail for: {title}")
+    print(f"Generating Ultra-HD 1080p AI Thumbnail for: {title}")
     
     W, H = 1920, 1080
     img = Image.new("RGB", (W, H), "#ffffff")
@@ -354,14 +391,12 @@ def generate_dynamic_thumbnail(title, output_path):
     theme_index = abs(hash(title)) % len(COLOR_THEMES)
     theme = COLOR_THEMES[theme_index]
     
-    # 🌟 উপরের ৪টি লাইনের জন্য kalpurush ছাড়া ৪টি আলাদা ফন্ট
     f_top, f_row1, f_row2, f_row3 = get_distinct_fonts_for_top_rows(4)
-    # 🌟 সবার নিচের লাইনের জন্য ফিক্সড kalpurush ফন্ট
     f_bot = get_kalpurush_font()
 
-    top_text, row1_text, row2_text, row3_text, bot_text = parse_title_for_thumbnail(title)
+    top_text, row1_text, row2_text, row3_text, bot_text = parse_title_with_groq_ai(title)
 
-    # ১. টপ বার (Y: 0..180)
+    # ১. টপ বার
     draw.rectangle([0, 0, W, 180], fill=theme['top_bot_bg'])
     gov_logo_path = os.path.join("Photos", "Govbd.png")
     if os.path.exists(gov_logo_path):
@@ -375,11 +410,11 @@ def generate_dynamic_thumbnail(title, output_path):
 
     draw_clean_text(draw, top_text, (180, 0, W - 180, 180), f_top, theme['top_bot_fg'], max_font_size=85, min_font_size=45)
 
-    # ২. বটম বার (Y: 900..1080) -> kalpurush.ttf ফন্ট দ্বারা রেন্ডার হবে
+    # ২. বটম বার -> kalpurush.ttf
     draw.rectangle([0, 900, W, H], fill=theme['top_bot_bg'])
     draw_clean_text(draw, bot_text, (50, 900, W - 50, 1080), f_bot, theme['top_bot_fg'], max_font_size=80, min_font_size=40)
 
-    # ৩. ডানপাশের লোগো কার্ড (X: 1320..1920, Y: 180..900)
+    # ৩. ডানপাশের লোগো কার্ড
     draw.rectangle([1320, 180, W, 900], fill="#ffffff")
     logo_path = get_logo_for_title(title)
     if logo_path and os.path.exists(logo_path):
@@ -396,20 +431,17 @@ def generate_dynamic_thumbnail(title, output_path):
         except Exception as e:
             print(f"Error pasting org logo ({logo_path}): {e}")
 
-    # ৪. বামপাশের ৩টি টেক্সট রো (X: 0..1320)
-    # Row 1 (ক্যাটাগরি)
+    # ৪. বামপাশের ৩টি টেক্সট রো
     draw.rectangle([0, 180, 1320, 420], fill=theme['row1_bg'])
     draw_clean_text(draw, row1_text, (0, 180, 1320, 420), f_row1, theme['row1_fg'], max_font_size=115, min_font_size=50)
 
-    # Row 2 (মাঝখানের লাল বক্সে 'নিয়োগ'-এর আগের অংশ)
     draw.rectangle([0, 420, 1320, 660], fill=theme['row2_bg'])
     draw_clean_text(draw, row2_text, (0, 420, 1320, 660), f_row2, theme['row2_fg'], max_font_size=140, min_font_size=55)
 
-    # Row 3 (যোগ্যতা ও জেলা)
     draw.rectangle([0, 660, 1320, 900], fill=theme['row3_bg'])
     draw_clean_text(draw, row3_text, (0, 660, 1320, 900), f_row3, theme['row3_fg'], max_font_size=105, min_font_size=45)
 
-    # ৫. সেপারেটর বর্ডার
+    # ৫. বর্ডার সেপারেটর
     draw.line([(0, 180), (W, 180)], fill="#ffffff", width=4)
     draw.line([(0, 900), (W, 900)], fill="#ffffff", width=4)
     draw.line([(1320, 180), (1320, 900)], fill="#cbd5e1", width=4)
@@ -417,7 +449,7 @@ def generate_dynamic_thumbnail(title, output_path):
     draw.line([(0, 660), (1320, 660)], fill="#ffffff", width=3)
 
     img.save(output_path, "JPEG", quality=100, subsampling=0)
-    print(f"Generated Clean Ultra-Sharp 1080p Thumbnail successfully for: {title}")
+    print(f"Generated AI Dynamic 1080p Thumbnail successfully for: {title}")
 
 # ==================== [ 1. FEED PARSING ] ====================
 def check_new_articles_and_prepare_folders():
@@ -661,7 +693,7 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # 🌟 থাম্বনেইল তৈরি
+            # 🌟 AI থাম্বনেইল তৈরি
             generate_dynamic_thumbnail(video_title, thumbnail_path)
             video_imgs = img_files
 
