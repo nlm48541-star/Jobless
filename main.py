@@ -103,7 +103,7 @@ def download_image(url, output_path):
     except: pass
     return False
 
-# ==================== [ 🌟 RANDOM FONT SELECTION ENGINE ] ====================
+# ==================== [ 🌟 UNICODE BENGALI FONT FILTER ENGINE ] ====================
 def ensure_bengali_font():
     if not os.path.exists(FONT_PATH):
         print("Downloading Fallback Bengali font for News Thumbnails...")
@@ -127,8 +127,20 @@ def get_random_font():
     valid_fonts = []
     if os.path.exists(fonts_dir) and os.path.isdir(fonts_dir):
         for f in os.listdir(fonts_dir):
-            if f.lower().endswith(('.ttf', '.otf')):
-                valid_fonts.append(os.path.join(fonts_dir, f))
+            fname_lower = f.lower()
+            # ANSI / Bijoy / Non-Unicode বাংলা ফন্টগুলো ফিল্টার আউট করা
+            if any(bad in fname_lower for bad in ['ansi', 'sutonny', 'mj', 'bijoy', 'akhand']):
+                continue
+            if fname_lower.endswith(('.ttf', '.otf')):
+                full_p = os.path.join(fonts_dir, f)
+                try:
+                    # ফন্টটি ইউনিকোড বাংলা রেন্ডার করতে পারে কি না তা যাচাই করা
+                    test_f = ImageFont.truetype(full_p, 30)
+                    bbox = test_f.getbbox("বাংলা")
+                    if bbox and (bbox[2] - bbox[0] > 10):
+                        valid_fonts.append(full_p)
+                except: pass
+
     if valid_fonts:
         return random.choice(valid_fonts)
     
@@ -182,18 +194,18 @@ def parse_title_for_thumbnail(title):
     else:
         row1_text = "সরকারি চাকরি"
 
-    # 3. Row 2 Text (Big Red Highlight)
+    # 3. Row 2 Text (Big Red Highlight - Emojis removed to prevent square boxes)
     vac_match = re.search(r'(\d+|[০-৯]+)\s*পদে', title)
     if vac_match:
-        row2_text = f"🔥 {vac_match.group(0)}"
+        row2_text = f"{vac_match.group(0)}"
     elif "এডমিট" in title or "কার্ড" in title:
-        row2_text = "🔥 এডমিট কার্ড প্রকাশ"
+        row2_text = "এডমিট কার্ড প্রকাশ"
     elif "ফলাফল" in title or "রেজাল্ট" in title:
-        row2_text = "🔥 চূড়ান্ত ফলাফল প্রকাশ"
+        row2_text = "চূড়ান্ত ফলাফল প্রকাশ"
     elif "অফিসার" in title or "ক্যাডেট" in title:
-        row2_text = "🔥 অফিসার পদে সুযোগ"
+        row2_text = "অফিসার পদে সুযোগ"
     else:
-        hooks = ["🔥 জরুরি নিয়োগ ২০২৬", "🔥 বিশাল নিয়োগ বিজ্ঞপ্তি", "🔥 বড় নিয়োগ প্রকাশ", "🔥 নতুন সার্কুলার ২০২৬"]
+        hooks = ["জরুরি নিয়োগ ২০২৬", "বিশাল নিয়োগ বিজ্ঞপ্তি", "বড় নিয়োগ প্রকাশ", "নতুন সার্কুলার ২০২৬"]
         row2_text = hooks[abs(hash(title)) % len(hooks)]
 
     # 4. Row 3 Text
@@ -216,7 +228,7 @@ def draw_centered_text(draw, text, box, text_color, max_font_size=65):
     w_box = x2 - x1
     h_box = y2 - y1
     
-    # 🌟 র্যান্ডম ফন্ট সিলেক্টর
+    # Filtered Unicode Bengali Random Font
     font_path = get_random_font()
     
     if font_path and os.path.exists(font_path):
@@ -279,7 +291,6 @@ def generate_dynamic_thumbnail(title, output_path):
         except Exception as e:
             print(f"Error pasting top Govbd.png: {e}")
 
-    # Top Bar Text (প্রতিরোটির জন্য র্যান্ডম ফন্ট কল করবে)
     draw_centered_text(draw, top_text, (150, 0, W - 150, 150), theme['top_bot_fg'], max_font_size=65)
 
     # 2. Bottom Bar (Y: 570..720)
@@ -304,15 +315,12 @@ def generate_dynamic_thumbnail(title, output_path):
             print(f"Error pasting org logo ({logo_path}): {e}")
 
     # 4. Left Text Rows (X: 0..780, Y: 150..570)
-    # Row 1 (Y: 150..280)
     draw.rectangle([0, 150, 780, 280], fill=theme['row1_bg'])
     draw_centered_text(draw, row1_text, (0, 150, 780, 280), theme['row1_fg'], max_font_size=60)
 
-    # Row 2 (Y: 280..440)
     draw.rectangle([0, 280, 780, 440], fill=theme['row2_bg'])
     draw_centered_text(draw, row2_text, (0, 280, 780, 440), theme['row2_fg'], max_font_size=80)
 
-    # Row 3 (Y: 440..570)
     draw.rectangle([0, 440, 780, 570], fill=theme['row3_bg'])
     draw_centered_text(draw, row3_text, (0, 440, 780, 570), theme['row3_fg'], max_font_size=55)
 
@@ -471,20 +479,24 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             
         return VideoClip(make_frame, duration=duration)
 
-# ==================== [ 🌟 PILLOW DYNAMIC FRONT.PNG OVERLAY ENGINE (ANTIALIAS BUG FIX) ] ====================
+# ==================== [ 🌟 PILLOW DYNAMIC FRONT.PNG OVERLAY ENGINE ] ====================
 def apply_front_overlay(main_clip, target_w, target_h):
     front_path = "front.png"
     if os.path.exists(front_path):
         try:
             print("Applying front.png overlay at the bottom-center of the video...")
-            # Pillow দিয়ে সরাসরি রিসাইজ করা হলো যাতে MoviePy-এর ANTIALIAS এরর না দেয় 
             pil_front = Image.open(front_path).convert("RGBA")
             scaled_w = int(target_w * 0.40)
             scaled_h = int((scaled_w / pil_front.width) * pil_front.height)
             pil_front_resized = pil_front.resize((scaled_w, scaled_h), Image.LANCZOS)
             
             front_np = np.array(pil_front_resized)
-            front_clip = ImageClip(front_np).set_duration(main_clip.duration)
+            rgb_np = front_np[:, :, :3]
+            alpha_np = front_np[:, :, 3] / 255.0 
+            
+            front_clip = ImageClip(rgb_np).set_duration(main_clip.duration)
+            mask_clip = ImageClip(alpha_np, ismask=True).set_duration(main_clip.duration)
+            front_clip = front_clip.set_mask(mask_clip)
             
             margin = int(target_h * 0.05)
             y_pos = target_h - scaled_h - margin
@@ -542,19 +554,18 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # 🌟 [ডায়নামিক নিউজ থাম্বনেইল তৈরি]
+            # 🌟 [ইউনিকোড ফন্ট ফিল্টার সহ ডায়নামিক থাম্বনেইল তৈরি]
             generate_dynamic_thumbnail(video_title, thumbnail_path)
             video_imgs = img_files
 
-            audio_clip = AudioFileClip(audio_path)
-            per_img_duration = audio_clip.duration / len(video_imgs)
-            
             # ------------------ [১ম কাজ: ১৬:৯ ল্যান্ডস্কেপ ভিডিও (ইউটিউবের জন্য)] ------------------
             print("Rendering 16:9 Landscape slideshow for YouTube upload...")
+            audio_clip_yt = AudioFileClip(audio_path)
+            per_img_duration = audio_clip_yt.duration / len(video_imgs)
+
             yt_clips = [make_video_frame(v, per_img_duration, target_w=1920, target_h=1080) for v in video_imgs]
-            youtube_video = concatenate_videoclips(yt_clips).set_audio(audio_clip)
+            youtube_video = concatenate_videoclips(yt_clips).set_audio(audio_clip_yt)
             
-            # Pillow ভিত্তিক ওভারলে (ANTIALIAS বাগ ফিক্সড)
             youtube_video = apply_front_overlay(youtube_video, target_w=1920, target_h=1080)
             
             youtube_video.write_videofile(
@@ -570,6 +581,7 @@ def process_ready_videos(yt):
             )
             
             youtube_video.close()
+            audio_clip_yt.close()
             for c in yt_clips: c.close()
             
             # ------------------ [২য় কাজ: ৯:১৬ পোর্ট্রেট ভিডিও (JobLive গুগল ড্রাইভের জন্য)] ------------------
@@ -581,10 +593,10 @@ def process_ready_videos(yt):
                 live_video_file = os.path.join(LIVESTREAM_DIR, f"{safe_video_title}.mp4")
                 
                 print(f"Rendering 9:16 Vertical slideshow for JobLive: {live_video_file}")
-                live_clips = [make_video_frame(v, per_img_duration, target_w=1080, target_h=1920) for v in video_imgs]
-                live_video = concatenate_videoclips(live_clips).set_audio(audio_clip)
+                audio_clip_live = AudioFileClip(audio_path)
                 
-                # Pillow ভিত্তিক ওভারলে
+                live_clips = [make_video_frame(v, audio_clip_live.duration / len(video_imgs), target_w=1080, target_h=1920) for v in video_imgs]
+                live_video = concatenate_videoclips(live_clips).set_audio(audio_clip_live)
                 live_video = apply_front_overlay(live_video, target_w=1080, target_h=1920)
                 
                 live_video.write_videofile(
@@ -595,14 +607,13 @@ def process_ready_videos(yt):
                 )
                 
                 live_video.close()
+                audio_clip_live.close()
                 for c in live_clips: c.close()
                 
                 print("Task Accomplished! Requesting Drive Cleanup.")
                 shutil.rmtree(folder_path, ignore_errors=True)
             else:
                 print("❌ YouTube upload failed! Skipping JobLive copy and deletion to prevent data loss.")
-                
-            audio_clip.close()
 
         except Exception as folder_error:
             print(f"\n❌ Error occurred while processing folder '{folder_name}': {folder_error}")
