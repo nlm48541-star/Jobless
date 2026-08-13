@@ -224,7 +224,7 @@ def parse_title_with_groq_ai(title):
     clean_title = title.split('|')[0].split('||')[0].strip()
     words = clean_title.split()
     
-    # 🌟 ১. 'নিয়োগ' শব্দের আগের মূল নাম বের করা (যা মাঝখানের লাইনে ফিক্সড থাকবে)
+    # ১. 'নিয়োগ' শব্দের আগের মূল নাম বের করা (যা মাঝখানের লাইনে ফিক্সড থাকবে)
     org_name = ""
     if "নিয়োগ" in clean_title:
         before_niyog = clean_title.split("নিয়োগ")[0].strip()
@@ -239,7 +239,7 @@ def parse_title_with_groq_ai(title):
 
     row2_text = org_name
 
-    # 🌟 ২. Secrets-এর GROQ_API দিয়ে বাকি ৪টি লাইনের জন্য আকর্ষণীয় ও ইউনিক কথা তৈরি
+    # ২. Secrets-এর GROQ_API দিয়ে বাকি ৪টি লাইনের জন্য আকর্ষণীয় ও ইউনিক কথা তৈরি
     if GROQ_API:
         try:
             prompt = f"""You are an expert YouTube thumbnail copywriter for Bangladeshi Job Circulars (চাকরির খবর).
@@ -289,7 +289,7 @@ Return strictly valid JSON only:
         except Exception as e:
             print(f"⚠️ Groq AI text generation warning ({e}). Using smart rule-based text.")
 
-    # 🌟 ৩. ফলব্যাক (এআই রেসপন্স না দিলে এটি স্বয়ংক্রিয়ভাবে কাজ করবে)
+    # ৩. ফলব্যাক (এআই রেসপন্স না দিলে এটি স্বয়ংক্রিয়ভাবে কাজ করবে)
     top_options = ["গণপ্রজাতন্ত্রী বাংলাদেশ সরকার", "জরুরি নিয়োগ বিজ্ঞপ্তি ২০২৬", "নতুন নিয়োগ বিজ্ঞপ্তি ২০২৬", "সর্বশেষ সরকারি সার্কুলার"]
     top_text = top_options[abs(hash(clean_title)) % len(top_options)]
 
@@ -620,13 +620,28 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             
         return VideoClip(make_frame, duration=duration)
 
-# ==================== [ FRONT OVERLAY ENGINE ] ====================
+# ==================== [ 🌟 ফ্লোটিং FRONT.PNG ওভারলে ইঞ্জিন ] ====================
+def find_front_overlay_file():
+    """কেস-ইনসেনসিটিভ ভাবে Front.png বা front.png ফাইল খুঁজে বের করা"""
+    candidates = ["Front.png", "front.png", "FRONT.PNG"]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    for f in os.listdir("."):
+        if f.lower() == "front.png":
+            return f
+    return None
+
 def apply_front_overlay(main_clip, target_w, target_h):
-    front_path = "front.png"
-    if os.path.exists(front_path):
+    front_path = find_front_overlay_file()
+    if front_path and os.path.exists(front_path):
         try:
+            print(f"Applying Smooth Floating Animation for '{front_path}'...")
             pil_front = Image.open(front_path).convert("RGBA")
-            scaled_w = int(target_w * 0.40)
+            
+            # ল্যান্ডস্কেপ ও পোর্ট্রেটের জন্য অপ্টিমাইজড সাইজ
+            scale_ratio = 0.22 if target_w >= target_h else 0.32
+            scaled_w = int(target_w * scale_ratio)
             scaled_h = int((scaled_w / pil_front.width) * pil_front.height)
             pil_front_resized = pil_front.resize((scaled_w, scaled_h), Image.LANCZOS)
             
@@ -638,13 +653,30 @@ def apply_front_overlay(main_clip, target_w, target_h):
             mask_clip = ImageClip(alpha_np, ismask=True).set_duration(main_clip.duration)
             front_clip = front_clip.set_mask(mask_clip)
             
-            margin = int(target_h * 0.05)
-            y_pos = target_h - scaled_h - margin
-            front_clip = front_clip.set_position(("center", y_pos))
+            pad = 25
+            avail_w = max(1, target_w - scaled_w - 2 * pad)
+            avail_h = max(1, target_h - scaled_h - 2 * pad)
             
+            # 🌟 নন-রিপিটিং ডায়নামিক ফ্লোটিং স্পিড (এক কোণা থেকে আরেক কোণায় ভেসে বেড়াবে)
+            vx = avail_w / 13.0  # ১৩ সেকেন্ডে একপাশ থেকে অন্যপাশে যাবে
+            vy = avail_h / 8.5   # ৮.৫ সেকেন্ডে উপর থেকে নিচে যাবে
+            
+            def floating_pos(t):
+                # অনুভূমিক ড্রিফটিং
+                x_val = (t * vx) % (2 * avail_w)
+                x = x_val if x_val <= avail_w else (2 * avail_w - x_val)
+                # উল্লম্ব ড্রিফটিং
+                y_val = (t * vy) % (2 * avail_h)
+                y = y_val if y_val <= avail_h else (2 * avail_h - y_val)
+                return (pad + int(x), pad + int(y))
+            
+            front_clip = front_clip.set_position(floating_pos)
             main_clip = CompositeVideoClip([main_clip, front_clip]).set_audio(main_clip.audio)
+            print("Successfully attached Smooth Floating Front.png overlay!")
         except Exception as e:
-            print(f"Error applying front.png: {e}")
+            print(f"Error applying floating Front.png: {e}")
+    else:
+        print("Front.png was not found in the root directory. Skipping overlay.")
     return main_clip
 
 # ==================== [ 3. MOVIEPY PROCESS & DRIVE CLEANUP ] ====================
