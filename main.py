@@ -18,15 +18,15 @@ from googleapiclient.http import MediaFileUpload
 
 from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips, ImageClip, CompositeVideoClip
 
-WORKSPACE_DIR = "workspace"      # Rclone Sync Location
-LIVESTREAM_DIR = "workspace_live" # JobLive folder source
-TMP_DIR = "temp_assets"          # Temp Files processing
-FONT_PATH = "BengaliFont.ttf"    # Fallback Bengali Font
+WORKSPACE_DIR = "workspace"        # Rclone Sync Location
+LIVESTREAM_DIR = "workspace_live"  # JobLive folder source
+TMP_DIR = "temp_assets"            # Temp Files processing
+FONT_PATH = "BengaliFont.ttf"      # Fallback Bengali Font
 
 # 🌟 GitHub Secrets থেকে GROQ_API নেওয়া হচ্ছে
 GROQ_API = os.environ.get("GROQ_API", "").strip()
 
-# 🌟 হাই-কনট্রাস্ট কালার প্যালেট
+# 🌟 হাই-কনট্রাস্ট কালার প্যালেট (অর্গানাইজেশন স্পেসিফিক থাম্বনেইলের জন্য)
 COLOR_THEMES = [
     {
         'top_bot_bg': '#000839', 'top_bot_fg': '#ffffff',
@@ -60,21 +60,26 @@ COLOR_THEMES = [
     }
 ]
 
-# 🌟 লোগো ম্যাপিং টেবিল
+# 🌟 নির্দিষ্ট অর্গানাইজেশন লোগো ম্যাপিং টেবিল
 LOGO_MAPPING = {
     'পল্লী বিদ্যুৎ': 'PalliBidyut.png',
     'বিদ্যুৎ': 'PalliBidyut.png',
     'সেনাবাহিনী': 'Army.png',
     'নৌবাহিনী': 'Navy.png',
     'বিমান বাহিনী': 'AirForce.png',
+    'বিমানবাহিনী': 'AirForce.png',
     'বর্ডার গার্ড': 'BGB.png',
     'বিজিবি': 'BGB.png',
     'পুলিশ': 'Police.png',
     'আনসার': 'Ansar.png',
     'কোস্ট গার্ড': 'CoastGuard.png',
+    'কোস্টগার্ড': 'CoastGuard.png',
     'র‍্যাব': 'RAB.png',
+    'র‌্যাব': 'RAB.png',
     'ফায়ার সার্ভিস': 'FireService.png',
+    'ফায়ার সার্ভিস': 'FireService.png',
     'রেলওয়ে': 'Railway.png',
+    'রেলওয়ে': 'Railway.png',
     'বিসিএস': 'BCS.png',
     'প্রাথমিক শিক্ষক': 'PrimaryTeacher.png',
     'প্রাথমিক': 'PrimaryTeacher.png',
@@ -86,6 +91,7 @@ LOGO_MAPPING = {
     'পোস্ট': 'PostOffice.png',
     'কারা অধিদপ্তর': 'Jail.png',
     'কারাগার': 'Jail.png',
+    'জেল': 'Jail.png',
     'পাসপোর্ট অধিদপ্তর': 'Passport.png',
     'পাসপোর্ট': 'Passport.png',
     'পরিবার পরিকল্পনা': 'FamilyPlanning.png'
@@ -174,7 +180,7 @@ def ensure_bengali_font():
                     print(f"Failed to download {fname}: {e}")
 
 def get_kalpurush_font():
-    """🌟 শুধুমাত্র সবার শেষের বটম লাইনের জন্য kalpurush.ttf রিটার্ন করে"""
+    """🌟 শুধুমাত্র বটম লাইনের জন্য kalpurush.ttf রিটার্ন করে"""
     ensure_bengali_font()
     fonts_dir = "Fonts"
     if os.path.exists(fonts_dir):
@@ -184,7 +190,7 @@ def get_kalpurush_font():
     return FONT_PATH if os.path.exists(FONT_PATH) else None
 
 def get_distinct_fonts_for_top_rows(count=4):
-    """🌟 kalpurush.ttf ছাড়া বাকি ৪টি লাইনের জন্য আলাদা ফন্ট নির্বাচন করে"""
+    """🌟 kalpurush.ttf ছাড়া বাকি লাইনের জন্য ফন্ট নির্বাচন করে"""
     ensure_bengali_font()
     fonts_dir = "Fonts"
     valid_fonts = []
@@ -209,22 +215,42 @@ def get_distinct_fonts_for_top_rows(count=4):
         
     return pool[:count]
 
-def get_logo_for_title(title):
+def get_specific_organization_logo(title):
+    """🌟 শুধুমাত্র নির্দিষ্ট বাহিনীর বা প্রতিষ্ঠানের লোগো থাকলে রিটার্ন করে, না থাকলে None"""
     t = title.strip()
     for kw, img_name in LOGO_MAPPING.items():
         if kw in t:
             path = os.path.join("Photos", img_name)
             if os.path.exists(path):
                 return path
-    default_path = os.path.join("Photos", "Govbd.png")
-    return default_path if os.path.exists(default_path) else None
+    return None
 
-# ==================== [ 🌟 GROQ AI DYNAMIC THUMBNAIL TEXT GENERATOR ] ====================
+# ==================== [ 🌟 AI & ALGORITHMIC METADATA GENERATOR ] ====================
+def clean_title_for_display(title):
+    clean = title.split('|')[0].split('||')[0].strip()
+    clean = re.sub(r'[\r\n\t]+', ' ', clean)
+    return re.sub(r'\s+', ' ', clean)
+
+def extract_vacancy_and_qual(title):
+    vac_match = re.search(r'(\d+|[০-৯]+)\s*(টি\s*)?পদে', title)
+    vac_str = vac_match.group(0) if vac_match else ""
+    
+    qual = ""
+    if any(k in title.upper() for k in ["SSC", "এসএসসি"]):
+        qual = "SSC পাশ"
+    elif any(k in title.upper() for k in ["HSC", "এইচএসসি"]):
+        qual = "HSC পাশ"
+    elif any(k in title for k in ["৮ম", "অষ্টম"]):
+        qual = "৮ম শ্রেণি পাশ"
+    elif any(k in title for k in ["স্নাতক", "ডিগ্রী", "অনার্স", "Degree", "Honours"]):
+        qual = "স্নাতক/ডিগ্রী পাশ"
+    return vac_str, qual
+
 def parse_title_with_groq_ai(title):
-    clean_title = title.split('|')[0].split('||')[0].strip()
+    clean_title = clean_title_for_display(title)
     words = clean_title.split()
     
-    # ১. 'নিয়োগ' শব্দের আগের মূল নাম বের করা (যা মাঝখানের লাইনে ফিক্সড থাকবে)
+    # Org name detection
     org_name = ""
     if "নিয়োগ" in clean_title:
         before_niyog = clean_title.split("নিয়োগ")[0].strip()
@@ -237,25 +263,29 @@ def parse_title_with_groq_ai(title):
     if not org_name:
         org_name = " ".join(words[:min(3, len(words))]) if words else "সরকারি চাকরি"
 
-    row2_text = org_name
+    vac_str, qual_str = extract_vacancy_and_qual(clean_title)
 
-    # ২. Secrets-এর GROQ_API দিয়ে বাকি ৪টি লাইনের জন্য আকর্ষণীয় ও ইউনিক কথা তৈরি
+    # 1. GROQ AI Generation
     if GROQ_API:
         try:
-            prompt = f"""You are an expert YouTube thumbnail copywriter for Bangladeshi Job Circulars (চাকরির খবর).
+            prompt = f"""You are an expert YouTube SEO Title & Bengali Thumbnail copywriter for Bangladeshi Job Circulars (চাকরির খবর ও নিয়োগ বিজ্ঞপ্তি ২০২৬).
 Job Title: "{clean_title}"
 Organization: "{org_name}"
 
-Create 4 very short, catchy, unique, high-CTR, click-worthy lines in Bengali for the YouTube thumbnail:
-1. "top_text": Catchy Top Bar header (2-4 words in Bengali, e.g., "গণপ্রজাতন্ত্রী বাংলাদেশ সরকার", "নতুন নিয়োগ বিজ্ঞপ্তি ২০২৬", "জরুরি সরকারি চাকরি").
-2. "row1_text": Engaging Category / Opportunity Hook above org name (2-4 words in Bengali, e.g., "স্থায়ী পদে চাকরির সুযোগ", "অফিসার পদে বিশাল নিয়োগ", "সরকারি চাকরি সুযোগ").
-3. "row3_text": Educational qualification / eligibility highlight (3-5 words in Bengali, e.g., "৮ম/SSC/HSC পাশে আবেদন", "নারী ও পুরুষ আবেদনযোগ্য", "সকল জেলার প্রার্থীরা আবেদন করুন").
-4. "bot_text": Urgent Call to action at bottom (3-5 words in Bengali, e.g., "অনলাইনে দ্রুত আবেদন করুন", "আবেদনের নিয়ম ও শেষ সময়", "বিস্তারিত দেখে আজই আবেদন করুন").
+Create high-CTR click-worthy metadata:
+1. "optimized_title": Catchy YouTube Video Title strictly under 95 characters. Use fire emoji "🔥", pipe separator "|", high-ranking keywords (e.g. "🔥 নিজ জেলা DC অফিসে নিয়োগ ২০২৬ | জেলা প্রশাসকের কার্যালয়ে বিশাল নিয়োগ | Govt Job Circular 2026" or "🔥 {org_name} বিশাল নিয়োগ ২০২৬ | সরকারি জব সার্কুলার ২০২৬ | Govt Job Circular 2026").
+2. "top_text": Short top bar header (2-3 words in Bengali, e.g. "সরকারি চাকরি", "সরকারি নিয়োগ", "গণপ্রজাতন্ত্রী বাংলাদেশ সরকার").
+3. "row1_text": Very large main hook (2-4 words in Bengali, e.g. "নিজ উপজেলায়", "জেলা প্রশাসকের কার্যালয়", "জরুরি নিয়োগ", "এপ্রিল মাসের", "অফিসার পদে বিশাল নিয়োগ").
+4. "row2_text": Core organization name (e.g. "{org_name}").
+5. "row3_text": Eligibility / qualification badge (e.g. "(জরুরি নিয়োগ) SSC পাশ", "(SSC পাশ/৬৪ জেলা)", "চলমান সেরা সার্কুলার", "(নারী ও পুরুষ আবেদনযোগ্য)").
+6. "bot_text": Bottom bar highlight (e.g. "({vac_str if vac_str else 'বিশাল পদে'}) নিয়োগ ২০২৬", "({vac_str if vac_str else '২৬৫৩ পদে'}) নিয়োগ ২০২৬", "অনলাইনে দ্রুত আবেদন করুন").
 
 Return strictly valid JSON only:
 {{
+  "optimized_title": "...",
   "top_text": "...",
   "row1_text": "...",
+  "row2_text": "...",
   "row3_text": "...",
   "bot_text": "..."
 }}"""
@@ -267,7 +297,7 @@ Return strictly valid JSON only:
             payload = {
                 "model": "llama-3.3-70b-versatile",
                 "messages": [
-                    {"role": "system", "content": "You are a professional Bengali YouTube thumbnail copywriter. Output strictly valid JSON only."},
+                    {"role": "system", "content": "You are a professional Bengali YouTube SEO and Thumbnail copywriter. Output strictly valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},
@@ -279,53 +309,70 @@ Return strictly valid JSON only:
                 data = resp.json()
                 content = data['choices'][0]['message']['content']
                 parsed = json.loads(content)
+                opt_title = parsed.get("optimized_title", "").strip()
                 top = parsed.get("top_text", "").strip()
                 r1 = parsed.get("row1_text", "").strip()
+                r2 = parsed.get("row2_text", org_name).strip()
                 r3 = parsed.get("row3_text", "").strip()
                 bot = parsed.get("bot_text", "").strip()
-                if top and r1 and r3 and bot:
-                    print(f"✨ AI Generated Dynamic Texts:\n   Top: {top}\n   Row1: {r1}\n   Row2: {row2_text}\n   Row3: {r3}\n   Bot: {bot}")
-                    return top, r1, row2_text, r3, bot
+                if opt_title and top and r1 and r3 and bot:
+                    if len(opt_title) > 100: opt_title = opt_title[:100]
+                    print(f"✨ AI Generated High-CTR Metadata:\n   Title: {opt_title}\n   Top: {top}\n   Row1: {r1}\n   Row2: {r2}\n   Row3: {r3}\n   Bot: {bot}")
+                    return opt_title, top, r1, r2, r3, bot
         except Exception as e:
-            print(f"⚠️ Groq AI text generation warning ({e}). Using smart rule-based text.")
+            print(f"⚠️ Groq AI text generation warning ({e}). Using smart rule-based fallback.")
 
-    # ৩. ফলব্যাক (এআই রেসপন্স না দিলে এটি স্বয়ংক্রিয়ভাবে কাজ করবে)
-    top_options = ["গণপ্রজাতন্ত্রী বাংলাদেশ সরকার", "জরুরি নিয়োগ বিজ্ঞপ্তি ২০২৬", "নতুন নিয়োগ বিজ্ঞপ্তি ২০২৬", "সর্বশেষ সরকারি সার্কুলার"]
-    top_text = top_options[abs(hash(clean_title)) % len(top_options)]
-
-    if "বিশ্ববিদ্যালয়" in clean_title or "University" in clean_title:
-        row1_text = "বিশ্ববিদ্যালয়ে চাকরি"
-    elif "মেডিকেল" in clean_title or "হাসপাতাল" in clean_title:
-        row1_text = "হাসপাতালে চাকরি"
-    elif "ব্যাংক" in clean_title or "Bank" in clean_title:
-        row1_text = "ব্যাংক খাতে চাকরি"
+    # 2. Smart Algorithmic Fallback
+    clean_no_year = re.sub(r'(২০২\d|202\d)', '', clean_title).strip()
+    
+    if "dc" in clean_title.lower() or "জেলা প্রশাসক" in clean_title:
+        opt_title = "🔥 নিজ জেলা DC অফিসে নিয়োগ ২০২৬ | জেলা প্রশাসকের কার্যালয়ে বিশাল নিয়োগ | Govt Job Circular 2026"
+        top_text = "সরকারি চাকরি"
+        r1_text = "নিজ উপজেলায়"
+        r2_text = "জেলা প্রশাসকের কার্যালয়"
+        r3_text = f"(জরুরি নিয়োগ) {qual_str if qual_str else 'SSC পাশ'}"
+        bot_text = f"({vac_str if vac_str else '২৬৫৩ পদে'}) নিয়োগ ২০২৬"
+    elif "উপজেলা" in clean_title:
+        opt_title = f"🔥 নিজ উপজেলায় সরকারি চাকরি ২০২৬ | {clean_no_year[:30]} বিশাল নিয়োগ | Govt Job Circular 2026"
+        top_text = "সরকারি চাকরি"
+        r1_text = "নিজ উপজেলায়"
+        r2_text = org_name
+        r3_text = f"(জরুরি নিয়োগ) {qual_str if qual_str else '৬৪ জেলা'}"
+        bot_text = f"({vac_str if vac_str else 'বিশাল পদে'}) নিয়োগ ২০২৬"
     else:
-        vac_match = re.search(r'(\d+|[০-৯]+)\s*পদে', clean_title)
-        row1_text = f"সরকারি চাকরি ({vac_match.group(0)})" if vac_match else "সরকারি চাকরির বিশাল সুযোগ"
+        months = ["জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন", "জুলাই", "আগস্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর"]
+        found_month = next((m for m in months if m in clean_title), "")
+        
+        if found_month:
+            opt_title = f"{found_month} মাসের সরকারি নিয়োগ ২০২৬ 🔥 {found_month} মাসের জব সার্কুলার ২০২৬ | Govt Job Circular 2026"
+            top_text = "সরকারি নিয়োগ"
+            r1_text = f"{found_month} মাসের"
+            r2_text = "চলমান সেরা সার্কুলার"
+            r3_text = f"({qual_str if qual_str else 'SSC পাশ/৬৪ জেলা'})"
+            bot_text = f"({vac_str if vac_str else '২৩৫৮০ পদে'}) নিয়োগ ২০২৬"
+        else:
+            opt_title = f"🔥 {clean_no_year[:38]} বিশাল নিয়োগ ২০২৬ | সরকারি জব সার্কুলার ২০২৬ | Govt Job Circular 2026"
+            top_text = "সরকারি চাকরি"
+            r1_text = "জরুরি নিয়োগ"
+            r2_text = org_name
+            r3_text = f"({qual_str if qual_str else 'SSC পাশ/৬৪ জেলা'})"
+            bot_text = f"({vac_str if vac_str else 'বিশাল পদে'}) নিয়োগ ২০২৬"
 
-    if "SSC" in clean_title or "এসএসসি" in clean_title or "এইচএসসি" in clean_title or "HSC" in clean_title or "৮ম" in clean_title:
-        row3_text = "৮ম/SSC/HSC পাশে আবেদন"
-    elif "ডিগ্রী" in clean_title or "অনার্স" in clean_title:
-        row3_text = "ডিগ্রী/অনার্স পাশে আবেদন"
-    else:
-        elig_options = ["ছেলে/মেয়ে/৬৪ জেলা", "৬৪ জেলা থেকে আবেদনযোগ্য", "সকল জেলার জন্য প্রযোজ্য", "নারী ও পুরুষ আবেদনযোগ্য"]
-        row3_text = elig_options[abs(hash(clean_title)) % len(elig_options)]
+    if len(opt_title) > 100:
+        opt_title = opt_title[:100]
 
-    bot_options = ["আবেদনের সময় ও নিয়ম দেখুন", "বিজ্ঞপ্তি প্রকাশ ২০২৬", "আজই আবেদন সম্পন্ন করুন", "বিস্তারিত দেখে আবেদন করুন"]
-    bot_text = bot_options[abs(hash(clean_title)) % len(bot_options)]
-
-    return top_text, row1_text, row2_text, row3_text, bot_text
+    return opt_title, top_text, r1_text, r2_text, r3_text, bot_text
 
 # ==================== [ 🌟 ক্লিন বড় টেক্সট রেন্ডারার ] ====================
-def draw_clean_text(draw, text, box, font_path, text_color, max_font_size=135, min_font_size=45):
+def draw_clean_text(draw, text, box, font_path, text_color, max_font_size=160, min_font_size=45):
     x1, y1, x2, y2 = box
     w_box = x2 - x1
     h_box = y2 - y1
     cx = x1 + w_box / 2
     cy = y1 + h_box / 2
     
-    pad_x = 35
-    pad_y = 15
+    pad_x = 25
+    pad_y = 10
     avail_w = w_box - pad_x * 2
     avail_h = h_box - pad_y * 2
     
@@ -337,15 +384,18 @@ def draw_clean_text(draw, text, box, font_path, text_color, max_font_size=135, m
     best_font_size = None
     best_lines = [text]
     
-    for fs in range(max_font_size, int(max_font_size * 0.72), -2):
-        f = ImageFont.truetype(font_path, fs)
-        bbox = f.getbbox(text)
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
-        if tw <= avail_w and th <= avail_h:
-            best_font_size = fs
-            best_lines = [text]
-            break
+    for fs in range(max_font_size, int(max_font_size * 0.65), -2):
+        try:
+            f = ImageFont.truetype(font_path, fs)
+            bbox = f.getbbox(text)
+            tw = bbox[2] - bbox[0]
+            th = bbox[3] - bbox[1]
+            if tw <= avail_w and th <= avail_h:
+                best_font_size = fs
+                best_lines = [text]
+                break
+        except Exception:
+            pass
             
     if best_font_size is None and len(words) >= 2:
         splits = []
@@ -353,26 +403,33 @@ def draw_clean_text(draw, text, box, font_path, text_color, max_font_size=135, m
             splits.append((" ".join(words[:i]), " ".join(words[i:])))
             
         for fs in range(max_font_size, min_font_size, -2):
-            f = ImageFont.truetype(font_path, fs)
-            found = False
-            for l1, l2 in splits:
-                bb1, bb2 = f.getbbox(l1), f.getbbox(l2)
-                w1, w2 = bb1[2] - bb1[0], bb2[2] - bb2[0]
-                h1, h2 = bb1[3] - bb1[1], bb2[3] - bb2[1]
-                total_h = h1 + h2 + fs * 0.15
-                if max(w1, w2) <= avail_w and total_h <= avail_h:
-                    best_font_size = fs
-                    best_lines = [l1, l2]
-                    found = True
+            try:
+                f = ImageFont.truetype(font_path, fs)
+                found = False
+                for l1, l2 in splits:
+                    bb1, bb2 = f.getbbox(l1), f.getbbox(l2)
+                    w1, w2 = bb1[2] - bb1[0], bb2[2] - bb2[0]
+                    h1, h2 = bb1[3] - bb1[1], bb2[3] - bb2[1]
+                    total_h = h1 + h2 + fs * 0.15
+                    if max(w1, w2) <= avail_w and total_h <= avail_h:
+                        best_font_size = fs
+                        best_lines = [l1, l2]
+                        found = True
+                        break
+                if found:
                     break
-            if found:
-                break
+            except Exception:
+                pass
                 
     if best_font_size is None:
         best_font_size = min_font_size
         best_lines = [text]
         
-    font = ImageFont.truetype(font_path, best_font_size)
+    try:
+        font = ImageFont.truetype(font_path, best_font_size)
+    except Exception:
+        font = ImageFont.load_default()
+        
     full_text = "\n".join(best_lines)
     
     draw.multiline_text(
@@ -388,39 +445,43 @@ def generate_dynamic_thumbnail(title, output_path):
     img = Image.new("RGB", (W, H), "#ffffff")
     draw = ImageDraw.Draw(img)
 
-    theme_index = abs(hash(title)) % len(COLOR_THEMES)
-    theme = COLOR_THEMES[theme_index]
-    
     f_top, f_row1, f_row2, f_row3 = get_distinct_fonts_for_top_rows(4)
     f_bot = get_kalpurush_font()
 
-    top_text, row1_text, row2_text, row3_text, bot_text = parse_title_with_groq_ai(title)
+    opt_title, top_text, row1_text, row2_text, row3_text, bot_text = parse_title_with_groq_ai(title)
 
-    # ১. টপ বার
-    draw.rectangle([0, 0, W, 180], fill=theme['top_bot_bg'])
-    gov_logo_path = os.path.join("Photos", "Govbd.png")
-    if os.path.exists(gov_logo_path):
+    # লোগো চেক করা হচ্ছে (নির্দিষ্ট বাহিনীর/প্রতিষ্ঠানের লোগো আছে কিনা)
+    specific_logo_path = get_specific_organization_logo(title)
+
+    if specific_logo_path and os.path.exists(specific_logo_path):
+        # ------------------ [ কেস ১: নির্দিষ্ট বাহিনীর লোগো থাকলে আগের স্প্লিট থাম্বনেইল ] ------------------
+        print(f"Found specific organization logo: {specific_logo_path}. Rendering 2-column layout.")
+        theme_index = abs(hash(title)) % len(COLOR_THEMES)
+        theme = COLOR_THEMES[theme_index]
+
+        # ১. টপ বার
+        draw.rectangle([0, 0, W, 180], fill=theme['top_bot_bg'])
+        gov_logo_path = os.path.join("Photos", "Govbd.png")
+        if os.path.exists(gov_logo_path):
+            try:
+                gov_logo = Image.open(gov_logo_path).convert("RGBA")
+                gov_logo = gov_logo.resize((140, 140), Image.LANCZOS)
+                img.paste(gov_logo, (25, 20), gov_logo)
+                img.paste(gov_logo, (W - 165, 20), gov_logo)
+            except Exception as e:
+                print(f"Error pasting Govbd.png: {e}")
+
+        draw_clean_text(draw, f"✪ {top_text} ✪", (180, 0, W - 180, 180), f_top, theme['top_bot_fg'], max_font_size=95, min_font_size=50)
+
+        # ২. বটম বার
+        draw.rectangle([0, 900, W, H], fill=theme['top_bot_bg'])
+        draw_clean_text(draw, bot_text, (50, 900, W - 50, 1080), f_bot, theme['top_bot_fg'], max_font_size=90, min_font_size=45)
+
+        # ৩. ডানপাশের লোগো কার্ড
+        draw.rectangle([1320, 180, W, 900], fill="#ffffff")
         try:
-            gov_logo = Image.open(gov_logo_path).convert("RGBA")
-            gov_logo = gov_logo.resize((140, 140), Image.LANCZOS)
-            img.paste(gov_logo, (25, 20), gov_logo)
-            img.paste(gov_logo, (W - 165, 20), gov_logo)
-        except Exception as e:
-            print(f"Error pasting Govbd.png: {e}")
-
-    draw_clean_text(draw, top_text, (180, 0, W - 180, 180), f_top, theme['top_bot_fg'], max_font_size=85, min_font_size=45)
-
-    # ২. বটম বার -> kalpurush.ttf
-    draw.rectangle([0, 900, W, H], fill=theme['top_bot_bg'])
-    draw_clean_text(draw, bot_text, (50, 900, W - 50, 1080), f_bot, theme['top_bot_fg'], max_font_size=80, min_font_size=40)
-
-    # ৩. ডানপাশের লোগো কার্ড
-    draw.rectangle([1320, 180, W, 900], fill="#ffffff")
-    logo_path = get_logo_for_title(title)
-    if logo_path and os.path.exists(logo_path):
-        try:
-            org_logo = Image.open(logo_path).convert("RGBA")
-            scale = min(520 / org_logo.width, 520 / org_logo.height)
+            org_logo = Image.open(specific_logo_path).convert("RGBA")
+            scale = min(540 / org_logo.width, 540 / org_logo.height)
             new_lw = int(org_logo.width * scale)
             new_lh = int(org_logo.height * scale)
             org_logo = org_logo.resize((new_lw, new_lh), Image.LANCZOS)
@@ -429,27 +490,70 @@ def generate_dynamic_thumbnail(title, output_path):
             ly = 180 + (720 - new_lh) // 2
             img.paste(org_logo, (lx, ly), org_logo)
         except Exception as e:
-            print(f"Error pasting org logo ({logo_path}): {e}")
+            print(f"Error pasting org logo: {e}")
 
-    # ৪. বামপাশের ৩টি টেক্সট রো
-    draw.rectangle([0, 180, 1320, 420], fill=theme['row1_bg'])
-    draw_clean_text(draw, row1_text, (0, 180, 1320, 420), f_row1, theme['row1_fg'], max_font_size=115, min_font_size=50)
+        # ৪. বামপাশের ৩টি টেক্সট রো
+        draw.rectangle([0, 180, 1320, 420], fill=theme['row1_bg'])
+        draw_clean_text(draw, row1_text, (20, 180, 1300, 420), f_row1, theme['row1_fg'], max_font_size=130, min_font_size=55)
 
-    draw.rectangle([0, 420, 1320, 660], fill=theme['row2_bg'])
-    draw_clean_text(draw, row2_text, (0, 420, 1320, 660), f_row2, theme['row2_fg'], max_font_size=140, min_font_size=55)
+        draw.rectangle([0, 420, 1320, 660], fill=theme['row2_bg'])
+        draw_clean_text(draw, row2_text, (20, 420, 1300, 660), f_row2, theme['row2_fg'], max_font_size=160, min_font_size=60)
 
-    draw.rectangle([0, 660, 1320, 900], fill=theme['row3_bg'])
-    draw_clean_text(draw, row3_text, (0, 660, 1320, 900), f_row3, theme['row3_fg'], max_font_size=105, min_font_size=45)
+        draw.rectangle([0, 660, 1320, 900], fill=theme['row3_bg'])
+        draw_clean_text(draw, row3_text, (20, 660, 1300, 900), f_row3, theme['row3_fg'], max_font_size=120, min_font_size=50)
 
-    # ৫. বর্ডার সেপারেটর
-    draw.line([(0, 180), (W, 180)], fill="#ffffff", width=4)
-    draw.line([(0, 900), (W, 900)], fill="#ffffff", width=4)
-    draw.line([(1320, 180), (1320, 900)], fill="#cbd5e1", width=4)
-    draw.line([(0, 420), (1320, 420)], fill="#ffffff", width=3)
-    draw.line([(0, 660), (1320, 660)], fill="#ffffff", width=3)
+        # ৫. বর্ডার সেপারেটর
+        draw.line([(0, 180), (W, 180)], fill="#ffffff", width=4)
+        draw.line([(0, 900), (W, 900)], fill="#ffffff", width=4)
+        draw.line([(1320, 180), (1320, 900)], fill="#cbd5e1", width=4)
+        draw.line([(0, 420), (1320, 420)], fill="#ffffff", width=3)
+        draw.line([(0, 660), (1320, 660)], fill="#ffffff", width=3)
+
+    else:
+        # ------------------ [ কেস ২: সাধারণ সার্কুলারের জন্য ফুল-উইডথ হাই-CTR থাম্বনেইল (স্ক্রিনশটের হুবহু ডিজাইন) ] ------------------
+        print("No specific organization logo matched. Rendering Ultra-High CTR Full-Width Thumbnail...")
+        
+        green_bg = "#015a24"
+        red_fg = "#cc0000"
+        dark_fg = "#0f172a"
+        yellow_fg = "#ffe600"
+        white_fg = "#ffffff"
+
+        # ১. টপ বার (0 to 220)
+        draw.rectangle([0, 0, W, 220], fill=green_bg)
+        gov_logo_path = os.path.join("Photos", "Govbd.png")
+        if os.path.exists(gov_logo_path):
+            try:
+                gov_logo = Image.open(gov_logo_path).convert("RGBA")
+                gov_logo = gov_logo.resize((170, 170), Image.LANCZOS)
+                img.paste(gov_logo, (35, 25), gov_logo)
+                img.paste(gov_logo, (W - 205, 25), gov_logo)
+            except Exception as e:
+                print(f"Error pasting Govbd.png: {e}")
+
+        top_header = f"✪ {top_text} ✪"
+        draw_clean_text(draw, top_header, (220, 0, W - 220, 220), f_top, white_fg, max_font_size=120, min_font_size=60)
+
+        # ২. মিডল সেকশন (220 to 870)
+        draw.rectangle([0, 220, W, 870], fill="#ffffff")
+
+        # মেইন হুক (বিগ রেড টেক্সট)
+        draw_clean_text(draw, row1_text, (40, 230, W - 40, 580), f_row1, red_fg, max_font_size=200, min_font_size=80)
+
+        # সাব-হুক / যোগ্যতা (ডার্ক বোল্ড টেক্সট)
+        draw_clean_text(draw, row3_text, (40, 590, W - 40, 860), f_row2, dark_fg, max_font_size=130, min_font_size=55)
+
+        # ৩. বটম বার (870 to 1080)
+        draw.rectangle([0, 870, W, H], fill=green_bg)
+        draw_clean_text(draw, bot_text, (40, 870, W - 40, 1080), f_bot, yellow_fg, max_font_size=130, min_font_size=55)
+
+        # ৪. বর্ডার লাইনস
+        draw.line([(0, 220), (W, 220)], fill="#003d16", width=5)
+        draw.line([(0, 870), (W, 870)], fill="#003d16", width=5)
 
     img.save(output_path, "JPEG", quality=100, subsampling=0)
     print(f"Generated AI Dynamic 1080p Thumbnail successfully for: {title}")
+    return opt_title
 
 # ==================== [ 1. FEED PARSING ] ====================
 def check_new_articles_and_prepare_folders():
@@ -622,7 +726,6 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
 
 # ==================== [ 🌟 ফ্লোটিং FRONT.PNG ওভারলে ইঞ্জিন ] ====================
 def find_front_overlay_file():
-    """কেস-ইনসেনসিটিভ ভাবে Front.png বা front.png ফাইল খুঁজে বের করা"""
     candidates = ["Front.png", "front.png", "FRONT.PNG"]
     for c in candidates:
         if os.path.exists(c):
@@ -636,11 +739,11 @@ def apply_front_overlay(main_clip, target_w, target_h):
     front_path = find_front_overlay_file()
     if front_path and os.path.exists(front_path):
         try:
-            print(f"Applying Smooth Floating Animation for '{front_path}'...")
+            print(f"Applying Smooth Slow-Floating Animation for '{front_path}'...")
             pil_front = Image.open(front_path).convert("RGBA")
             
-            # ল্যান্ডস্কেপ ও পোর্ট্রেটের জন্য অপ্টিমাইজড সাইজ
-            scale_ratio = 0.22 if target_w >= target_h else 0.32
+            # 🌟 আকার আরেকটু বড় করা হয়েছে (Landscape: 0.28, Portrait: 0.38)
+            scale_ratio = 0.28 if target_w >= target_h else 0.38
             scaled_w = int(target_w * scale_ratio)
             scaled_h = int((scaled_w / pil_front.width) * pil_front.height)
             pil_front_resized = pil_front.resize((scaled_w, scaled_h), Image.LANCZOS)
@@ -657,27 +760,78 @@ def apply_front_overlay(main_clip, target_w, target_h):
             avail_w = max(1, target_w - scaled_w - 2 * pad)
             avail_h = max(1, target_h - scaled_h - 2 * pad)
             
-            # 🌟 নন-রিপিটিং ডায়নামিক ফ্লোটিং স্পিড (এক কোণা থেকে আরেক কোণায় ভেসে বেড়াবে)
-            vx = avail_w / 13.0  # ১৩ সেকেন্ডে একপাশ থেকে অন্যপাশে যাবে
-            vy = avail_h / 8.5   # ৮.৫ সেকেন্ডে উপর থেকে নিচে যাবে
+            # 🌟 অত্যন্ত ধীরগতি ও মসৃণ ফ্লোটিং স্পিড (৪৫ সেকেন্ড হরাইজন্টাল এবং ৩২ সেকেন্ড ভার্টিক্যাল)
+            vx = avail_w / 45.0  # ৪৫ সেকেন্ডে একপাশ থেকে আরেকপাশে যাবে
+            vy = avail_h / 32.0  # ৩২ সেকেন্ডে উপর থেকে নিচে যাবে
             
             def floating_pos(t):
-                # অনুভূমিক ড্রিফটিং
                 x_val = (t * vx) % (2 * avail_w)
                 x = x_val if x_val <= avail_w else (2 * avail_w - x_val)
-                # উল্লম্ব ড্রিফটিং
                 y_val = (t * vy) % (2 * avail_h)
                 y = y_val if y_val <= avail_h else (2 * avail_h - y_val)
                 return (pad + int(x), pad + int(y))
             
             front_clip = front_clip.set_position(floating_pos)
             main_clip = CompositeVideoClip([main_clip, front_clip]).set_audio(main_clip.audio)
-            print("Successfully attached Smooth Floating Front.png overlay!")
+            print("Successfully attached Smooth Slow-Floating Front.png overlay!")
         except Exception as e:
             print(f"Error applying floating Front.png: {e}")
     else:
         print("Front.png was not found in the root directory. Skipping overlay.")
     return main_clip
+
+# ==================== [ 🌟 YOUTUBE DESCRIPTION & TAGS ENGINE ] ====================
+def get_video_description(video_title, config_data=None):
+    # ১. যদি কাস্টম description.txt বা default_description.txt থাকে
+    for desc_filename in ["description.txt", "default_description.txt"]:
+        if os.path.exists(desc_filename):
+            try:
+                with open(desc_filename, "r", encoding="utf-8") as df:
+                    custom_text = df.read().strip()
+                    if custom_text:
+                        return custom_text.replace("{title}", video_title)
+            except Exception:
+                pass
+                
+    # ২. config.json এ default_description থাকলে
+    if config_data and isinstance(config_data, dict):
+        desc_from_cfg = config_data.get("default_description", "").strip()
+        if desc_from_cfg:
+            return desc_from_cfg.replace("{title}", video_title)
+
+    # ৩. হাই-এসইও ডিফল্ট ডেসক্রিপশন টেমপ্লেট
+    return f"""{video_title}
+
+সকল চাকরির আবেদন করতে ও সেবা পেতে নিচের যেকোন একটা গ্রুপে জয়েন করে ফেলুনঃ
+1. Telegram জয়েন করুন 👇: https://t.me/jobcircularbd
+2. Facebook পেজ ফলো করুন 👇: https://facebook.com/allnewsonlinebd
+
+#job_circular #job_news #bd_jobs #govt_jobs #চাকরির_খবর"""
+
+def get_video_tags(config_data=None):
+    # ১. tags.txt থাকলে
+    if os.path.exists("tags.txt"):
+        try:
+            with open("tags.txt", "r", encoding="utf-8") as tf:
+                content = tf.read().strip()
+                if content:
+                    return [t.strip() for t in content.split(",") if t.strip()]
+        except Exception:
+            pass
+            
+    # ২. config.json এ default_tags থাকলে
+    if config_data and isinstance(config_data, dict):
+        tags_from_cfg = config_data.get("default_tags", [])
+        if isinstance(tags_from_cfg, list) and len(tags_from_cfg) > 0:
+            return tags_from_cfg
+
+    # ৩. হাই-এসইও ডিফল্ট ট্যাগ লিস্ট
+    return [
+        'Job Circular BD', 'Today Govt Jobs', 'Niyog Biggopti', 
+        'Govt Job Circular 2026', 'সরকারি চাকরির খবর', 'নিয়োগ বিজ্ঞপ্তি ২০২৬', 
+        'bd jobs', 'job news bd', 'চাকরির নিয়োগ বিজ্ঞপ্তি', 
+        'সরকারি জব সার্কুলার ২০২৬', 'bd govt job circular', 'DC Office Job Circular'
+    ]
 
 # ==================== [ 3. MOVIEPY PROCESS & DRIVE CLEANUP ] ====================
 def process_ready_videos(yt):
@@ -685,6 +839,13 @@ def process_ready_videos(yt):
     if not os.path.exists(WORKSPACE_DIR): return
     if not os.path.exists(TMP_DIR): os.makedirs(TMP_DIR, exist_ok=True)
     
+    config_data = {}
+    if os.path.exists('config.json'):
+        try:
+            with open('config.json', 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+        except Exception: pass
+
     folders = [f for f in os.listdir(WORKSPACE_DIR) if os.path.isdir(os.path.join(WORKSPACE_DIR, f)) and f.lower() != "shorts"]
     
     for folder_name in folders:
@@ -708,11 +869,11 @@ def process_ready_videos(yt):
             print(f"\n========== Process started: {folder_name} ==========")
             audio_path = os.path.join(folder_path, audio_file)
             
-            video_title = folder_name
+            raw_title = folder_name
             if txt_path and os.path.exists(txt_path):
                 try:
                     with open(txt_path, 'r', encoding='utf-8') as tf:
-                        video_title = tf.read().strip()
+                        raw_title = tf.read().strip()
                 except Exception: pass
 
             if not img_files:
@@ -725,8 +886,10 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # 🌟 AI থাম্বনেইল তৈরি
-            generate_dynamic_thumbnail(video_title, thumbnail_path)
+            # 🌟 AI থাম্বনেইল তৈরি এবং হাই-CTR অপ্টিমাইজড টাইটেল নেওয়া
+            opt_title = generate_dynamic_thumbnail(raw_title, thumbnail_path)
+            video_title = opt_title if opt_title else raw_title
+            
             video_imgs = img_files
 
             # ------------------ [১ম কাজ: ১৬:৯ ল্যান্ডস্কেপ ভিডিও (YouTube)] ------------------
@@ -745,10 +908,11 @@ def process_ready_videos(yt):
                 logger=None
             )
             
-            # ভিডিও আপলোড
+            # ভিডিও আপলোড (অপ্টিমাইজড টাইটেল, ডেসক্রিপশন এবং ট্যাগস সহ)
             upload_success = upload_to_youtube(
                 yt, out_video_file, video_title, 
-                thumbnail_path if os.path.exists(thumbnail_path) else None
+                thumbnail_path if os.path.exists(thumbnail_path) else None,
+                config_data=config_data
             )
             
             youtube_video.close()
@@ -808,6 +972,13 @@ def process_shorts_folder(yt):
     if not shorts_dir:
         return
         
+    config_data = {}
+    if os.path.exists('config.json'):
+        try:
+            with open('config.json', 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+        except Exception: pass
+
     keep_file = os.path.join(shorts_dir, ".keep")
     if not os.path.exists(keep_file):
         try:
@@ -827,7 +998,7 @@ def process_shorts_folder(yt):
             video_title = os.path.splitext(file)[0]
             print(f"\n========== Processing Short Video: {video_title} ==========")
             
-            upload_success = upload_to_youtube(yt, file_path, video_title, thumbnail_path=None)
+            upload_success = upload_to_youtube(yt, file_path, video_title, thumbnail_path=None, config_data=config_data)
             
             if upload_success:
                 print(f"Deleting uploaded Short locally: {file}")
@@ -835,14 +1006,17 @@ def process_shorts_folder(yt):
                 except Exception as r_e: print("File delete error:", r_e)
 
 # ==================== [ 5. YOUTUBE API ] ====================
-def upload_to_youtube(yt, video_file, title, thumbnail_path):
+def upload_to_youtube(yt, video_file, title, thumbnail_path, config_data=None):
     print(f"Now Uploading: '{title}'")
     try:
+        final_description = get_video_description(title, config_data)
+        final_tags = get_video_tags(config_data)
+        
         body = {
             'snippet': { 
                 'title': title[:100], 
-                'description': "", 
-                'tags': ['Job Circular BD', 'Today Govt Jobs', 'Niyog Biggopti'] 
+                'description': final_description, 
+                'tags': final_tags
             },
             'status': { 'privacyStatus': 'public' } 
         }
