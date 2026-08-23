@@ -8,3 +8,4 @@ Pillow
 requests
 numpy
 fonttools
+edge-tts
