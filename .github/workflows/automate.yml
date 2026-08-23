@@ -46,7 +46,7 @@ jobs:
           mkdir -p workspace
           rclone sync "gdrive:" ./workspace --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --fast-list
 
-      # 🌟 GROQ_API সিক্রেট পাস করা হয়েছে
+      # 🌟 সমস্ত API কী (YouTube, Groq, Ollama, ElevenLabs) পাস করা হয়েছে
       - name: Run Python Process (Movie & YouTube upload)
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
@@ -54,6 +54,9 @@ jobs:
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           GDRIVE_PARENT_FOLDER_ID: ${{ secrets.GDRIVE_PARENT_FOLDER_ID }}
           GROQ_API: ${{ secrets.GROQ_API }}
+          Ollama_API_Key: ${{ secrets.Ollama_API_Key }}
+          ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
+          ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
         run: python main.py
 
       # 🌟 [গুগল ড্রাইভ ফোল্ডার ডিলিট ফিক্স]: রিমুভ করা ফোল্ডার স্থায়ীভাবে ডিলিট করবে
