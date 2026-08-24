@@ -48,22 +48,22 @@ def process_ready_videos(yt):
                 
             print(f"\n========== Process started: {folder_name} ==========")
 
-            # 🌟 ১. এআই স্ক্রিপ্ট ও এসইও টাইটেল জেনারেশন (ব্যর্থ হলে পুরো প্রসেস ক্যানসেল)
+            # 🌟 ১. Ollama দিয়ে ইউনিক SEO টাইটেল, ৫ মিনিটের স্ক্রিপ্ট ও থাম্বনেইল টেক্সট তৈরি
             opt_title, voiceover_script, thumb_meta = generate_job_content(raw_title, img_files)
             
             if not opt_title or not voiceover_script:
-                print(f"🛑 [CANCELLED] AI generation failed for '{folder_name}'. Video creation cancelled.")
+                print(f"🛑 [CANCELLED] Ollama generation failed for '{folder_name}'. Video creation aborted.")
                 continue
 
             video_title = opt_title
 
-            # 🌟 ২. ElevenLabs অডিও জেনারেশন (ব্যর্থ হলে পুরো প্রসেস ক্যানসেল)
+            # 🌟 ২. ElevenLabs দিয়ে অডিও তৈরি
             if not audio_file:
                 gen_audio_path = os.path.join(folder_path, "voiceover.mp3")
                 audio_success = generate_voiceover_audio_pipeline(voiceover_script, gen_audio_path)
                 
                 if not audio_success or not os.path.exists(gen_audio_path):
-                    print(f"🛑 [CANCELLED] ElevenLabs audio generation failed for '{folder_name}'. Video creation cancelled.")
+                    print(f"🛑 [CANCELLED] ElevenLabs audio generation failed for '{folder_name}'. Video creation aborted.")
                     continue
                 audio_path = gen_audio_path
             else:
@@ -75,7 +75,7 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # ৩. থাম্বনেইল তৈরি
+            # ৩. থাম্বনেইল তৈরি (Ollama-র ইউনিক টেক্সট সহ, ✪ ছাড়া)
             generate_dynamic_thumbnail(raw_title, thumbnail_path, thumb_meta=thumb_meta)
 
             # ৪. ১৬:৯ ল্যান্ডস্কেপ ভিডিও রেন্ডার ও ইউটিউব আপলোড
@@ -106,7 +106,7 @@ def process_ready_videos(yt):
                 print(f"❌ YouTube upload failed for '{folder_name}'. Keeping folder for retry.")
 
         except Exception as folder_error:
-            print(f"\n❌ Unexpected error in folder '{folder_name}': {folder_error}")
+            print(f"\n❌ Error in folder '{folder_name}': {folder_error}")
             traceback.print_exc()
 
 def process_shorts_folder(yt):
@@ -132,7 +132,7 @@ def process_shorts_folder(yt):
                 except Exception: pass
 
 if __name__ == "__main__":
-    print("\n====== [ Google Drive Bot Active | Strict AI & ElevenLabs Engine ] ======\n")
+    print("\n====== [ Google Drive Bot Active | Pure Ollama & ElevenLabs System ] ======\n")
     try:
         yt_service = get_youtube_service()
         
