@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import os, re, requests
 
-# 🌟 বাংলা ভাষার জন্য ফিক্সড Multilingual Voice ID
 DEFAULT_BENGALI_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
 
 def get_all_elevenlabs_keys():
@@ -11,8 +10,8 @@ def get_all_elevenlabs_keys():
 
 def generate_voiceover_audio_pipeline(text, output_audio_path):
     """
-    🌟 শুধুমাত্র ElevenLabs API কি-গুলো ঘুরিয়ে অডিও তৈরি করে।
-    ব্যর্থ হলে কোনো Edge-TTS ফলব্যাক চলবে না, সরাসরি False রিটার্ন করবে।
+    🌟 শুধুমাত্র ElevenLabs এপিআই কি-গুলো ঘুরিয়ে অডিও তৈরি করে।
+    ব্যর্থ হলে কোনো ফলব্যাক ছাড়া সরাসরি False রিটার্ন করবে।
     """
     eleven_keys = get_all_elevenlabs_keys()
     
@@ -52,6 +51,5 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
             print(f"⚠️ Network error with Key #{idx}: {e}. Trying next...")
             continue
 
-    # ❌ সব কি শেষ বা ব্যর্থ হলে প্রসেস ক্যানসেল
-    print("❌ All ElevenLabs API keys failed or quota exhausted. No fallback audio engine allowed.")
+    print("❌ All ElevenLabs API keys failed. Audio generation cancelled.")
     return False
