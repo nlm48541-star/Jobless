@@ -35,43 +35,41 @@ def process_ready_videos(yt):
                         raw_title = tf.read().strip()
                 except Exception: pass
 
-            if not img_files: 
-                print(f"Skipping '{folder_name}' because no images were found.")
-                continue
-                
             print(f"\n========== Process started: {folder_name} ==========")
 
-            # 🌟 ১. Ollama দিয়ে ইউনিক টাইটেল, ৫ মিনিটের স্ক্রিপ্ট, ডায়নামিক ডেসক্রিপশন ও ট্যাগস জেনারেশন
+            # ১. এআই দিয়ে ইউনিক টাইটেল, ৫ মিনিটের স্ক্রিপ্ট, ডেসক্রিপশন ও ট্যাগস জেনারেশন
             opt_title, voiceover_script, thumb_meta, video_desc, video_tags = generate_job_content(raw_title, img_files)
             
-            if not opt_title or not voiceover_script or not video_desc:
-                print(f"🛑 [CANCELLED] Ollama generation failed for '{folder_name}'. Video creation aborted.")
+            if not opt_title or not voiceover_script:
+                print(f"🛑 [CANCELLED] AI generation failed for '{folder_name}'.")
                 continue
 
             video_title = opt_title
 
-            # 🌟 ২. ElevenLabs দিয়ে অডিও তৈরি
+            # ২. অডিও তৈরি
             if not audio_file:
                 gen_audio_path = os.path.join(folder_path, "voiceover.mp3")
                 audio_success = generate_voiceover_audio_pipeline(voiceover_script, gen_audio_path)
-                
                 if not audio_success or not os.path.exists(gen_audio_path):
-                    print(f"🛑 [CANCELLED] ElevenLabs audio generation failed for '{folder_name}'. Video creation aborted.")
+                    print(f"🛑 Audio generation failed for '{folder_name}'.")
                     continue
                 audio_path = gen_audio_path
             else:
                 audio_path = os.path.join(folder_path, audio_file)
 
+            # ৩. থাম্বনেইল তৈরি
             thumbnail_path = os.path.join(TMP_DIR, "thumbnail.jpg")
             if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
-            
+            generate_dynamic_thumbnail(raw_title, thumbnail_path, thumb_meta=thumb_meta)
+
+            # 🌟 আর্টিকেলে কোনো ইমেজ না থাকলে থাম্বনেইলটিকেই ভিডিও ফ্রেম হিসেবে ব্যবহার করবে
+            if not img_files and os.path.exists(thumbnail_path):
+                img_files = [thumbnail_path]
+
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # ৩. থাম্বনেইল তৈরি (Ollama-র ইউনিক টেক্সট দিয়ে, ✪ ছাড়া)
-            generate_dynamic_thumbnail(raw_title, thumbnail_path, thumb_meta=thumb_meta)
-
-            # ৪. ১৬:৯ ল্যান্ডস্কেপ ভিডিও রেন্ডার ও ইউটিউব আপলোড (ডায়নামিক ডেসক্রিপশন ও ট্যাগস সহ)
+            # ৪. ১৬:৯ ল্যান্ডস্কেপ ভিডিও রেন্ডার ও ইউটিউব আপলোড
             print("Rendering 16:9 Landscape slideshow for YouTube upload...")
             render_video_slideshow(audio_path, img_files, out_video_file, is_vertical=False)
             
@@ -96,9 +94,7 @@ def process_ready_videos(yt):
                     print(f"⚠️ JobLive generation notice: {live_err}")
 
                 shutil.rmtree(folder_path, ignore_errors=True)
-                print(f"✅ Folder '{folder_name}' successfully processed and cleaned.\n")
-            else:
-                print(f"❌ YouTube upload failed for '{folder_name}'. Keeping folder for retry.")
+                print(f"✅ Folder '{folder_name}' successfully processed and uploaded.\n")
 
         except Exception as folder_error:
             print(f"\n❌ Error in folder '{folder_name}': {folder_error}")
@@ -130,7 +126,7 @@ def process_shorts_folder(yt):
                 except Exception: pass
 
 if __name__ == "__main__":
-    print("\n====== [ Google Drive Bot Active | AI Dynamic SEO Description & Tags ] ======\n")
+    print("\n====== [ Google Drive Bot Active | Fully Automated Video Pipeline ] ======\n")
     try:
         yt_service = get_youtube_service()
         
