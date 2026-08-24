@@ -4,9 +4,16 @@ from PIL import Image
 
 OLLAMA_API_KEY = os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", "")).strip()
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "https://api.ollama.com").rstrip("/")
-OLLAMA_MODEL = "qwen3.5"
 
-# আপনার স্ক্রিনশটের চ্যানেল ডিফল্ট বেস ট্যাগস
+# 🌟 আপনার ফ্রি লিস্টের সেরা ভিশন মডেলসমূহ (অগ্রাধিকার ভিত্তিতে)
+OLLAMA_FREE_VISION_MODELS = [
+    "kimi-k3",         # 🥇 ১ম সেরা (নেটিভ মাল্টিমোডাল ও ডকুমেন্ট OCR)
+    "minimax-m3",      # 🥈 ২য় সেরা (১M কনটেক্সট মাল্টিমোডাল)
+    "kimi-k2.6",       # 🥉 ৩য় সেরা (এজেন্টিক ভিশন মডেল)
+    "mistral-large-3"  # ৪র্থ ব্যাকআপ
+]
+
+# আপনার চ্যানেলের আসল ডিফল্ট ট্যাগস
 DEFAULT_BASE_TAGS = [
     'চাকরির আবেদন', 'অনলাইন চাকরির আবেদন', 'সরকারি চাকরির আবেদন', 'বেসরকারি চাকরির আবেদন',
     'চাকরির সার্কুলার', 'চাকরির খবর', 'ঘরে বসে চাকরির আবেদন', 'চাকরির ফর্ম পূরণ',
@@ -47,32 +54,30 @@ def encode_image_base64(image_path, max_dim=1024):
 
 def generate_job_content(title, img_paths):
     """
-    🌟 Ollama Cloud দিয়ে টাইটেল, ৫ মিনিটের স্ক্রিপ্ট, ডায়নামিক এসইও ডেসক্রিপশন, ট্যাগস ও থাম্বনেইল টেক্সট তৈরি করে।
-    ব্যর্থ হলে কোনো ফলব্যাক ছাড়া সরাসরি None রিটার্ন করে ক্যানসেল করবে।
+    🌟 Ollama Cloud (Kimi-K3) দিয়ে সার্কুলারের ইমেজ পড়ে ইউনিক SEO টাইটেল, ৫ মিনিটের স্ক্রিপ্ট,
+    কাস্টমাইজড ডেসক্রিপশন, ট্যাগস ও থাম্বনেইল টেক্সট তৈরি করে।
     """
     clean_title = clean_title_for_display(title)
     words = clean_title.split()
     org_name = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else " ".join(words[:min(3, len(words))])
     vac_str, qual_str = extract_vacancy_and_qual(clean_title)
 
-    print(f"🤖 Requesting Ollama Cloud ({OLLAMA_MODEL}) for Complete Content & SEO: '{clean_title}'")
-
     if not OLLAMA_API_KEY:
         print("❌ Ollama_API_Key is missing in Secrets! Aborting generation.")
         return None, None, None, None, None
 
-    prompt = f"""You are an expert Bengali YouTube SEO Manager and career news copywriter.
-Analyze this job circular:
+    prompt = f"""You are the top Bengali YouTube SEO Manager and career news presenter.
+Analyze the circular images and job title:
 Job Title: "{clean_title}"
 Organization: "{org_name}"
 
 Output a strictly valid JSON object with the following fields:
 
-1. "optimized_title": A UNIQUE, high-CTR, click-worthy YouTube Video Title under 95 characters (e.g. use symbols like 🔥, 🚨, ⚡, 📢, |). Make it specific to this exact job.
+1. "optimized_title": A UNIQUE, high-CTR, click-worthy YouTube Video Title under 95 characters (Use symbols like 🔥, 🚨, ⚡, 📢, |). Make it specific to this exact circular.
 
-2. "voiceover_script": A comprehensive 5-minute continuous spoken Bengali voiceover script (750 to 850 words). Include salutation, job roles, grade/salary scale, eligibility, and your WhatsApp application service call to action. (No bracketed dialogue, no [Host:], continuous spoken Bengali only).
+2. "voiceover_script": A comprehensive 5-minute continuous spoken Bengali voiceover script (750 to 850 words). Include formal announcement, job roles, salary/grade allowances, educational/age eligibility, and your WhatsApp application service call to action. (No bracketed dialogue, no [Host:], continuous spoken Bengali only).
 
-3. "video_description": A tailored, high-ranking YouTube Description that begins with this circular's specific summary and then incorporates the channel's official service & contact details:
+3. "video_description": A tailored YouTube Description with circular summary, your official contact details, and hashtags:
 ---
 [Circular Summary & Post Highlights here]
 
@@ -110,48 +115,47 @@ Return strictly valid JSON only:
 
     base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OLLAMA_API_KEY}"}
-    payload = {
-        "model": OLLAMA_MODEL,
-        "messages": [{"role": "user", "content": prompt, "images": base64_images}],
-        "stream": False,
-        "options": {"temperature": 0.6}
-    }
 
-    try:
-        resp = requests.post(f"{OLLAMA_API_URL}/api/chat", headers=headers, json=payload, timeout=90)
-        if resp.status_code == 200:
-            raw_content = resp.json().get("message", {}).get("content", "").strip()
-            json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group(0))
-                opt_title = data.get("optimized_title", "").strip()[:100]
-                script = re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip())
-                description = data.get("video_description", "").strip()
-                
-                # সার্কুলারের স্পেসিফিক ট্যাগস + চ্যানেলের বেস ট্যাগস একত্রীকরণ
-                specific_tags = data.get("specific_tags", [])
-                combined_tags = []
-                for t in specific_tags + DEFAULT_BASE_TAGS:
-                    clean_t = str(t).strip()
-                    if clean_t and clean_t not in combined_tags:
-                        combined_tags.append(clean_t)
-
-                top = strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি"))
-                r1 = strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ"))
-                r2 = strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)"))
-                bot = strip_unwanted_chars(data.get("bot_text", "নিয়োগ ২০২৬"))
-
-                if opt_title and len(script.split()) >= 150:
-                    print(f"✨ Ollama Generated Unique SEO Title: {opt_title}")
-                    print(f"✅ Generated Script Word Count: {len(script.split())} words")
-                    print(f"🏷️ Total Combined Tags: {len(combined_tags)}")
+    # 🌟 মডেলের তালিকা থেকে ক্রমান্বয়ে চেষ্টা করবে (প্রথমে kimi-k3, এরপর minimax-m3)
+    for model_name in OLLAMA_FREE_VISION_MODELS:
+        print(f"🤖 Requesting Ollama Cloud Model '{model_name}' for Job: '{clean_title}'...")
+        payload = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": prompt, "images": base64_images}],
+            "stream": False,
+            "options": {"temperature": 0.5}
+        }
+        try:
+            resp = requests.post(f"{OLLAMA_API_URL}/api/chat", headers=headers, json=payload, timeout=90)
+            if resp.status_code == 200:
+                raw_content = resp.json().get("message", {}).get("content", "").strip()
+                json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
+                if json_match:
+                    data = json.loads(json_match.group(0))
+                    opt_title = data.get("optimized_title", "").strip()[:100]
+                    script = re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip())
+                    description = data.get("video_description", "").strip()
                     
-                    thumb_meta = {"top_text": top, "row1_text": r1, "row2_text": r2, "bot_text": bot}
-                    return opt_title, script, thumb_meta, description, combined_tags
-        else:
-            print(f"⚠️ Ollama API Error {resp.status_code}: {resp.text}")
-    except Exception as e:
-        print(f"⚠️ Ollama Generation Exception: {e}")
+                    specific_tags = data.get("specific_tags", [])
+                    combined_tags = list(dict.fromkeys([str(t).strip() for t in specific_tags + DEFAULT_BASE_TAGS if str(t).strip()]))
 
-    print(f"❌ Ollama generation failed for '{title}'. Process cancelled.")
+                    top = strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি"))
+                    r1 = strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ"))
+                    r2 = strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)"))
+                    bot = strip_unwanted_chars(data.get("bot_text", "নিয়োগ ২০২৬"))
+
+                    if opt_title and len(script.split()) >= 150:
+                        print(f"✨ Successfully generated with '{model_name}'!")
+                        print(f"📌 SEO Title: {opt_title}")
+                        print(f"🎙️ Script Length: {len(script.split())} words")
+                        thumb_meta = {"top_text": top, "row1_text": r1, "row2_text": r2, "bot_text": bot}
+                        return opt_title, script, thumb_meta, description, combined_tags
+            else:
+                print(f"⚠️ Model '{model_name}' returned {resp.status_code}: {resp.text[:100]}. Trying next vision model...")
+                continue
+        except Exception as e:
+            print(f"⚠️ Exception with model '{model_name}': {e}. Trying next...")
+            continue
+
+    print(f"❌ All Ollama Cloud vision models failed for '{title}'. Process cancelled.")
     return None, None, None, None, None
