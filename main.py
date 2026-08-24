@@ -14,13 +14,6 @@ def process_ready_videos(yt):
     print("\nScanning Drive folders for Videos / AI Processing...")
     if not os.path.exists(WORKSPACE_DIR): return
     if not os.path.exists(TMP_DIR): os.makedirs(TMP_DIR, exist_ok=True)
-    
-    config_data = {}
-    if os.path.exists('config.json'):
-        try:
-            with open('config.json', 'r', encoding='utf-8') as f:
-                config_data = json.load(f)
-        except Exception: pass
 
     folders = [f for f in os.listdir(WORKSPACE_DIR) if os.path.isdir(os.path.join(WORKSPACE_DIR, f)) and f.lower() != "shorts"]
     
@@ -48,10 +41,10 @@ def process_ready_videos(yt):
                 
             print(f"\n========== Process started: {folder_name} ==========")
 
-            # 🌟 ১. Ollama দিয়ে ইউনিক SEO টাইটেল, ৫ মিনিটের স্ক্রিপ্ট ও থাম্বনেইল টেক্সট তৈরি
-            opt_title, voiceover_script, thumb_meta = generate_job_content(raw_title, img_files)
+            # 🌟 ১. Ollama দিয়ে ইউনিক টাইটেল, ৫ মিনিটের স্ক্রিপ্ট, ডায়নামিক ডেসক্রিপশন ও ট্যাগস জেনারেশন
+            opt_title, voiceover_script, thumb_meta, video_desc, video_tags = generate_job_content(raw_title, img_files)
             
-            if not opt_title or not voiceover_script:
+            if not opt_title or not voiceover_script or not video_desc:
                 print(f"🛑 [CANCELLED] Ollama generation failed for '{folder_name}'. Video creation aborted.")
                 continue
 
@@ -75,17 +68,19 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # ৩. থাম্বনেইল তৈরি (Ollama-র ইউনিক টেক্সট সহ, ✪ ছাড়া)
+            # ৩. থাম্বনেইল তৈরি (Ollama-র ইউনিক টেক্সট দিয়ে, ✪ ছাড়া)
             generate_dynamic_thumbnail(raw_title, thumbnail_path, thumb_meta=thumb_meta)
 
-            # ৪. ১৬:৯ ল্যান্ডস্কেপ ভিডিও রেন্ডার ও ইউটিউব আপলোড
+            # ৪. ১৬:৯ ল্যান্ডস্কেপ ভিডিও রেন্ডার ও ইউটিউব আপলোড (ডায়নামিক ডেসক্রিপশন ও ট্যাগস সহ)
             print("Rendering 16:9 Landscape slideshow for YouTube upload...")
             render_video_slideshow(audio_path, img_files, out_video_file, is_vertical=False)
             
             upload_success = upload_to_youtube(
                 yt, out_video_file, video_title, 
                 thumbnail_path if os.path.exists(thumbnail_path) else None,
-                config_data=config_data, schedule_upload=True
+                description=video_desc,
+                tags=video_tags,
+                schedule_upload=True
             )
             
             # ৫. ৯:১৬ পোর্ট্রেট ভিডিও রেন্ডার (JobLive)
@@ -126,13 +121,16 @@ def process_shorts_folder(yt):
         ext = file.lower().split('.')[-1]
         if ext in ['mp4', 'mov', 'mkv', 'avi']:
             video_title = os.path.splitext(file)[0]
-            upload_success = upload_to_youtube(yt, file_path, video_title, thumbnail_path=None, schedule_upload=True)
+            upload_success = upload_to_youtube(
+                yt, file_path, video_title, thumbnail_path=None, 
+                description=video_title, tags=None, schedule_upload=True
+            )
             if upload_success:
                 try: os.remove(file_path)
                 except Exception: pass
 
 if __name__ == "__main__":
-    print("\n====== [ Google Drive Bot Active | Pure Ollama & ElevenLabs System ] ======\n")
+    print("\n====== [ Google Drive Bot Active | AI Dynamic SEO Description & Tags ] ======\n")
     try:
         yt_service = get_youtube_service()
         
