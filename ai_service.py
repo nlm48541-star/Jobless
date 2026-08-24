@@ -6,12 +6,21 @@ OLLAMA_API_KEY = os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "https://api.ollama.com").rstrip("/")
 OLLAMA_MODEL = "qwen3.5"
 
+# আপনার স্ক্রিনশটের চ্যানেল ডিফল্ট বেস ট্যাগস
+DEFAULT_BASE_TAGS = [
+    'চাকরির আবেদন', 'অনলাইন চাকরির আবেদন', 'সরকারি চাকরির আবেদন', 'বেসরকারি চাকরির আবেদন',
+    'চাকরির সার্কুলার', 'চাকরির খবর', 'ঘরে বসে চাকরির আবেদন', 'চাকরির ফর্ম পূরণ',
+    'চাকরির আবেদন করার নিয়ম', 'অনলাইনে ফর্ম পূরণ', 'সরকারি চাকরি ২০২৬', 'নতুন চাকরির খবর',
+    'job circular', 'govt job circular', 'private job circular', 'job application bd',
+    'online job application bangladesh', 'how to apply for jobs online', 'job application service',
+    'online form fill up bd', 'government job apply', 'private job apply', 'job circular 2026'
+]
+
 def clean_title_for_display(title):
     clean = title.split('|')[0].split('||')[0].strip()
     return re.sub(r'\s+', ' ', re.sub(r'[\r\n\t]+', ' ', clean))
 
 def strip_unwanted_chars(text):
-    """ইমোজি এবং '✪' সহ সব অপ্রয়োজনীয় প্রতীক ফিল্টার করে"""
     cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆', '', str(text))
     return cleaned.strip()
 
@@ -38,59 +47,61 @@ def encode_image_base64(image_path, max_dim=1024):
 
 def generate_job_content(title, img_paths):
     """
-    🌟 শীর্ষস্থানীয় ভাইরাল ইউটিউব থাম্বনেইলের কি-ওয়ার্ড প্যাটার্ন মেনে টাইটেল, ৫ মিনিটের স্ক্রিপ্ট 
-    এবং পারফেক্ট থাম্বনেইল টেক্সট তৈরি করে।
+    🌟 Ollama Cloud দিয়ে টাইটেল, ৫ মিনিটের স্ক্রিপ্ট, ডায়নামিক এসইও ডেসক্রিপশন, ট্যাগস ও থাম্বনেইল টেক্সট তৈরি করে।
+    ব্যর্থ হলে কোনো ফলব্যাক ছাড়া সরাসরি None রিটার্ন করে ক্যানসেল করবে।
     """
     clean_title = clean_title_for_display(title)
     words = clean_title.split()
     org_name = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else " ".join(words[:min(3, len(words))])
     vac_str, qual_str = extract_vacancy_and_qual(clean_title)
 
-    print(f"🤖 Ollama is analyzing Job Circular: '{clean_title}'")
+    print(f"🤖 Requesting Ollama Cloud ({OLLAMA_MODEL}) for Complete Content & SEO: '{clean_title}'")
 
     if not OLLAMA_API_KEY:
         print("❌ Ollama_API_Key is missing in Secrets! Aborting generation.")
-        return None, None, None
+        return None, None, None, None, None
 
-    prompt = f"""You are the top YouTube Job Circular Content & Thumbnail Expert in Bangladesh.
+    prompt = f"""You are an expert Bengali YouTube SEO Manager and career news copywriter.
 Analyze this job circular:
 Job Title: "{clean_title}"
 Organization: "{org_name}"
 
-CRITICAL INSTRUCTIONS FOR THUMBNAIL KEYWORDS (Study these exact viral patterns):
-1. IF Organization/Department (e.g. সমাজসেবা, পানি উন্নয়ন বোর্ড, ব্যাংক, খাদ্য, ইসলামিক ফাউন্ডেশন, গণপূর্ত, মহিলা বিষয়ক):
-   - "top_text": Name of Organization (e.g. "সমাজসেবা অধিদপ্তর", "পানি উন্নয়ন বোর্ড", "বাংলাদেশ ব্যাংক", "ইসলামিক ফাউন্ডেশন")
-   - "row1_text": Exact Post or Big Hook in RED (e.g. "অফিস সহায়ক", "ইউনিয়ন সমাজকর্মী কাজ কি?", "অফিসার পদে", "{vac_str if vac_str else 'বিশাল নিয়োগ'}")
-   - "row2_text": Benefit/Eligibility in BLACK (e.g. "বেতন/পেনশন/সুযোগ-সুবিধা", "৮ম/SSC/HSC/পাশে", "এডমিট কার্ড প্রকাশ", "({qual_str if qual_str else 'SSC পাশ/৬৪ জেলা'})")
-   - "bot_text": ("({vac_str if vac_str else 'বিশাল পদে'}) নিয়োগ ২০২৬" or "নিয়োগ বিজ্ঞপ্তি ২০২৬ প্রকাশ" or "বেতনঃ ১৯,২৪০ টাকা")
+Output a strictly valid JSON object with the following fields:
 
-2. IF Defense/Forces (সেনাবাহিনী, পুলিশ, নৌবাহিনী, বিজিবি, আনসার):
-   - "top_text": ("সেনাবাহিনী সৈনিক পদে" or "পুলিশ কনস্টেবল" or "বাংলাদেশ নৌবাহিনী")
-   - "row1_text": ("SSC পাশে বিশাল" or "মাঠে কি কি কাগজ লাগবে" or "নাবিক পদে নিয়োগ" or "লিখিত পরীক্ষার প্রশ্ন")
-   - "row2_text": ("(সকল জেলা থেকে)" or "আবেদন পদ্ধতি ২০২৬" or "(SSC পাশে আবেদন)")
-   - "bot_text": ("নিয়োগ প্রকাশ ২০২৬" or "(সারাদেশে সবাই পারবে)")
+1. "optimized_title": A UNIQUE, high-CTR, click-worthy YouTube Video Title under 95 characters (e.g. use symbols like 🔥, 🚨, ⚡, 📢, |). Make it specific to this exact job.
 
-3. IF Primary/Teacher/NTRCA (প্রাইমারি শিক্ষক, শিক্ষক নিবন্ধন):
-   - "top_text": ("প্রাইমারি শিক্ষক নিয়োগ" or "NTRCA শিক্ষক নিবন্ধন" or "প্রাইমারি সহকারী শিক্ষক")
-   - "row1_text": ("সহকারী শিক্ষক" or "প্রধান শিক্ষক" or "শিক্ষক পদে {vac_str if vac_str else 'বিশাল'}")
-   - "row2_text": ("ছেলে/মেয়ে/৬৪ জেলা" or "১ম/২য় ধাপ" or "আবেদন পদ্ধতি ২০২৬")
-   - "bot_text": ("নতুন নিয়োগ প্রকাশ ২০২৬" or "({vac_str if vac_str else '১০,২১৯ পদে'}) নিয়োগ ২০২৬")
+2. "voiceover_script": A comprehensive 5-minute continuous spoken Bengali voiceover script (750 to 850 words). Include salutation, job roles, grade/salary scale, eligibility, and your WhatsApp application service call to action. (No bracketed dialogue, no [Host:], continuous spoken Bengali only).
 
-4. IF General/Monthly/Other Govt Circular:
-   - "top_text": ("সরকারি চাকরি" or "সরকারি নিয়োগ")
-   - "row1_text": Month name (e.g. "আগস্ট মাসের" or "মার্চ মাসের" or "জরুরি নিয়োগ" or "নিজ উপজেলায়")
-   - "row2_text": ("চলমান সেরা সার্কুলার" or "(SSC পাশ/৬৪ জেলা)" or "(জরুরি নিয়োগ) SSC পাশ")
-   - "bot_text": "({vac_str if vac_str else '১২৮০ পদে'}) নিয়োগ ২০২৬"
+3. "video_description": A tailored, high-ranking YouTube Description that begins with this circular's specific summary and then incorporates the channel's official service & contact details:
+---
+[Circular Summary & Post Highlights here]
 
-STRICT RULES:
-- DO NOT use any ✪ or star symbols in any field.
-- "optimized_title": A UNIQUE, high-CTR YouTube title under 95 characters with symbols like 🔥, 🚨, ⚡, 📢, | .
-- "voiceover_script": A comprehensive, high-retention 5-minute continuous spoken Bengali voiceover script (750 to 850 words) with full circular breakdown, job roles, salary scale, eligibility, and WhatsApp application service call to action.
+স্বাগতম আমাদের ইউটিউব চ্যানেলে! আমরা চাকরিপ্রার্থীদের জন্য সরকারি ও বেসরকারি সব ধরনের চাকরির আবেদন প্রক্রিয়াটি সহজ ও নিয়মতান্ত্রিক করতে কাজ করে থাকি।
+প্রতিটি নতুন সার্কুলারে বারবার একই তথ্য দিয়ে ফরম পূরণ করা বেশ সময়সাপেক্ষ এবং ঝামেলার। আমাদের লক্ষ্য হলো এই জটিল প্রক্রিয়াটিকে আপনার জন্য সহজ করে দেওয়া। আমাদের এই সেবায় আপনাকে শুধুমাত্র প্রথমবার আপনার প্রয়োজনীয় তথ্য (যেমন: নাম, ঠিকানা, শিক্ষাগত যোগ্যতা ইত্যাদি) প্রদান করতে হবে। আপনার এই তথ্যগুলো আমরা আমাদের কাছে সুরক্ষিতভাবে সংরক্ষণ করে রাখব।
+পরবর্তীতে আপনার হয়ে অত্যন্ত সতর্কতার সাথে এবং সঠিক নিয়মে আবেদনের বাকি সব কাজ সম্পন্ন করে দেব আমরাই।
 
-Output strictly valid JSON only:
+আমাদের মাধ্যমে যেকোনো চাকরির আবেদন সম্পন্ন করতে আজই যোগাযোগ করুন:
+💬 হোয়াটসঅ্যাপ (WhatsApp): wa.me/8801540503092
+🌐 ফেসবুক পেজ (Facebook Page): https://www.facebook.com/profile.php?id=61583625958904
+
+বারবার ফরম পূরণের চিন্তা আমাদের ওপর ছেড়ে দিয়ে আপনি নিশ্চিন্তে আপনার পরীক্ষার প্রস্তুতিতে মনোযোগ দিন। আমাদের চ্যানেলের সাথে থাকার জন্য ধন্যবাদ।
+
+[3 to 5 targeted Bengali/English hashtags for this job]
+---
+
+4. "specific_tags": A list of 6 to 10 specific SEO tags/keywords in Bengali & English tailored specifically to this job circular (e.g. ["{org_name} নিয়োগ ২০২৬", "{org_name} job circular 2026", "চাকরির খবর"]).
+
+5. "top_text": 2-3 clean Bengali words for Thumbnail Top Bar (e.g., "সরকারি চাকরি", "বাংলাদেশ নৌবাহিনী", "পানি উন্নয়ন বোর্ড"). DO NOT use any ✪ or star symbols.
+6. "row1_text": 2-4 impactful words for Thumbnail Main Hook in RED (e.g., "নিজ জেলায়", "নাবিক পদে নিয়োগ", "অফিস সহায়ক", "বিশাল নিয়োগ প্রকাশ").
+7. "row2_text": 2-4 bold words for Thumbnail Sub-line in BLACK (e.g., "DC অফিসে চাকরি", "নৌবাহিনীতে নিয়োগ", "(SSC পাশ/৬৪ জেলা)", "এডমিট কার্ড প্রকাশ").
+8. "bot_text": Bottom Bar Bengali text (e.g., "({vac_str if vac_str else '১২৮০ পদে'}) নিয়োগ ২০২৬", "আবেদনের শেষ সময় ও নিয়ম").
+
+Return strictly valid JSON only:
 {{
   "optimized_title": "...",
   "voiceover_script": "...",
+  "video_description": "...",
+  "specific_tags": ["..."],
   "top_text": "...",
   "row1_text": "...",
   "row2_text": "...",
@@ -103,7 +114,7 @@ Output strictly valid JSON only:
         "model": OLLAMA_MODEL,
         "messages": [{"role": "user", "content": prompt, "images": base64_images}],
         "stream": False,
-        "options": {"temperature": 0.5}
+        "options": {"temperature": 0.6}
     }
 
     try:
@@ -115,7 +126,16 @@ Output strictly valid JSON only:
                 data = json.loads(json_match.group(0))
                 opt_title = data.get("optimized_title", "").strip()[:100]
                 script = re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip())
+                description = data.get("video_description", "").strip()
                 
+                # সার্কুলারের স্পেসিফিক ট্যাগস + চ্যানেলের বেস ট্যাগস একত্রীকরণ
+                specific_tags = data.get("specific_tags", [])
+                combined_tags = []
+                for t in specific_tags + DEFAULT_BASE_TAGS:
+                    clean_t = str(t).strip()
+                    if clean_t and clean_t not in combined_tags:
+                        combined_tags.append(clean_t)
+
                 top = strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি"))
                 r1 = strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ"))
                 r2 = strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)"))
@@ -124,13 +144,14 @@ Output strictly valid JSON only:
                 if opt_title and len(script.split()) >= 150:
                     print(f"✨ Ollama Generated Unique SEO Title: {opt_title}")
                     print(f"✅ Generated Script Word Count: {len(script.split())} words")
-                    print(f"🎨 High-CTR Thumbnail Text: Top='{top}', Line1='{r1}', Line2='{r2}', Bot='{bot}'")
+                    print(f"🏷️ Total Combined Tags: {len(combined_tags)}")
+                    
                     thumb_meta = {"top_text": top, "row1_text": r1, "row2_text": r2, "bot_text": bot}
-                    return opt_title, script, thumb_meta
+                    return opt_title, script, thumb_meta, description, combined_tags
         else:
             print(f"⚠️ Ollama API Error {resp.status_code}: {resp.text}")
     except Exception as e:
         print(f"⚠️ Ollama Generation Exception: {e}")
 
     print(f"❌ Ollama generation failed for '{title}'. Process cancelled.")
-    return None, None, None
+    return None, None, None, None, None
