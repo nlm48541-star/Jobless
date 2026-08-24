@@ -28,6 +28,12 @@ def process_ready_videos(yt):
                 elif ext in ['txt']: txt_path = os.path.join(folder_path, file)
                 elif ext in ['jpg', 'jpeg', 'png', 'webp']: img_files.append(os.path.join(folder_path, file))
                     
+            # 🌟 ফোল্ডারে যদি কোনো ছবি না থাকে, তবে সেটি ড্রাইভে রাখা হবে না (ডিলিট হবে)
+            if not img_files:
+                print(f"🗑️ Deleting empty folder '{folder_name}' (No images found).")
+                shutil.rmtree(folder_path, ignore_errors=True)
+                continue
+
             raw_title = folder_name
             if txt_path and os.path.exists(txt_path):
                 try:
@@ -37,39 +43,34 @@ def process_ready_videos(yt):
 
             print(f"\n========== Process started: {folder_name} ==========")
 
-            # ১. এআই দিয়ে ইউনিক টাইটেল, ৫ মিনিটের স্ক্রিপ্ট, ডেসক্রিপশন ও ট্যাগস জেনারেশন
+            # ১. এআই হায়ারার্কি দিয়ে কন্টেন্ট জেনারেশন (Ollama -> Groq)
             opt_title, voiceover_script, thumb_meta, video_desc, video_tags = generate_job_content(raw_title, img_files)
             
             if not opt_title or not voiceover_script:
-                print(f"🛑 [CANCELLED] AI generation failed for '{folder_name}'.")
+                print(f"🛑 [CANCELLED] All AI generation models failed for '{folder_name}'. Video aborted.")
                 continue
 
             video_title = opt_title
 
-            # ২. অডিও তৈরি
+            # ২. ElevenLabs দিয়ে অডিও তৈরি (ব্যর্থ হলে ক্যানসেল)
             if not audio_file:
                 gen_audio_path = os.path.join(folder_path, "voiceover.mp3")
                 audio_success = generate_voiceover_audio_pipeline(voiceover_script, gen_audio_path)
                 if not audio_success or not os.path.exists(gen_audio_path):
-                    print(f"🛑 Audio generation failed for '{folder_name}'.")
+                    print(f"🛑 [CANCELLED] ElevenLabs failed for '{folder_name}'. Video creation aborted.")
                     continue
                 audio_path = gen_audio_path
             else:
                 audio_path = os.path.join(folder_path, audio_file)
 
-            # ৩. থাম্বনেইল তৈরি
             thumbnail_path = os.path.join(TMP_DIR, "thumbnail.jpg")
             if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
             generate_dynamic_thumbnail(raw_title, thumbnail_path, thumb_meta=thumb_meta)
 
-            # 🌟 আর্টিকেলে কোনো ইমেজ না থাকলে থাম্বনেইলটিকেই ভিডিও ফ্রেম হিসেবে ব্যবহার করবে
-            if not img_files and os.path.exists(thumbnail_path):
-                img_files = [thumbnail_path]
-
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # ৪. ১৬:৯ ল্যান্ডস্কেপ ভিডিও রেন্ডার ও ইউটিউব আপলোড
+            # ৩. ১৬:৯ ল্যান্ডস্কেপ ভিডিও রেন্ডার ও ইউটিউব আপলোড
             print("Rendering 16:9 Landscape slideshow for YouTube upload...")
             render_video_slideshow(audio_path, img_files, out_video_file, is_vertical=False)
             
@@ -81,7 +82,7 @@ def process_ready_videos(yt):
                 schedule_upload=True
             )
             
-            # ৫. ৯:১৬ পোর্ট্রেট ভিডিও রেন্ডার (JobLive)
+            # ৪. ৯:১৬ পোর্ট্রেট ভিডিও রেন্ডার (JobLive)
             if upload_success:
                 try:
                     if not os.path.exists(LIVESTREAM_DIR): os.makedirs(LIVESTREAM_DIR, exist_ok=True)
@@ -126,7 +127,7 @@ def process_shorts_folder(yt):
                 except Exception: pass
 
 if __name__ == "__main__":
-    print("\n====== [ Google Drive Bot Active | Fully Automated Video Pipeline ] ======\n")
+    print("\n====== [ Google Drive Bot Active | Multi-Model Priority Engine ] ======\n")
     try:
         yt_service = get_youtube_service()
         
