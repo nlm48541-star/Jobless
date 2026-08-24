@@ -2,7 +2,6 @@
 import os, json, re, base64, requests
 from PIL import Image
 
-GROQ_API = os.environ.get("GROQ_API", "").strip()
 OLLAMA_API_KEY = os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", "")).strip()
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "https://api.ollama.com").rstrip("/")
 OLLAMA_MODEL = "qwen3.5"
@@ -11,8 +10,10 @@ def clean_title_for_display(title):
     clean = title.split('|')[0].split('||')[0].strip()
     return re.sub(r'\s+', ' ', re.sub(r'[\r\n\t]+', ' ', clean))
 
-def strip_emojis(text):
-    return re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]', '', str(text)).strip()
+def strip_unwanted_chars(text):
+    """ইমোজি এবং '✪' সহ সব অপ্রয়োজনীয় প্রতীক ফিল্টার করে"""
+    cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆', '', str(text))
+    return cleaned.strip()
 
 def extract_vacancy_and_qual(title):
     vac_match = re.search(r'(\d+|[০-৯]+)\s*(টি\s*)?পদে', title)
@@ -37,119 +38,99 @@ def encode_image_base64(image_path, max_dim=1024):
 
 def generate_job_content(title, img_paths):
     """
-    🌟 এআই এর মাধ্যমে SEO টাইটেল, ৫ মিনিটের স্ক্রিপ্ট ও থাম্বনেইল টেক্সট তৈরি করে।
-    ব্যর্থ হলে কোনো ফলব্যাক স্ক্রিপ্ট তৈরি করবে না, সরাসরি None রিটার্ন করবে।
+    🌟 শীর্ষস্থানীয় ভাইরাল ইউটিউব থাম্বনেইলের কি-ওয়ার্ড প্যাটার্ন মেনে টাইটেল, ৫ মিনিটের স্ক্রিপ্ট 
+    এবং পারফেক্ট থাম্বনেইল টেক্সট তৈরি করে।
     """
     clean_title = clean_title_for_display(title)
     words = clean_title.split()
     org_name = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else " ".join(words[:min(3, len(words))])
     vac_str, qual_str = extract_vacancy_and_qual(clean_title)
 
-    print(f"🤖 Requesting AI for SEO Title & 5-Min Script: '{clean_title}'")
+    print(f"🤖 Ollama is analyzing Job Circular: '{clean_title}'")
 
-    prompt = f"""Job Circular Title: "{clean_title}"
+    if not OLLAMA_API_KEY:
+        print("❌ Ollama_API_Key is missing in Secrets! Aborting generation.")
+        return None, None, None
+
+    prompt = f"""You are the top YouTube Job Circular Content & Thumbnail Expert in Bangladesh.
+Analyze this job circular:
+Job Title: "{clean_title}"
 Organization: "{org_name}"
 
-You are a top-tier Bengali YouTube SEO expert and career news presenter.
-Generate a complete JSON package for this job circular:
+CRITICAL INSTRUCTIONS FOR THUMBNAIL KEYWORDS (Study these exact viral patterns):
+1. IF Organization/Department (e.g. সমাজসেবা, পানি উন্নয়ন বোর্ড, ব্যাংক, খাদ্য, ইসলামিক ফাউন্ডেশন, গণপূর্ত, মহিলা বিষয়ক):
+   - "top_text": Name of Organization (e.g. "সমাজসেবা অধিদপ্তর", "পানি উন্নয়ন বোর্ড", "বাংলাদেশ ব্যাংক", "ইসলামিক ফাউন্ডেশন")
+   - "row1_text": Exact Post or Big Hook in RED (e.g. "অফিস সহায়ক", "ইউনিয়ন সমাজকর্মী কাজ কি?", "অফিসার পদে", "{vac_str if vac_str else 'বিশাল নিয়োগ'}")
+   - "row2_text": Benefit/Eligibility in BLACK (e.g. "বেতন/পেনশন/সুযোগ-সুবিধা", "৮ম/SSC/HSC/পাশে", "এডমিট কার্ড প্রকাশ", "({qual_str if qual_str else 'SSC পাশ/৬৪ জেলা'})")
+   - "bot_text": ("({vac_str if vac_str else 'বিশাল পদে'}) নিয়োগ ২০২৬" or "নিয়োগ বিজ্ঞপ্তি ২০২৬ প্রকাশ" or "বেতনঃ ১৯,২৪০ টাকা")
 
-1. "optimized_title": A UNIQUE, high-CTR, click-worthy YouTube Title strictly under 95 chars with creative hooks and symbols (🔥, 🚨, ⚡, 📢, |). Tailored specifically to this job.
-2. "voiceover_script": A comprehensive, 5-minute long (750 to 850 words) detailed narration script in spoken natural Bengali.
-Structure:
-  - Salutation & Formal Circular Announcement (institution, job type, vacancy count).
-  - Detailed Position Breakdown (job titles, responsibilities, pay scale & allowances).
-  - Educational Qualification & Skills (8th/SSC/HSC/Degree).
-  - Age limits & quotas.
-  - Eligible districts and deadline reminder.
-  - WhatsApp Application Service promotion (Message WhatsApp in description/bio for 100% accurate application; save info once for all future jobs).
-  - Outro & subscribe call to action.
-(No bracketed dialogue, no [Host:], continuous natural speaking Bengali only).
+2. IF Defense/Forces (সেনাবাহিনী, পুলিশ, নৌবাহিনী, বিজিবি, আনসার):
+   - "top_text": ("সেনাবাহিনী সৈনিক পদে" or "পুলিশ কনস্টেবল" or "বাংলাদেশ নৌবাহিনী")
+   - "row1_text": ("SSC পাশে বিশাল" or "মাঠে কি কি কাগজ লাগবে" or "নাবিক পদে নিয়োগ" or "লিখিত পরীক্ষার প্রশ্ন")
+   - "row2_text": ("(সকল জেলা থেকে)" or "আবেদন পদ্ধতি ২০২৬" or "(SSC পাশে আবেদন)")
+   - "bot_text": ("নিয়োগ প্রকাশ ২০২৬" or "(সারাদেশে সবাই পারবে)")
 
-3. "top_text": 2-3 words for Top bar (e.g. "সরকারি চাকরি", "জরুরি নিয়োগ", "গণপ্রজাতন্ত্রী বাংলাদেশ সরকার").
-4. "row1_text": 2-4 impactful words for Main Hook (e.g. "নিজ উপজেলায়", "জেলা প্রশাসকের কার্যালয়", "অফিসার পদে বিশাল নিয়োগ").
-5. "row2_text": Core organization name (e.g. "{org_name}").
-6. "row3_text": Eligibility badge (e.g. "(জরুরি নিয়োগ) {qual_str if qual_str else 'SSC পাশ'}", "(SSC পাশ/৬৪ জেলা)", "চলমান সেরা সার্কুলার").
-7. "bot_text": Bottom bar info (e.g. "({vac_str if vac_str else 'বিশাল পদে'}) নিয়োগ ২০২৬", "আবেদনের শেষ সময় ও নিয়ম").
+3. IF Primary/Teacher/NTRCA (প্রাইমারি শিক্ষক, শিক্ষক নিবন্ধন):
+   - "top_text": ("প্রাইমারি শিক্ষক নিয়োগ" or "NTRCA শিক্ষক নিবন্ধন" or "প্রাইমারি সহকারী শিক্ষক")
+   - "row1_text": ("সহকারী শিক্ষক" or "প্রধান শিক্ষক" or "শিক্ষক পদে {vac_str if vac_str else 'বিশাল'}")
+   - "row2_text": ("ছেলে/মেয়ে/৬৪ জেলা" or "১ম/২য় ধাপ" or "আবেদন পদ্ধতি ২০২৬")
+   - "bot_text": ("নতুন নিয়োগ প্রকাশ ২০২৬" or "({vac_str if vac_str else '১০,২১৯ পদে'}) নিয়োগ ২০২৬")
 
-Return strictly valid JSON only:
+4. IF General/Monthly/Other Govt Circular:
+   - "top_text": ("সরকারি চাকরি" or "সরকারি নিয়োগ")
+   - "row1_text": Month name (e.g. "আগস্ট মাসের" or "মার্চ মাসের" or "জরুরি নিয়োগ" or "নিজ উপজেলায়")
+   - "row2_text": ("চলমান সেরা সার্কুলার" or "(SSC পাশ/৬৪ জেলা)" or "(জরুরি নিয়োগ) SSC পাশ")
+   - "bot_text": "({vac_str if vac_str else '১২৮০ পদে'}) নিয়োগ ২০২৬"
+
+STRICT RULES:
+- DO NOT use any ✪ or star symbols in any field.
+- "optimized_title": A UNIQUE, high-CTR YouTube title under 95 characters with symbols like 🔥, 🚨, ⚡, 📢, | .
+- "voiceover_script": A comprehensive, high-retention 5-minute continuous spoken Bengali voiceover script (750 to 850 words) with full circular breakdown, job roles, salary scale, eligibility, and WhatsApp application service call to action.
+
+Output strictly valid JSON only:
 {{
   "optimized_title": "...",
   "voiceover_script": "...",
   "top_text": "...",
   "row1_text": "...",
   "row2_text": "...",
-  "row3_text": "...",
   "bot_text": "..."
 }}"""
 
-    # ১. Groq AI জেনারেশন চেষ্টা
-    if GROQ_API:
-        try:
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {"Authorization": f"Bearer {GROQ_API}", "Content-Type": "application/json"}
-            payload = {
-                "model": "llama-3.3-70b-versatile",
-                "messages": [
-                    {"role": "system", "content": "You are a professional Bengali YouTube SEO copywriter and scriptwriter. Output strictly valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.7, "max_tokens": 2500
-            }
-            resp = requests.post(url, headers=headers, json=payload, timeout=30)
-            if resp.status_code == 200:
-                data = json.loads(resp.json()['choices'][0]['message']['content'])
+    base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OLLAMA_API_KEY}"}
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": [{"role": "user", "content": prompt, "images": base64_images}],
+        "stream": False,
+        "options": {"temperature": 0.5}
+    }
+
+    try:
+        resp = requests.post(f"{OLLAMA_API_URL}/api/chat", headers=headers, json=payload, timeout=90)
+        if resp.status_code == 200:
+            raw_content = resp.json().get("message", {}).get("content", "").strip()
+            json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group(0))
                 opt_title = data.get("optimized_title", "").strip()[:100]
                 script = re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip())
                 
-                if opt_title and len(script.split()) >= 200:
-                    print(f"✨ AI Generated SEO Title: {opt_title}")
-                    print(f"✅ Generated Script Length: {len(script.split())} words")
-                    thumb_meta = {
-                        "top_text": strip_emojis(data.get("top_text", "সরকারি চাকরি")),
-                        "row1_text": strip_emojis(data.get("row1_text", "জরুরি নিয়োগ")),
-                        "row2_text": strip_emojis(data.get("row2_text", org_name)),
-                        "row3_text": strip_emojis(data.get("row3_text", "(SSC পাশ/৬৪ জেলা)")),
-                        "bot_text": strip_emojis(data.get("bot_text", "নিয়োগ ২০২৬"))
-                    }
+                top = strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি"))
+                r1 = strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ"))
+                r2 = strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)"))
+                bot = strip_unwanted_chars(data.get("bot_text", "নিয়োগ ২০২৬"))
+
+                if opt_title and len(script.split()) >= 150:
+                    print(f"✨ Ollama Generated Unique SEO Title: {opt_title}")
+                    print(f"✅ Generated Script Word Count: {len(script.split())} words")
+                    print(f"🎨 High-CTR Thumbnail Text: Top='{top}', Line1='{r1}', Line2='{r2}', Bot='{bot}'")
+                    thumb_meta = {"top_text": top, "row1_text": r1, "row2_text": r2, "bot_text": bot}
                     return opt_title, script, thumb_meta
-            else:
-                print(f"⚠️ Groq API Error {resp.status_code}: {resp.text}")
-        except Exception as e:
-            print(f"⚠️ Groq Generation Exception: {e}")
+        else:
+            print(f"⚠️ Ollama API Error {resp.status_code}: {resp.text}")
+    except Exception as e:
+        print(f"⚠️ Ollama Generation Exception: {e}")
 
-    # ২. Ollama Vision জেনারেশন চেষ্টা
-    if OLLAMA_API_KEY:
-        try:
-            base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
-            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OLLAMA_API_KEY}"}
-            payload = {
-                "model": OLLAMA_MODEL,
-                "messages": [{"role": "user", "content": prompt, "images": base64_images}],
-                "stream": False, "options": {"temperature": 0.5}
-            }
-            resp = requests.post(f"{OLLAMA_API_URL}/api/chat", headers=headers, json=payload, timeout=75)
-            if resp.status_code == 200:
-                raw_content = resp.json().get("message", {}).get("content", "").strip()
-                json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
-                if json_match:
-                    data = json.loads(json_match.group(0))
-                    opt_title = data.get("optimized_title", "").strip()[:100]
-                    script = re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip())
-                    if opt_title and len(script.split()) >= 150:
-                        thumb_meta = {
-                            "top_text": strip_emojis(data.get("top_text", "সরকারি চাকরি")),
-                            "row1_text": strip_emojis(data.get("row1_text", "জরুরি নিয়োগ")),
-                            "row2_text": strip_emojis(data.get("row2_text", org_name)),
-                            "row3_text": strip_emojis(data.get("row3_text", "(SSC পাশ/৬৪ জেলা)")),
-                            "bot_text": strip_emojis(data.get("bot_text", "নিয়োগ ২০২৬"))
-                        }
-                        return opt_title, script, thumb_meta
-            else:
-                print(f"⚠️ Ollama API Error {resp.status_code}: {resp.text}")
-        except Exception as e:
-            print(f"⚠️ Ollama Generation Exception: {e}")
-
-    # ❌ কোনো ফলব্যাক স্ক্রিপ্ট তৈরি হবে না, ব্যর্থ হলে সরাসরি ক্যানসেল
-    print(f"❌ AI content generation completely failed for '{title}'. No fallback script will be generated.")
+    print(f"❌ Ollama generation failed for '{title}'. Process cancelled.")
     return None, None, None
