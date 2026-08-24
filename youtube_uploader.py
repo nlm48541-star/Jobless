@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, json
+import os
 from datetime import datetime, timedelta, timezone
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -16,37 +16,6 @@ def get_youtube_service():
         token_uri="https://oauth2.googleapis.com/token"
     )
     return build('youtube', 'v3', credentials=creds)
-
-def get_video_description(video_title, config_data=None):
-    """🌟 শুধুমাত্র আপনার description.txt বা config.json থেকে আপনার নিজস্ব ডেসক্রিপশন নেয়"""
-    for desc_filename in ["description.txt", "default_description.txt"]:
-        if os.path.exists(desc_filename):
-            try:
-                with open(desc_filename, "r", encoding="utf-8") as df:
-                    custom_text = df.read().strip()
-                    if custom_text: return custom_text.replace("{title}", video_title)
-            except Exception: pass
-                
-    if config_data and isinstance(config_data, dict):
-        desc = config_data.get("default_description", "").strip()
-        if desc: return desc.replace("{title}", video_title)
-
-    return video_title
-
-def get_video_tags(config_data=None):
-    """🌟 শুধুমাত্র আপনার tags.txt বা config.json থেকে আপনার নিজস্ব ট্যাগ নেয়"""
-    if os.path.exists("tags.txt"):
-        try:
-            with open("tags.txt", "r", encoding="utf-8") as tf:
-                content = tf.read().strip()
-                if content: return [t.strip() for t in content.split(",") if t.strip()]
-        except Exception: pass
-            
-    if config_data and isinstance(config_data, dict):
-        tags = config_data.get("default_tags", [])
-        if isinstance(tags, list) and len(tags) > 0: return tags
-
-    return ['Job Circular BD', 'Today Govt Jobs', 'Govt Job Circular 2026', 'নিয়োগ বিজ্ঞপ্তি ২০২৬']
 
 def get_next_schedule_time_iso():
     now_utc = datetime.now(timezone.utc)
@@ -66,16 +35,17 @@ def get_next_schedule_time_iso():
 
     return base_time.strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
-def upload_to_youtube(yt, video_file, title, thumbnail_path, config_data=None, schedule_upload=True):
+def upload_to_youtube(yt, video_file, title, thumbnail_path, description, tags, schedule_upload=True):
     print(f"Now Uploading: '{title}'")
     try:
-        final_description = get_video_description(title, config_data)
-        final_tags = get_video_tags(config_data)
-        
         status_dict = {'privacyStatus': 'private', 'publishAt': get_next_schedule_time_iso()} if schedule_upload else {'privacyStatus': 'public'}
 
         body = {
-            'snippet': {'title': title[:100], 'description': final_description, 'tags': final_tags},
+            'snippet': {
+                'title': title[:100],
+                'description': description if description else title,
+                'tags': tags if tags else ['Job Circular BD', 'Govt Job Circular 2026']
+            },
             'status': status_dict 
         }
         media_vid = MediaFileUpload(video_file, chunksize=1024*1024, resumable=True)
