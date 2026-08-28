@@ -5,6 +5,15 @@ from bs4 import BeautifulSoup
 
 WORKSPACE_DIR = "workspace"
 
+# 🌟 নিষিদ্ধ কিওয়ার্ড ফিল্টার (এগুলো থাকলে কোনো পোস্ট বা ভিডিও তৈরি হবে না)
+FORBIDDEN_KEYWORDS = ['এনজিও', 'ngo', 'ব্যাংক', 'bank']
+
+def is_forbidden_article(text):
+    """টাইটেল বা কন্টেন্টে নিষিদ্ধ কিওয়ার্ড আছে কিনা যাচাই করে"""
+    if not text: return False
+    t_lower = text.lower()
+    return any(k in t_lower for k in FORBIDDEN_KEYWORDS)
+
 def clean_filename(text):
     return re.sub(r'[\\/*?:"<>|]', "", text)
 
@@ -53,15 +62,26 @@ def check_new_articles_and_prepare_folders():
             except Exception: continue
 
             if published_time >= time_limit:
-                folder_title = clean_filename(entry.title).strip()
+                raw_title = entry.title.strip()
+                folder_title = clean_filename(raw_title).strip()
+
                 if folder_title.lower() == "shorts" or not folder_title or folder_title in existing or folder_title in history_logs: 
                     continue 
 
+                # 🌟 ১. 'এনজিও' বা 'ব্যাংক' থাকলে সম্পূর্ণ স্কিপ করা
+                if is_forbidden_article(raw_title) or is_forbidden_article(folder_title):
+                    print(f"🚫 [FILTERED] Skipping '{folder_title}' (Matches forbidden keyword: 'এনজিও' / 'ব্যাংক').")
+                    continue
+
                 content = entry.content[0].value if hasattr(entry, 'content') else getattr(entry, 'summary', "")
+                if is_forbidden_article(content):
+                    print(f"🚫 [FILTERED] Skipping '{folder_title}' (Content contains 'এনজিও' / 'ব্যাংক').")
+                    continue
+
                 images = BeautifulSoup(content, 'html.parser').find_all('img')
                 valid_img_urls = [img.get('src') for img in images if img.get('src') and img.get('src').startswith("http")]
 
-                # 🌟 যদি আর্টিকেলে কোনো ছবি না থাকে, তবে ফোল্ডার তৈরি হবে না
+                # 🌟 ২. ছবি না থাকলে ফোল্ডার তৈরি হবে না
                 if not valid_img_urls:
                     print(f"⏩ Skipping '{folder_title}' (No images found in article).")
                     continue
@@ -75,15 +95,14 @@ def check_new_articles_and_prepare_folders():
                     if download_image(src, img_path):
                         img_count += 1
 
-                # 🌟 যদি ছবি ডাউনলোড ব্যর্থ হয় এবং ০ ছবি থাকে, তবে ফোল্ডারটি মুছে ফেলবে
                 if img_count == 1:
                     print(f"⏩ Removing '{folder_title}' (Failed to download images).")
                     shutil.rmtree(folder_path, ignore_errors=True)
                     continue
 
-                print(f"✅ New Article with {img_count - 1} Images: {folder_title}")
+                print(f"✅ New Job Article: {folder_title} ({img_count - 1} Images)")
                 with open(os.path.join(folder_path, "title.txt"), "w", encoding="utf-8") as text_file:
-                    text_file.write(entry.title)
+                    text_file.write(raw_title)
 
                 existing.append(folder_title)
                 history_logs.append(folder_title)
