@@ -9,37 +9,34 @@ GROQ_API = os.environ.get("GROQ_API", "").strip()
 OLLAMA_MODELS = ["kimi-k3", "minimax-m3", "gemma4", "kimi-k2.6"]
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
-# ট্যাগ তালিকা সংক্ষিপ্ত ও নিরাপদ করা হয়েছে যাতে ৫০০ ক্যারেক্টার লিমিট ক্রস না করে
 DEFAULT_BASE_TAGS = [
     'চাকরির সার্কুলার', 'চাকরির খবর', 'সরকারি চাকরি ২০২৬',
     'job circular', 'govt job circular', 'job application bd'
 ]
 
+def fix_years_to_2026(text):
+    """২০২৪ বা ২০২৫ থাকলে সেটিকে স্বয়ংক্রিয়ভাবে ২০২৬ বানিয়ে দেবে"""
+    if not text:
+        return text
+    text = re.sub(r'\b202[0-5]\b', '2026', str(text))
+    text = re.sub(r'২০২[০-৫]', '২০২৬', text)
+    return text
+
 def sanitize_youtube_tags(raw_tags, max_total_chars=400):
-    """ইউটিউব ট্যাগের অবৈধ অক্ষর/ইমোজি দূর করে এবং মোট দৈর্ঘ্য ৪০০ ক্যারেক্টারের ভেতর রাখে"""
     clean_tags = []
     current_length = 0
-    
     for tag in raw_tags:
-        if not tag or not isinstance(tag, str):
-            continue
-        # ইমোজি ও নিষিদ্ধ চিহ্ন রিমুভ
+        if not tag or not isinstance(tag, str): continue
         cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|[\<\>\"\,\n\r]', '', tag)
-        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-        
-        if not cleaned or len(cleaned) < 2:
-            continue
-            
+        cleaned = fix_years_to_2026(re.sub(r'\s+', ' ', cleaned).strip())
+        if not cleaned or len(cleaned) < 2: continue
         cleaned = cleaned[:50].strip()
-        
         if cleaned not in clean_tags:
             tag_len = len(cleaned) + (1 if clean_tags else 0)
             if current_length + tag_len <= max_total_chars:
                 clean_tags.append(cleaned)
                 current_length += tag_len
-            else:
-                break
-                
+            else: break
     return clean_tags
 
 def clean_title_for_display(title):
@@ -48,7 +45,7 @@ def clean_title_for_display(title):
 
 def strip_unwanted_chars(text):
     cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆', '', str(text))
-    return cleaned.strip()
+    return fix_years_to_2026(cleaned.strip())
 
 def extract_vacancy_and_qual(title):
     vac_match = re.search(r'(\d+|[০-৯]+)\s*(টি\s*)?পদে', title)
@@ -87,34 +84,31 @@ def generate_job_content(title, img_paths):
     vac_str, qual_str = extract_vacancy_and_qual(clean_title)
 
     prompt = f"""You are the top Bengali YouTube SEO Content & Script Specialist.
+CRITICAL MANDATORY RULE: The current year is strictly ২০২৬ (2026). NEVER EVER use 2024 or 2025. Always write ২০২৬ or 2026.
+
 Analyze this job circular:
 Job Title: "{clean_title}"
 Organization: "{org_name}"
 
 Return a strictly valid JSON object:
-1. "optimized_title": A UNIQUE, high-CTR, click-worthy YouTube Video Title under 95 characters (Use symbols like 🔥, 🚨, ⚡, 📢, |).
-2. "voiceover_script": A comprehensive 5-minute continuous spoken Bengali voiceover script (750 to 850 words). Include announcement, job roles, salary scale, eligibility, and your WhatsApp application service call to action. (No brackets, continuous spoken Bengali only).
-3. "video_description": A tailored YouTube Description with circular summary, official contact details, and hashtags:
+1. "optimized_title": A UNIQUE, high-CTR, click-worthy YouTube Video Title under 95 characters (Must include year ২০২৬ and emojis like 🔥, 🚨, ⚡, 📢, |).
+2. "voiceover_script": A comprehensive continuous spoken Bengali voiceover script (750 to 850 words) referencing circular ۲۰২৬.
+3. "video_description": A tailored YouTube Description referencing year 2026/২০২৬ with circular summary and contact details:
 ---
 [Circular Summary & Post Highlights here]
 
 স্বাগতম আমাদের ইউটিউব চ্যানেলে! আমরা চাকরিপ্রার্থীদের জন্য সরকারি ও বেসরকারি সব ধরনের চাকরির আবেদন প্রক্রিয়াটি সহজ ও নিয়মতান্ত্রিক করতে কাজ করে থাকি।
-প্রতিটি নতুন সার্কুলারে বারবার একই তথ্য দিয়ে ফরম পূরণ করা বেশ সময়সাপেক্ষ এবং ঝামেলার। আমাদের লক্ষ্য হলো এই জটিল প্রক্রিয়াটিকে আপনার জন্য সহজ করে দেওয়া। আমাদের এই সেবায় আপনাকে শুধুমাত্র প্রথমবার আপনার প্রয়োজনীয় তথ্য (যেমন: নাম, ঠিকানা, শিক্ষাগত যোগ্যতা ইত্যাদি) প্রদান করতে হবে। আপনার এই তথ্যগুলো আমরা আমাদের কাছে সুরক্ষিতভাবে সংরক্ষণ করে রাখব।
-পরবর্তীতে আপনার হয়ে অত্যন্ত সতর্কতার সাথে এবং সঠিক নিয়মে আবেদনের বাকি সব কাজ সম্পন্ন করে দেব আমরাই।
-
 আমাদের মাধ্যমে যেকোনো চাকরির আবেদন সম্পন্ন করতে আজই যোগাযোগ করুন:
 💬 হোয়াটসঅ্যাপ (WhatsApp): wa.me/8801540503092
 🌐 ফেসবুক পেজ (Facebook Page): https://www.facebook.com/profile.php?id=61583625958904
 
-বারবার ফরম পূরণের চিন্তা আমাদের ওপর ছেড়ে দিয়ে আপনি নিশ্চিন্তে আপনার পরীক্ষার প্রস্তুতিতে মনোযোগ দিন। আমাদের চ্যানেলের সাথে থাকার জন্য ধন্যবাদ।
-
-[3 to 5 targeted Bengali/English hashtags for this job]
+[3 to 5 targeted Bengali/English hashtags for this job circular 2026]
 ---
-4. "specific_tags": A list of 4 to 6 specific SEO tags without any emojis or commas.
-5. "top_text": 2-3 clean Bengali words for Thumbnail Top Bar (e.g., "সরকারি চাকরি", "বাংলাদেশ নৌবাহিনী", "পানি উন্নয়ন বোর্ড"). DO NOT use any ✪ or star symbols.
-6. "row1_text": 2-4 impactful words for Thumbnail Main Hook in RED (e.g., "নিজ জেলায়", "নাবিক পদে নিয়োগ", "অফিস সহায়ক").
-7. "row2_text": 2-4 bold words for Thumbnail Sub-line in BLACK (e.g., "DC অফিসে চাকরি", "নৌবাহিনীতে নিয়োগ", "(SSC পাশ/৬৪ জেলা)").
-8. "bot_text": Bottom Bar Bengali text (e.g., "({vac_str if vac_str else '১২৮০ পদে'}) নিয়োগ ২০২৬", "আবেদনের শেষ সময় ও নিয়ম").
+4. "specific_tags": A list of 4 to 6 specific SEO tags without emojis or commas.
+5. "top_text": 2-3 clean Bengali words for Thumbnail Top Bar (e.g., "সরকারি চাকরি", "পানি উন্নয়ন বোর্ড"). DO NOT use any ✪ or star symbols.
+6. "row1_text": 2-3 short, massive impact words for Thumbnail Hook in RED (e.g., "নিজ জেলায়", "অফিস সহায়ক", "জরুরি নিয়োগ", "আগস্ট মাসের").
+7. "row2_text": 2-4 short words for Thumbnail Sub-line in BLACK (e.g., "DC অফিসে চাকরি", "এডমিট কার্ড প্রকাশ", "(SSC পাশ/৬৪ জেলা)").
+8. "bot_text": Bottom Bar Bengali text (e.g., "({vac_str if vac_str else '১২৮০ পদে'}) নিয়োগ ২০২৬", "আবেদনের শেষ সময় ও নিয়ম"). MUST USE ২০২৬!
 
 Return strictly valid JSON:
 {{
@@ -130,7 +124,7 @@ Return strictly valid JSON:
 
     base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
 
-    # ------------------ [১ম ধাপ: Ollama ক্লাউডের মডেলগুলোতে চেষ্টা] ------------------
+    # ------------------ [১ম ধাপ: Ollama ক্লাউড] ------------------
     if OLLAMA_API_KEY:
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OLLAMA_API_KEY}"}
         for model_name in OLLAMA_MODELS:
@@ -146,9 +140,9 @@ Return strictly valid JSON:
                     raw_content = resp.json().get("message", {}).get("content", "").strip()
                     data = parse_json_safely(raw_content)
                     if data and data.get("optimized_title") and data.get("voiceover_script"):
-                        opt_title = data.get("optimized_title").strip()[:100]
-                        script = re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip())
-                        desc = data.get("video_description", "").strip()
+                        opt_title = fix_years_to_2026(data.get("optimized_title").strip()[:100])
+                        script = fix_years_to_2026(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
+                        desc = fix_years_to_2026(data.get("video_description", "").strip())
                         raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
                         tags = sanitize_youtube_tags(raw_tags)
                         
@@ -160,11 +154,9 @@ Return strictly valid JSON:
                         }
                         print(f"✨ Successfully Generated via Ollama '{model_name}'!")
                         return opt_title, script, thumb_meta, desc, tags
-                else:
-                    print(f"⚠️ Ollama '{model_name}' returned {resp.status_code}. Trying next...")
             except Exception: pass
 
-    # ------------------ [২য় ধাপ: সুপারফাস্ট Groq AI ইঞ্জিন] ------------------
+    # ------------------ [২য় ধাপ: Groq AI] ------------------
     if GROQ_API:
         headers = {"Authorization": f"Bearer {GROQ_API}", "Content-Type": "application/json"}
         for g_model in GROQ_MODELS:
@@ -172,11 +164,11 @@ Return strictly valid JSON:
             payload = {
                 "model": g_model,
                 "messages": [
-                    {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. Output strictly valid JSON only."},
+                    {"role": "system", "content": "You are a professional Bengali YouTube SEO specialist. The year is STRICTLY 2026/২০২৬. Output JSON only."},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},
-                "temperature": 0.7,
+                "temperature": 0.5,
                 "max_tokens": 2500
             }
             try:
@@ -185,9 +177,9 @@ Return strictly valid JSON:
                     raw_content = resp.json()['choices'][0]['message']['content']
                     data = parse_json_safely(raw_content)
                     if data and data.get("optimized_title") and data.get("voiceover_script"):
-                        opt_title = data.get("optimized_title").strip()[:100]
-                        script = re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip())
-                        desc = data.get("video_description", "").strip()
+                        opt_title = fix_years_to_2026(data.get("optimized_title").strip()[:100])
+                        script = fix_years_to_2026(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
+                        desc = fix_years_to_2026(data.get("video_description", "").strip())
                         raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
                         tags = sanitize_youtube_tags(raw_tags)
 
@@ -199,10 +191,6 @@ Return strictly valid JSON:
                         }
                         print(f"✨ Successfully Generated via Groq AI ({g_model})!")
                         return opt_title, script, thumb_meta, desc, tags
-                else:
-                    print(f"⚠️ Groq '{g_model}' error ({resp.status_code}): {resp.text[:120]}")
-            except Exception as ge:
-                print(f"⚠️ Groq exception with '{g_model}': {ge}")
+            except Exception: pass
 
-    print(f"❌ All AI models failed for '{title}'. Process cancelled.")
     return None, None, None, None, None
