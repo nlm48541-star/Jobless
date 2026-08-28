@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import os, json, shutil, traceback
-from feed_manager import check_new_articles_and_prepare_folders, clean_filename, WORKSPACE_DIR
+from feed_manager import check_new_articles_and_prepare_folders, clean_filename, is_forbidden_article, WORKSPACE_DIR
 from ai_service import generate_job_content
 from audio_engine import generate_voiceover_audio_pipeline
 from thumbnail import generate_dynamic_thumbnail
@@ -20,6 +20,12 @@ def process_ready_videos(yt):
     for folder_name in folders:
         folder_path = os.path.join(WORKSPACE_DIR, folder_name)
         try:
+            # 🌟 ১. যদি কোনো ফোল্ডারের নামে 'এনজিও' বা 'ব্যাংক' থাকে, সাথে সাথে ড্রাইভ থেকে ডিলিট
+            if is_forbidden_article(folder_name):
+                print(f"🚫 [FILTERED] Deleting forbidden folder '{folder_name}' (এনজিও / ব্যাংক).")
+                shutil.rmtree(folder_path, ignore_errors=True)
+                continue
+
             audio_file, txt_path = None, None
             img_files = []
             for file in sorted(os.listdir(folder_path)):
@@ -28,7 +34,7 @@ def process_ready_videos(yt):
                 elif ext in ['txt']: txt_path = os.path.join(folder_path, file)
                 elif ext in ['jpg', 'jpeg', 'png', 'webp']: img_files.append(os.path.join(folder_path, file))
                     
-            # 🌟 ফোল্ডারে যদি কোনো ছবি না থাকে, তবে সেটি ড্রাইভে রাখা হবে না (ডিলিট হবে)
+            # 🌟 ২. কোনো ফোল্ডারে ছবি না থাকলে ডিলিট করে স্কিপ
             if not img_files:
                 print(f"🗑️ Deleting empty folder '{folder_name}' (No images found).")
                 shutil.rmtree(folder_path, ignore_errors=True)
@@ -41,18 +47,23 @@ def process_ready_videos(yt):
                         raw_title = tf.read().strip()
                 except Exception: pass
 
+            if is_forbidden_article(raw_title):
+                print(f"🚫 [FILTERED] Deleting '{folder_name}' (Title contains এনজিও / ব্যাংক).")
+                shutil.rmtree(folder_path, ignore_errors=True)
+                continue
+
             print(f"\n========== Process started: {folder_name} ==========")
 
-            # ১. এআই হায়ারার্কি দিয়ে কন্টেন্ট জেনারেশন (Ollama -> Groq)
+            # ৩. এআই হায়ারার্কি দিয়ে টাইটেল, ৫ মিনিটের স্ক্রিপ্ট, ডেসক্রিপশন ও ট্যাগস জেনারেশন
             opt_title, voiceover_script, thumb_meta, video_desc, video_tags = generate_job_content(raw_title, img_files)
             
             if not opt_title or not voiceover_script:
-                print(f"🛑 [CANCELLED] All AI generation models failed for '{folder_name}'. Video aborted.")
+                print(f"🛑 [CANCELLED] All AI models failed for '{folder_name}'. Video creation aborted.")
                 continue
 
             video_title = opt_title
 
-            # ২. ElevenLabs দিয়ে অডিও তৈরি (ব্যর্থ হলে ক্যানসেল)
+            # ৪. ElevenLabs দিয়ে অডিও তৈরি (ব্যর্থ হলে ক্যানসেল)
             if not audio_file:
                 gen_audio_path = os.path.join(folder_path, "voiceover.mp3")
                 audio_success = generate_voiceover_audio_pipeline(voiceover_script, gen_audio_path)
@@ -70,7 +81,7 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # ৩. ১৬:৯ ল্যান্ডস্কেপ ভিডিও রেন্ডার ও ইউটিউব আপলোড
+            # ৫. ১৬:৯ ল্যান্ডস্কেপ ভিডিও রেন্ডার ও ইউটিউব শিডিউল আপলোড
             print("Rendering 16:9 Landscape slideshow for YouTube upload...")
             render_video_slideshow(audio_path, img_files, out_video_file, is_vertical=False)
             
@@ -82,7 +93,7 @@ def process_ready_videos(yt):
                 schedule_upload=True
             )
             
-            # ৪. ৯:১৬ পোর্ট্রেট ভিডিও রেন্ডার (JobLive)
+            # ৬. ৯:১৬ পোর্ট্রেট ভিডিও রেন্ডার (JobLive)
             if upload_success:
                 try:
                     if not os.path.exists(LIVESTREAM_DIR): os.makedirs(LIVESTREAM_DIR, exist_ok=True)
@@ -92,7 +103,7 @@ def process_ready_videos(yt):
                     print(f"Rendering 9:16 Vertical slideshow for JobLive: {live_video_file}")
                     render_video_slideshow(audio_path, img_files, live_video_file, is_vertical=True)
                 except Exception as live_err:
-                    print(f"⚠️ JobLive generation notice: {live_err}")
+                    print(f"⚠️ JobLive notice: {live_err}")
 
                 shutil.rmtree(folder_path, ignore_errors=True)
                 print(f"✅ Folder '{folder_name}' successfully processed and uploaded.\n")
@@ -127,7 +138,7 @@ def process_shorts_folder(yt):
                 except Exception: pass
 
 if __name__ == "__main__":
-    print("\n====== [ Google Drive Bot Active | Multi-Model Priority Engine ] ======\n")
+    print("\n====== [ Google Drive Bot Active | Auto Filter & AI Engine ] ======\n")
     try:
         yt_service = get_youtube_service()
         
