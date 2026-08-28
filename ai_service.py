@@ -6,20 +6,41 @@ OLLAMA_API_KEY = os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "https://api.ollama.com").rstrip("/")
 GROQ_API = os.environ.get("GROQ_API", "").strip()
 
-# 🌟 Ollama মডেলের অগ্রাধিকার তালিকা
 OLLAMA_MODELS = ["kimi-k3", "minimax-m3", "gemma4", "kimi-k2.6"]
-
-# 🌟 Groq AI এর দ্রুততম মডেল তালিকা
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
+# ট্যাগ তালিকা সংক্ষিপ্ত ও নিরাপদ করা হয়েছে যাতে ৫০০ ক্যারেক্টার লিমিট ক্রস না করে
 DEFAULT_BASE_TAGS = [
-    'চাকরির আবেদন', 'অনলাইন চাকরির আবেদন', 'সরকারি চাকরির আবেদন', 'বেসরকারি চাকরির আবেদন',
-    'চাকরির সার্কুলার', 'চাকরির খবর', 'ঘরে বসে চাকরির আবেদন', 'চাকরির ফর্ম পূরণ',
-    'চাকরির আবেদন করার নিয়ম', 'অনলাইনে ফর্ম পূরণ', 'সরকারি চাকরি ২০২৬', 'নতুন চাকরির খবর',
-    'job circular', 'govt job circular', 'private job circular', 'job application bd',
-    'online job application bangladesh', 'how to apply for jobs online', 'job application service',
-    'online form fill up bd', 'government job apply', 'private job apply', 'job circular 2026'
+    'চাকরির সার্কুলার', 'চাকরির খবর', 'সরকারি চাকরি ২০২৬',
+    'job circular', 'govt job circular', 'job application bd'
 ]
+
+def sanitize_youtube_tags(raw_tags, max_total_chars=400):
+    """ইউটিউব ট্যাগের অবৈধ অক্ষর/ইমোজি দূর করে এবং মোট দৈর্ঘ্য ৪০০ ক্যারেক্টারের ভেতর রাখে"""
+    clean_tags = []
+    current_length = 0
+    
+    for tag in raw_tags:
+        if not tag or not isinstance(tag, str):
+            continue
+        # ইমোজি ও নিষিদ্ধ চিহ্ন রিমুভ
+        cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|[\<\>\"\,\n\r]', '', tag)
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        
+        if not cleaned or len(cleaned) < 2:
+            continue
+            
+        cleaned = cleaned[:50].strip()
+        
+        if cleaned not in clean_tags:
+            tag_len = len(cleaned) + (1 if clean_tags else 0)
+            if current_length + tag_len <= max_total_chars:
+                clean_tags.append(cleaned)
+                current_length += tag_len
+            else:
+                break
+                
+    return clean_tags
 
 def clean_title_for_display(title):
     clean = title.split('|')[0].split('||')[0].strip()
@@ -51,7 +72,6 @@ def encode_image_base64(image_path, max_dim=1024):
     except Exception: return None
 
 def parse_json_safely(raw_text):
-    """AI এর রেসপন্স থেকে সঠিকভাবে JSON বের করে"""
     try:
         json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
         if json_match:
@@ -90,7 +110,7 @@ Return a strictly valid JSON object:
 
 [3 to 5 targeted Bengali/English hashtags for this job]
 ---
-4. "specific_tags": A list of 6 to 10 specific SEO tags in Bengali & English for this job.
+4. "specific_tags": A list of 4 to 6 specific SEO tags without any emojis or commas.
 5. "top_text": 2-3 clean Bengali words for Thumbnail Top Bar (e.g., "সরকারি চাকরি", "বাংলাদেশ নৌবাহিনী", "পানি উন্নয়ন বোর্ড"). DO NOT use any ✪ or star symbols.
 6. "row1_text": 2-4 impactful words for Thumbnail Main Hook in RED (e.g., "নিজ জেলায়", "নাবিক পদে নিয়োগ", "অফিস সহায়ক").
 7. "row2_text": 2-4 bold words for Thumbnail Sub-line in BLACK (e.g., "DC অফিসে চাকরি", "নৌবাহিনীতে নিয়োগ", "(SSC পাশ/৬৪ জেলা)").
@@ -129,7 +149,8 @@ Return strictly valid JSON:
                         opt_title = data.get("optimized_title").strip()[:100]
                         script = re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip())
                         desc = data.get("video_description", "").strip()
-                        tags = list(dict.fromkeys([str(t).strip() for t in data.get("specific_tags", []) + DEFAULT_BASE_TAGS if str(t).strip()]))
+                        raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
+                        tags = sanitize_youtube_tags(raw_tags)
                         
                         thumb_meta = {
                             "top_text": strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি")),
@@ -167,7 +188,8 @@ Return strictly valid JSON:
                         opt_title = data.get("optimized_title").strip()[:100]
                         script = re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip())
                         desc = data.get("video_description", "").strip()
-                        tags = list(dict.fromkeys([str(t).strip() for t in data.get("specific_tags", []) + DEFAULT_BASE_TAGS if str(t).strip()]))
+                        raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
+                        tags = sanitize_youtube_tags(raw_tags)
 
                         thumb_meta = {
                             "top_text": strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি")),
@@ -176,8 +198,6 @@ Return strictly valid JSON:
                             "bot_text": strip_unwanted_chars(data.get("bot_text", "নিয়োগ ২০২৬"))
                         }
                         print(f"✨ Successfully Generated via Groq AI ({g_model})!")
-                        print(f"📌 SEO Title: {opt_title}")
-                        print(f"🎙️ Script Word Count: {len(script.split())} words")
                         return opt_title, script, thumb_meta, desc, tags
                 else:
                     print(f"⚠️ Groq '{g_model}' error ({resp.status_code}): {resp.text[:120]}")
