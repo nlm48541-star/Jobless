@@ -1,16 +1,14 @@
 # -*- coding: utf-8 -*-
 import os, re, time, requests
 
-# 🌟 আপনার টেস্ট করা সেরা 'Mark - Natural Conversations' ভয়েস আইডি
-DEFAULT_VOICE_ID = "UgBBYS2sOqTuMpoF3BR0"
+# 🌟 ফ্রি এপিআই-এর জন্য অনুমোদিত সবচেয়ে সেরা পুরুষ কণ্ঠ (George - News Anchor Tone)
+FREE_PERMITTED_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"
 
 def mask_key(k):
-    """লগে এপিআই কী নিরাপদভাবে প্রদর্শন করে (যেমন: sk_1...a8f9)"""
     if not k or len(k) <= 8: return "****"
     return k[:4] + "..." + k[-4:]
 
 def clean_script_for_speech(raw_text):
-    """স্ক্রিপ্ট থেকে সব মার্কডাউন ও অনাকাঙ্ক্ষিত চিহ্ন মুছে স্বাভাবিক উচ্চারণে রূপান্তর করে"""
     if not raw_text: return ""
     text = re.sub(r'[\*\_\|\#\~]', '', raw_text)
     text = re.sub(r'\[.*?\]', '', text)
@@ -24,71 +22,81 @@ def get_all_elevenlabs_keys():
     if not raw_keys: return []
     return [k.strip() for k in re.split(r'[\r\n,;]+', raw_keys) if k.strip()]
 
-def get_voice_info(api_key, voice_id):
-    """ভয়েসের নাম এবং ক্যাটাগরি ডিটেলস বের করে লগে দেখানোর জন্য"""
+def get_best_free_voice(api_key):
+    """
+    অ্যাকাউন্ট স্ক্যান করে শুধুমাত্র ফ্রি-অনুমোদিত (premade বা generated) ভয়েস সিলেক্ট করে।
+    লাইব্রেরি/প্রফেশনাল ভয়েস এড়িয়ে চলে যাতে 402 এরর না আসে।
+    """
     try:
         url = "https://api.elevenlabs.io/v1/voices"
         headers = {"xi-api-key": api_key}
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code == 200:
             voices = resp.json().get("voices", [])
+            
+            # ১. ব্যবহারকারীর তৈরি কাস্টম ভয়েস
             for v in voices:
-                if v.get("voice_id") == voice_id:
-                    return f"'{v.get('name')}' (Category: {v.get('category')}, ID: {voice_id})"
+                if v.get("category") == "generated":
+                    return v.get("voice_id"), f"'{v.get('name')}' (Custom Generated)"
+            
+            # ২. ডিফল্ট সেরা ফ্রি পুরুষ ভয়েস (George / Adam)
+            for v in voices:
+                if v.get("category") == "premade" and "george" in v.get("name", "").lower():
+                    return v.get("voice_id"), f"'{v.get('name')}' (Premade Official)"
+            for v in voices:
+                if v.get("category") == "premade" and "adam" in v.get("name", "").lower():
+                    return v.get("voice_id"), f"'{v.get('name')}' (Premade Official)"
+                    
+            # ৩. যেকোনো সক্রিয় premade ভয়েস
+            for v in voices:
+                if v.get("category") == "premade":
+                    return v.get("voice_id"), f"'{v.get('name')}' (Premade Official)"
     except Exception:
         pass
-    return f"ID: {voice_id}"
+        
+    return FREE_PERMITTED_VOICE_ID, "'George' (Default Premade Official)"
 
 def generate_voiceover_audio_pipeline(text, output_audio_path):
-    """
-    🌟 ElevenLabs Eleven v3 মডেল দিয়ে অডিও তৈরি এবং অত্যন্ত স্পষ্ট ও বিস্তারিত লগ প্রিন্ট করে
-    """
     print("\n" + "="*65)
-    print("🎙️ [AUDIO ENGINE] Starting ElevenLabs Voiceover Pipeline")
+    print("🎙️ [AUDIO ENGINE] Starting ElevenLabs Eleven v3 Voiceover Pipeline")
     print("="*65)
 
-    # ১. স্ক্রিপ্ট প্রসেসিং ও প্রিভিউ
-    raw_chars = len(text) if text else 0
     speech_text = clean_script_for_speech(text)
+    raw_chars = len(text) if text else 0
     clean_chars = len(speech_text)
     words = len(speech_text.split())
 
     print(f"📊 [Text Analysis] Raw: {raw_chars} chars ➔ Clean: {clean_chars} chars | Words: {words}")
     print(f"📝 [Script Preview]: \"{speech_text[:140]}...\"\n")
 
-    # ২. এপিআই কী চেক
     eleven_keys = get_all_elevenlabs_keys()
     if not eleven_keys:
-        print("❌ [CRITICAL ERROR] No ElevenLabs API keys found in environment secrets!")
+        print("❌ [CRITICAL ERROR] No ElevenLabs API keys found in secrets!")
         print("="*65 + "\n")
         return False
 
     print(f"🔑 [API Key Pool] Total {len(eleven_keys)} ElevenLabs key(s) loaded.")
 
-    target_voice_id = os.environ.get("ELEVENLABS_VOICE_ID", DEFAULT_VOICE_ID).strip() or DEFAULT_VOICE_ID
-    tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{target_voice_id}"
-
-    payload = {
-        "text": speech_text,
-        "model_id": "eleven_v3",
-        "language_code": "bn",
-        "voice_settings": {
-            "stability": 0.5,
-            "similarity_boost": 0.75
-        }
-    }
-
-    # ৩. কী-ভিত্তিক রিকোয়েস্ট লুপ
     for idx, api_key in enumerate(eleven_keys, start=1):
         masked = mask_key(api_key)
-        voice_desc = get_voice_info(api_key, target_voice_id)
+        voice_id, voice_name = get_best_free_voice(api_key)
+        tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
         print(f"\n--- [Attempting Key #{idx}/{len(eleven_keys)}] ---")
         print(f"  • Active Key    : {masked}")
-        print(f"  • Target Voice  : {voice_desc}")
-        print(f"  • AI Model      : eleven_v3 (Language: 'bn' - Bengali)")
-        print(f"  • Voice Tuning  : Stability=0.5, SimilarityBoost=0.75")
+        print(f"  • Selected Voice: {voice_name} [ID: {voice_id}]")
+        print(f"  • Model         : eleven_v3 (Language: 'bn' - Bengali)")
         print(f"  • Endpoint URL  : {tts_url}")
+
+        payload = {
+            "text": speech_text,
+            "model_id": "eleven_v3",
+            "language_code": "bn",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75
+            }
+        }
 
         headers = {
             "Accept": "audio/mpeg",
@@ -98,7 +106,7 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
 
         start_time = time.time()
         try:
-            print("  ⏳ Sending synthesis request to ElevenLabs API...")
+            print("  ⏳ Sending synthesis request to ElevenLabs...")
             resp = requests.post(tts_url, json=payload, headers=headers, timeout=120)
             elapsed = round(time.time() - start_time, 2)
 
@@ -111,29 +119,29 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
                 with open(output_audio_path, "wb") as f:
                     f.write(resp.content)
 
-                print(f"  ✅ [SUCCESS] Bengali Voiceover Generated Successfully!")
+                print(f"  ✅ [SUCCESS] Eleven v3 Bengali Voiceover Generated Successfully!")
                 print(f"  📁 Saved Path  : {output_audio_path} ({audio_mb} MB / {audio_bytes:,} bytes)")
                 print("="*65 + "\n")
                 return True
 
             else:
                 print(f"  ⚠️ [FAILED] Server returned status code: {resp.status_code}")
-                print(f"  📄 Error Body  : {resp.text[:400]}")
+                print(f"  📄 Error Body  : {resp.text[:300]}")
                 
                 if resp.status_code in [401, 402, 429] or "quota" in resp.text.lower() or "credit" in resp.text.lower():
-                    print("  🔄 Reason      : Quota/Credit limit reached or invalid key. Switching to next key...")
+                    print("  🔄 Reason      : Quota exhausted or invalid key. Trying next key...")
                 else:
-                    print("  🔄 Reason      : Unexpected API error. Switching to next key...")
+                    print("  🔄 Reason      : API error. Trying next key...")
                 continue
 
         except requests.exceptions.Timeout:
-            print(f"  ❌ [TIMEOUT] Request timed out after 120 seconds with Key #{idx}.")
+            print(f"  ❌ [TIMEOUT] Request timed out after 120s with Key #{idx}.")
             continue
         except Exception as e:
-            print(f"  ❌ [ERROR] Network/Connection error with Key #{idx}: {e}")
+            print(f"  ❌ [ERROR] Network exception with Key #{idx}: {e}")
             continue
 
     print("\n" + "="*65)
-    print("❌ [ALL KEYS EXHAUSTED] Audio generation failed across all available keys.")
+    print("❌ [ALL KEYS EXHAUSTED] Audio generation failed across all keys.")
     print("="*65 + "\n")
     return False
