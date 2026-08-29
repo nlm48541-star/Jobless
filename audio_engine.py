@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 import os, re, requests
 
-FALLBACK_FREE_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"
+# 🌟 আপনার টেস্ট করা চমৎকার 'Mark - Natural Conversations' ভয়েস আইডি
+MARK_VOICE_ID = "UgBBYS2sOqTuMpoF3BR0"
 
 def get_all_elevenlabs_keys():
     raw_keys = os.environ.get("ELEVENLABS_API_KEYS", os.environ.get("ELEVENLABS_API_KEY", "")).strip()
@@ -10,24 +11,43 @@ def get_all_elevenlabs_keys():
 
 def get_available_voice_id(api_key):
     """
-    অ্যাকাউন্টে থাকা যেকোনো সক্রিয় ভয়েস আইডি ডাইনামিকভাবে খুঁজে বের করে।
+    অ্যাকাউন্টে Mark ভয়েস থাকলে সেটি অগ্রাধিকার দেবে, না থাকলে সক্রিয় যেকোনো ফ্রি ভয়েস নেবে।
     """
+    # ব্যবহারকারী যদি গিটহাব সিক্রেটসে ELEVENLABS_VOICE_ID দিয়ে থাকে তবে সেটি নেবে
+    env_voice = os.environ.get("ELEVENLABS_VOICE_ID", "").strip()
+    if env_voice:
+        return env_voice
+
     try:
         url = "https://api.elevenlabs.io/v1/voices"
         headers = {"xi-api-key": api_key}
         resp = requests.get(url, headers=headers, timeout=15)
         if resp.status_code == 200:
             voices = resp.json().get("voices", [])
+            
+            # ১. প্রথমে 'Mark' ভয়েস খুঁজবে
             for v in voices:
-                if v.get("category") in ["premade", "generated"]:
+                if "mark" in v.get("name", "").lower():
+                    return v.get("voice_id")
+            
+            # ২. না পেলে ব্যবহারকারীর কাস্টম তৈরি করা কোনো ভয়েস খুঁজবে
+            for v in voices:
+                if v.get("category") == "generated":
+                    return v.get("voice_id")
+                    
+            # ৩. অন্যথায় প্রথম সক্রিয় ফ্রি ভয়েস
+            for v in voices:
+                if v.get("category") == "premade":
                     return v.get("voice_id")
     except Exception:
         pass
-    return FALLBACK_FREE_VOICE_ID
+        
+    return MARK_VOICE_ID
 
 def generate_voiceover_audio_pipeline(text, output_audio_path):
     """
-    🌟 ElevenLabs 'Eleven v3' মডেল ব্যবহার করে খাঁটি ও স্পষ্ট বাংলা অডিও তৈরি করে।
+    🌟 ElevenLabs 'Eleven v3' মডেল এবং 'language_code: bn' ব্যবহার করে 
+    ওয়েবসাইটের মতো খাঁটি ও নিখুঁত বাংলা অডিও তৈরি করে।
     """
     eleven_keys = get_all_elevenlabs_keys()
     
@@ -45,17 +65,18 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
         voice_id = get_available_voice_id(api_key)
         tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
         
-        # 🌟 Eleven v3 মডেল কনফিগারেশন
+        # 🌟 Eleven v3 + বাংলা ভাষা বাধ্যতামূলক কনফিগারেশন
         payload = {
             "text": text,
             "model_id": "eleven_v3",
+            "language_code": "bn",  # 🔥 এটিই ব্রাউজারের মতো ১০০% স্বাভাবিক বাংলা উচ্চারণ নিশ্চিত করে
             "voice_settings": {
                 "stability": 0.5
             }
         }
 
         try:
-            print(f"🎙️ Synthesizing with ElevenLabs Key #{idx}/{len(eleven_keys)} (Model: Eleven v3 | Voice: {voice_id})...")
+            print(f"🎙️ Synthesizing with ElevenLabs Key #{idx}/{len(eleven_keys)} (Model: Eleven v3 | Lang: Bengali | Voice: {voice_id})...")
             resp = requests.post(tts_url, json=payload, headers=headers, timeout=90)
             
             if resp.status_code == 200:
