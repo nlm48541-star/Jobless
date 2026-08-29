@@ -1,59 +1,48 @@
 # -*- coding: utf-8 -*-
 import os, re, requests
 
-# 🌟 আপনার টেস্ট করা চমৎকার 'Mark - Natural Conversations' ভয়েস আইডি
-MARK_VOICE_ID = "UgBBYS2sOqTuMpoF3BR0"
+# 🌟 আপনার টেস্ট করা সেরা 'Mark - Natural Conversations' ভয়েস আইডি
+DEFAULT_VOICE_ID = "UgBBYS2sOqTuMpoF3BR0"
+
+def clean_script_for_speech(raw_text):
+    """স্ক্রিপ্ট থেকে সব মার্কডাউন ও অনাকাঙ্ক্ষিত চিহ্ন মুছে স্বাভাবিক বাচনে রূপান্তর করে"""
+    if not raw_text:
+        return ""
+    text = re.sub(r'[\*\_\|\#\~]', '', raw_text)
+    text = re.sub(r'\[.*?\]', '', text)
+    text = re.sub(r'https?://\S+|wa\.me/\S+', '', text)
+    text = re.sub(r'[\<\>\{\}\(\)\@\$\^\&\+\=\_\\\/]', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 def get_all_elevenlabs_keys():
     raw_keys = os.environ.get("ELEVENLABS_API_KEYS", os.environ.get("ELEVENLABS_API_KEY", "")).strip()
     if not raw_keys: return []
     return [k.strip() for k in re.split(r'[\r\n,;]+', raw_keys) if k.strip()]
 
-def get_available_voice_id(api_key):
-    """
-    অ্যাকাউন্টে Mark ভয়েস থাকলে সেটি অগ্রাধিকার দেবে, না থাকলে সক্রিয় যেকোনো ফ্রি ভয়েস নেবে।
-    """
-    # ব্যবহারকারী যদি গিটহাব সিক্রেটসে ELEVENLABS_VOICE_ID দিয়ে থাকে তবে সেটি নেবে
-    env_voice = os.environ.get("ELEVENLABS_VOICE_ID", "").strip()
-    if env_voice:
-        return env_voice
-
-    try:
-        url = "https://api.elevenlabs.io/v1/voices"
-        headers = {"xi-api-key": api_key}
-        resp = requests.get(url, headers=headers, timeout=15)
-        if resp.status_code == 200:
-            voices = resp.json().get("voices", [])
-            
-            # ১. প্রথমে 'Mark' ভয়েস খুঁজবে
-            for v in voices:
-                if "mark" in v.get("name", "").lower():
-                    return v.get("voice_id")
-            
-            # ২. না পেলে ব্যবহারকারীর কাস্টম তৈরি করা কোনো ভয়েস খুঁজবে
-            for v in voices:
-                if v.get("category") == "generated":
-                    return v.get("voice_id")
-                    
-            # ৩. অন্যথায় প্রথম সক্রিয় ফ্রি ভয়েস
-            for v in voices:
-                if v.get("category") == "premade":
-                    return v.get("voice_id")
-    except Exception:
-        pass
-        
-    return MARK_VOICE_ID
-
 def generate_voiceover_audio_pipeline(text, output_audio_path):
     """
-    🌟 ElevenLabs 'Eleven v3' মডেল এবং 'language_code: bn' ব্যবহার করে 
-    ওয়েবসাইটের মতো খাঁটি ও নিখুঁত বাংলা অডিও তৈরি করে।
+    🌟 ElevenLabs 'Eleven v3' এবং Mark ভয়েস দিয়ে ওয়েব ব্রাউজারের মতো নিখুঁত বাংলা অডিও তৈরি করে
     """
     eleven_keys = get_all_elevenlabs_keys()
-    
     if not eleven_keys:
         print("❌ No ElevenLabs API keys provided in secrets. Audio generation aborted.")
         return False
+
+    # স্পিচের জন্য টেক্সট ক্লিন করা
+    speech_text = clean_script_for_speech(text)
+    voice_id = os.environ.get("ELEVENLABS_VOICE_ID", DEFAULT_VOICE_ID).strip() or DEFAULT_VOICE_ID
+    tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+
+    payload = {
+        "text": speech_text,
+        "model_id": "eleven_v3",
+        "language_code": "bn",
+        "voice_settings": {
+            "stability": 0.5,
+            "similarity_boost": 0.75
+        }
+    }
 
     for idx, api_key in enumerate(eleven_keys, start=1):
         headers = {
@@ -61,22 +50,9 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
             "Content-Type": "application/json",
             "xi-api-key": api_key
         }
-        
-        voice_id = get_available_voice_id(api_key)
-        tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-        
-        # 🌟 Eleven v3 + বাংলা ভাষা বাধ্যতামূলক কনফিগারেশন
-        payload = {
-            "text": text,
-            "model_id": "eleven_v3",
-            "language_code": "bn",  # 🔥 এটিই ব্রাউজারের মতো ১০০% স্বাভাবিক বাংলা উচ্চারণ নিশ্চিত করে
-            "voice_settings": {
-                "stability": 0.5
-            }
-        }
 
         try:
-            print(f"🎙️ Synthesizing with ElevenLabs Key #{idx}/{len(eleven_keys)} (Model: Eleven v3 | Lang: Bengali | Voice: {voice_id})...")
+            print(f"🎙️ Synthesizing with ElevenLabs Key #{idx}/{len(eleven_keys)} (Model: Eleven v3 | Voice: Mark)...")
             resp = requests.post(tts_url, json=payload, headers=headers, timeout=90)
             
             if resp.status_code == 200:
