@@ -38,19 +38,25 @@ def get_fixed_bar_font():
     return valid_fonts[0] if valid_fonts else "BengaliFont.ttf"
 
 def get_two_distinct_middle_fonts():
-    """মাঝখানের দুটি লাইনের জন্য আলাদা দুটি ভিন্ন ১০০% ইউনিকোড বাংলা ফন্ট বেছে নেয়"""
+    """
+    🌟 নিশ্চিত করে যে মাঝখানের দুটি লাইনে দুটি সম্পূর্ণ আলাদা এবং ভিন্ন র‍্যান্ডম ফন্ট ব্যবহৃত হবে
+    """
     valid_fonts = get_verified_bengali_fonts()
+    # মাঝখানের জন্য স্টাইলিশ ফন্ট তালিকা (Kalpurush বাদে)
     display_fonts = [f for f in valid_fonts if "kalpurush" not in os.path.basename(f).lower()]
     
     if len(display_fonts) >= 2:
-        return random.sample(display_fonts, 2)
+        # ২টি সম্পূর্ণ ভিন্ন ফন্ট বাছাই
+        font1, font2 = random.sample(display_fonts, 2)
+        return font1, font2
     elif len(display_fonts) == 1 and len(valid_fonts) >= 2:
-        other = [f for f in valid_fonts if f != display_fonts[0]][0]
-        return display_fonts[0], other
+        font1 = display_fonts[0]
+        remaining = [f for f in valid_fonts if f != font1]
+        font2 = random.choice(remaining)
+        return font1, font2
     elif len(valid_fonts) >= 2:
-        return random.sample(valid_fonts, 2)
-    elif len(valid_fonts) == 1:
-        return valid_fonts[0], valid_fonts[0]
+        font1, font2 = random.sample(valid_fonts, 2)
+        return font1, font2
     else:
         bar_f = get_fixed_bar_font()
         return bar_f, bar_f
@@ -89,11 +95,15 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     row2_text = strip_unwanted_chars(thumb_meta.get("row2_text", "(SSC পাশ/৬৪ জেলা)"))
     bot_text = strip_unwanted_chars(thumb_meta.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
 
-    # ফন্ট নির্ধারণ
+    # ১. ফন্ট নির্ধারণ (টপ/বটমে ফিক্সড Kalpurush এবং মাঝের দুটি লাইনে ২টি সম্পূর্ণ আলাদা ফন্ট)
     bar_font = get_fixed_bar_font()
     font_line1, font_line2 = get_two_distinct_middle_fonts()
 
-    # ১. টপ বার
+    print(f"🎨 [Thumbnail Fonts Applied] Top/Bottom Bar: {os.path.basename(str(bar_font))}")
+    print(f"   ├─ Middle Line 1 (Red)  : {os.path.basename(str(font_line1))}")
+    print(f"   └─ Middle Line 2 (Black): {os.path.basename(str(font_line2))}")
+
+    # ২. টপ বার (0 to 200px)
     green_bg = "#00531b"
     draw.rectangle([0, 0, W, 200], fill=green_bg)
     
@@ -109,10 +119,12 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     f_top, _ = get_fitted_font(top_text, max_w=W - 420, max_h=150, font_file=bar_font, start_size=155, min_size=80)
     draw.text((W // 2, 100), top_text, fill="#ffffff", font=f_top, anchor="mm")
 
-    # ২. মিডল সেকশন (মাঝের দুটি লাইনে দুটি আলাদা ফন্ট)
+    # ৩. মিডল সেকশন (200 to 880px) — মাঝের দুটি লাইনে দুটি আলাদা ফন্টে বিশাল বড় লেখা
     draw.rectangle([0, 200, W, 880], fill="#ffffff")
 
+    # লাল লাইন ১ (বিশাল সাইজ)
     f_l1, _ = get_fitted_font(row1_text, max_w=W - 100, max_h=340, font_file=font_line1, start_size=310, min_size=130)
+    # কালো লাইন ২ (বিশাল সাইজ)
     f_l2, _ = get_fitted_font(row2_text, max_w=W - 100, max_h=290, font_file=font_line2, start_size=260, min_size=110)
 
     bb1 = f_l1.getbbox(row1_text)
@@ -130,7 +142,7 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     # লাইন ২: গাঢ় কালো
     draw.text((W // 2, start_y + h1 + line_spacing + (h2 // 2)), row2_text, fill="#000000", font=f_l2, anchor="mm")
 
-    # ৩. বটম বার
+    # ৪. বটম বার (880 to 1080px)
     draw.rectangle([0, 880, W, H], fill=green_bg)
     f_bot, _ = get_fitted_font(bot_text, max_w=W - 80, max_h=150, font_file=bar_font, start_size=155, min_size=80)
     draw.text((W // 2, 980), bot_text, fill="#ffe600", font=f_bot, anchor="mm")
