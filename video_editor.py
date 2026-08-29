@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-import os, numpy as np
+import os
+import numpy as np
 from PIL import Image
 from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips, ImageClip, CompositeVideoClip
 
@@ -10,28 +11,55 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
     target_ratio = target_w / target_h
 
     if target_w < target_h:
+        # ৯:১৬ পোর্ট্রেট ভিডিও (JobLive / Shorts)
         if ratio < (9.0 / 16.0) - 0.01:
             new_w, new_h = target_w, max(target_h, int((target_w / w) * h))
             img_np = np.array(pil_img.resize((new_w, new_h), Image.LANCZOS))
-            return VideoClip(lambda t: img_np[int((t / duration if duration > 0 else 0) * (new_h - target_h)):int((t / duration if duration > 0 else 0) * (new_h - target_h))+target_h, 0:target_w], duration=duration)
+            max_offset = max(0, new_h - target_h)
+            def frame_getter(t):
+                prog = min(1.0, max(0.0, t / duration if duration > 0 else 0))
+                y_start = int(prog * max_offset)
+                return img_np[y_start : y_start + target_h, 0:target_w]
+            clip = VideoClip(frame_getter, duration=duration)
         elif (9.0 / 16.0) - 0.01 <= ratio < (16.0 / 9.0) - 0.01:
             scale = min(target_w / w, target_h / h)
             resized = pil_img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
             canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
             canvas.paste(resized, ((target_w - int(w * scale)) // 2, (target_h - int(h * scale)) // 2))
             img_np = np.array(canvas)
-            return VideoClip(lambda t: img_np, duration=duration)
+            clip = VideoClip(lambda t: img_np, duration=duration)
         else:
             new_h, new_w = target_h, max(target_w, int((target_h / h) * w))
             img_np = np.array(pil_img.resize((new_w, new_h), Image.LANCZOS))
-            return VideoClip(lambda t: img_np[0:target_h, int((t / duration if duration > 0 else 0) * (new_w - target_w)):int((t / duration if duration > 0 else 0) * (new_w - target_w))+target_w], duration=duration)
+            max_offset = max(0, new_w - target_w)
+            def frame_getter(t):
+                prog = min(1.0, max(0.0, t / duration if duration > 0 else 0))
+                x_start = int(prog * max_offset)
+                return img_np[0:target_h, x_start : x_start + target_w]
+            clip = VideoClip(frame_getter, duration=duration)
     else:
-        if ratio >= target_ratio: new_h, new_w = target_h, int((target_h / h) * w)
-        else: new_w, new_h = target_w, int((target_w / w) * h)
+        # ১৬:৯ ল্যান্ডস্কেপ ভিডিও (YouTube Regular Video)
+        if ratio >= target_ratio: 
+            new_h, new_w = target_h, int((target_h / h) * w)
+        else: 
+            new_w, new_h = target_w, int((target_w / w) * h)
         if new_w < target_w: new_w, new_h = target_w, int((new_w / w) * h)
         if new_h < target_h: new_h, new_w = target_h, int((new_h / h) * w)
+        
         img_np = np.array(pil_img.resize((new_w, new_h), Image.LANCZOS))
-        return VideoClip(lambda t: img_np[int((t / duration if duration > 0 else 0) * (new_h - target_h)):int((t / duration if duration > 0 else 0) * (new_h - target_h))+target_h, int((t / duration if duration > 0 else 0) * (new_w - target_w)):int((t / duration if duration > 0 else 0) * (new_w - target_w))+target_w], duration=duration)
+        max_y_offset = max(0, new_h - target_h)
+        max_x_offset = max(0, new_w - target_w)
+        
+        def frame_getter(t):
+            prog = min(1.0, max(0.0, t / duration if duration > 0 else 0))
+            y_start = int(prog * max_y_offset)
+            x_start = int(prog * max_x_offset)
+            return img_np[y_start : y_start + target_h, x_start : x_start + target_w]
+            
+        clip = VideoClip(frame_getter, duration=duration)
+
+    pil_img.close()
+    return clip
 
 def find_front_overlay_file():
     for c in ["Front.png", "front.png", "FRONT.PNG"]:
@@ -51,6 +79,8 @@ def apply_front_overlay(main_clip, target_w, target_h):
             pil_front_resized = pil_front.resize((scaled_w, scaled_h), Image.LANCZOS)
             
             front_np = np.array(pil_front_resized)
+            pil_front.close()
+
             front_clip = ImageClip(front_np[:, :, :3]).set_duration(main_clip.duration)
             mask_clip = ImageClip(front_np[:, :, 3] / 255.0, ismask=True).set_duration(main_clip.duration)
             front_clip = front_clip.set_mask(mask_clip)
@@ -69,10 +99,14 @@ def apply_front_overlay(main_clip, target_w, target_h):
             
             front_clip = front_clip.set_position(floating_pos)
             main_clip = CompositeVideoClip([main_clip, front_clip]).set_audio(main_clip.audio)
-        except Exception: pass
+        except Exception: 
+            pass
     return main_clip
 
 def render_video_slideshow(audio_path, img_files, out_file, is_vertical=False):
+    if not img_files:
+        raise ValueError("No images provided for slideshow rendering.")
+
     target_w, target_h = (1080, 1920) if is_vertical else (1920, 1080)
     audio_clip = AudioFileClip(audio_path)
     per_img_duration = audio_clip.duration / len(img_files)
@@ -82,10 +116,23 @@ def render_video_slideshow(audio_path, img_files, out_file, is_vertical=False):
     final_video = apply_front_overlay(final_video, target_w, target_h)
 
     final_video.write_videofile(
-        out_file, fps=30, codec="libx264", audio_codec="aac", threads=4, preset="ultrafast",
-        ffmpeg_params=["-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-pix_fmt", "yuv420p"],
+        out_file, 
+        fps=30, 
+        codec="libx264", 
+        audio_codec="aac", 
+        audio_bitrate="192k",
+        threads=4, 
+        preset="ultrafast",
+        ffmpeg_params=[
+            "-g", "60", 
+            "-keyint_min", "60", 
+            "-sc_threshold", "0", 
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart"
+        ],
         logger=None
     )
     final_video.close()
     audio_clip.close()
-    for c in clips: c.close()
+    for c in clips: 
+        c.close()
