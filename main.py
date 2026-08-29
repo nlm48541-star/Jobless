@@ -20,21 +20,30 @@ def process_ready_videos(yt):
     for folder_name in folders:
         folder_path = os.path.join(WORKSPACE_DIR, folder_name)
         try:
-            # 🌟 ১. যদি কোনো ফোল্ডারের নামে 'এনজিও' বা 'ব্যাংক' থাকে, সাথে সাথে ড্রাইভ থেকে ডিলিট
+            # ১. যদি কোনো ফোল্ডারের নামে 'এনজিও' বা 'ব্যাংক' থাকে, সাথে সাথে ডিলিট
             if is_forbidden_article(folder_name):
                 print(f"🚫 [FILTERED] Deleting forbidden folder '{folder_name}' (এনজিও / ব্যাংক).")
                 shutil.rmtree(folder_path, ignore_errors=True)
                 continue
 
-            audio_file, txt_path = None, None
+            custom_audio_file, txt_path = None, None
             img_files = []
+            
             for file in sorted(os.listdir(folder_path)):
                 ext = file.lower().split('.')[-1]
-                if ext in ['mp3', 'wav', 'm4a', 'aac']: audio_file = file
-                elif ext in ['txt']: txt_path = os.path.join(folder_path, file)
-                elif ext in ['jpg', 'jpeg', 'png', 'webp']: img_files.append(os.path.join(folder_path, file))
+                if ext in ['mp3', 'wav', 'm4a', 'aac']:
+                    # যদি আগের ব্যর্থ রানের voiceover.mp3 থাকে তা ইগনোর করে ফ্রেশ জেনারেট করবে
+                    if file.lower() == "voiceover.mp3":
+                        try: os.remove(os.path.join(folder_path, file))
+                        except Exception: pass
+                    else:
+                        custom_audio_file = file
+                elif ext in ['txt']: 
+                    txt_path = os.path.join(folder_path, file)
+                elif ext in ['jpg', 'jpeg', 'png', 'webp']: 
+                    img_files.append(os.path.join(folder_path, file))
                     
-            # 🌟 ২. কোনো ফোল্ডারে ছবি না থাকলে ডিলিট করে স্কিপ
+            # ২. কোনো ফোল্ডারে ছবি না থাকলে ডিলিট
             if not img_files:
                 print(f"🗑️ Deleting empty folder '{folder_name}' (No images found).")
                 shutil.rmtree(folder_path, ignore_errors=True)
@@ -54,7 +63,7 @@ def process_ready_videos(yt):
 
             print(f"\n========== Process started: {folder_name} ==========")
 
-            # ৩. এআই হায়ারার্কি দিয়ে টাইটেল, ৫ মিনিটের স্ক্রিপ্ট, ডেসক্রিপশন ও ট্যাগস জেনারেশন
+            # ৩. এআই দিয়ে স্ক্রিপ্ট ও মেটাডাটা তৈরি
             opt_title, voiceover_script, thumb_meta, video_desc, video_tags = generate_job_content(raw_title, img_files)
             
             if not opt_title or not voiceover_script:
@@ -63,25 +72,26 @@ def process_ready_videos(yt):
 
             video_title = opt_title
 
-            # ৪. ElevenLabs দিয়ে অডিও তৈরি (ব্যর্থ হলে ক্যানসেল)
-            if not audio_file:
+            # ৪. ElevenLabs Eleven v3 দিয়ে ফ্রেশ বাংলা অডিও তৈরি
+            if not custom_audio_file:
                 gen_audio_path = os.path.join(folder_path, "voiceover.mp3")
                 audio_success = generate_voiceover_audio_pipeline(voiceover_script, gen_audio_path)
                 if not audio_success or not os.path.exists(gen_audio_path):
-                    print(f"🛑 [CANCELLED] ElevenLabs failed for '{folder_name}'. Video creation aborted.")
+                    print(f"🛑 [CANCELLED] ElevenLabs audio synthesis failed for '{folder_name}'. Aborting.")
                     continue
                 audio_path = gen_audio_path
             else:
-                audio_path = os.path.join(folder_path, audio_file)
+                audio_path = os.path.join(folder_path, custom_audio_file)
 
+            # ৫. থাম্বনেইল জেনারেশন
             thumbnail_path = os.path.join(TMP_DIR, "thumbnail.jpg")
             if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
             generate_dynamic_thumbnail(raw_title, thumbnail_path, thumb_meta=thumb_meta)
 
+            # ৬. ১৬:৯ ল্যান্ডস্কেপ ভিডিও রেন্ডার ও আপলোড
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # ৫. ১৬:৯ ল্যান্ডস্কেপ ভিডিও রেন্ডার ও ইউটিউব শিডিউল আপলোড
             print("Rendering 16:9 Landscape slideshow for YouTube upload...")
             render_video_slideshow(audio_path, img_files, out_video_file, is_vertical=False)
             
@@ -93,7 +103,7 @@ def process_ready_videos(yt):
                 schedule_upload=True
             )
             
-            # ৬. ৯:১৬ পোর্ট্রেট ভিডিও রেন্ডার (JobLive)
+            # ৭. ৯:১৬ পোর্ট্রেট ভিডিও (JobLive)
             if upload_success:
                 try:
                     if not os.path.exists(LIVESTREAM_DIR): os.makedirs(LIVESTREAM_DIR, exist_ok=True)
