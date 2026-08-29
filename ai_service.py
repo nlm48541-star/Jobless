@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os, json, re, base64, requests
+from datetime import datetime
 from PIL import Image
 
 OLLAMA_API_KEY = os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", "")).strip()
@@ -9,17 +10,25 @@ GROQ_API = os.environ.get("GROQ_API", "").strip()
 OLLAMA_MODELS = ["kimi-k3", "minimax-m3", "gemma4", "kimi-k2.6"]
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
+def get_current_years():
+    """রিয়েল-টাইম বর্তমান সাল ইংরেজি ও বাংলায় বের করে"""
+    cur_year = datetime.now().year
+    en_to_bn = str.maketrans("0123456789", "০১২৩৪৫৬৭৮৯")
+    cur_year_bn = str(cur_year).translate(en_to_bn)
+    return str(cur_year), cur_year_bn
+
 DEFAULT_BASE_TAGS = [
-    'চাকরির সার্কুলার', 'চাকরির খবর', 'সরকারি চাকরি ২০২৬',
+    'চাকরির সার্কুলার', 'চাকরির খবর', 'সরকারি চাকরি',
     'job circular', 'govt job circular', 'job application bd'
 ]
 
-def fix_years_to_2026(text):
-    """২০২৪ বা ২০২৫ থাকলে সেটিকে স্বয়ংক্রিয়ভাবে ২০২৬ বানিয়ে দেবে"""
+def normalize_outdated_years(text):
+    """শুধুমাত্র পুরনো সাল (যেমন 2024/2025) থাকলে তা বর্তমান সালে রূপান্তর করে, জোর করে নতুন সাল যোগ করে না"""
     if not text:
         return text
-    text = re.sub(r'\b202[0-5]\b', '2026', str(text))
-    text = re.sub(r'২০২[০-৫]', '২০২৬', text)
+    cur_en, cur_bn = get_current_years()
+    text = re.sub(r'\b202[0-5]\b', cur_en, str(text))
+    text = re.sub(r'২০২[০-৫]', cur_bn, text)
     return text
 
 def sanitize_youtube_tags(raw_tags, max_total_chars=400):
@@ -28,7 +37,7 @@ def sanitize_youtube_tags(raw_tags, max_total_chars=400):
     for tag in raw_tags:
         if not tag or not isinstance(tag, str): continue
         cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|[\<\>\"\,\n\r]', '', tag)
-        cleaned = fix_years_to_2026(re.sub(r'\s+', ' ', cleaned).strip())
+        cleaned = normalize_outdated_years(re.sub(r'\s+', ' ', cleaned).strip())
         if not cleaned or len(cleaned) < 2: continue
         cleaned = cleaned[:50].strip()
         if cleaned not in clean_tags:
@@ -45,7 +54,7 @@ def clean_title_for_display(title):
 
 def strip_unwanted_chars(text):
     cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆', '', str(text))
-    return fix_years_to_2026(cleaned.strip())
+    return normalize_outdated_years(cleaned.strip())
 
 def extract_vacancy_and_qual(title):
     vac_match = re.search(r'(\d+|[০-৯]+)\s*(টি\s*)?পদে', title)
@@ -78,22 +87,25 @@ def parse_json_safely(raw_text):
         return None
 
 def generate_job_content(title, img_paths):
+    cur_en, cur_bn = get_current_years()
     clean_title = clean_title_for_display(title)
     words = clean_title.split()
     org_name = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else " ".join(words[:min(3, len(words))])
     vac_str, qual_str = extract_vacancy_and_qual(clean_title)
 
-    prompt = f"""You are the top Bengali YouTube SEO Content & Script Specialist.
-CRITICAL MANDATORY RULE: The current year is strictly ২০২৬ (2026). NEVER EVER use 2024 or 2025. Always write ২০২৬ or 2026.
+    prompt = f"""You are a professional Bengali YouTube SEO specialist and scriptwriter.
+Context:
+- Job Circular Title: "{clean_title}"
+- Organization: "{org_name}"
+- Current Year Context: {cur_bn} ({cur_en})
 
-Analyze this job circular:
-Job Title: "{clean_title}"
-Organization: "{org_name}"
+Guidelines:
+- Mention the year ONLY when naturally appropriate (e.g. in title or circular timeline). If mentioning a year, refer to the current year ({cur_bn}) or circular date. Do NOT force the year where it is unnecessary.
 
 Return a strictly valid JSON object:
-1. "optimized_title": A UNIQUE, high-CTR, click-worthy YouTube Video Title under 95 characters (Must include year ২০২৬ and emojis like 🔥, 🚨, ⚡, 📢, |).
-2. "voiceover_script": A comprehensive continuous spoken Bengali voiceover script (750 to 850 words) referencing circular ۲۰২৬.
-3. "video_description": A tailored YouTube Description referencing year 2026/২০২৬ with circular summary and contact details:
+1. "optimized_title": A UNIQUE, high-CTR, click-worthy YouTube Video Title under 95 characters (Use symbols like 🔥, 🚨, ⚡, 📢, |).
+2. "voiceover_script": A comprehensive continuous spoken Bengali voiceover script (750 to 850 words). Include announcement, job roles, salary scale, eligibility, and your WhatsApp application service call to action. (No brackets, continuous spoken Bengali only).
+3. "video_description": A tailored YouTube Description with circular summary, official contact details, and hashtags:
 ---
 [Circular Summary & Post Highlights here]
 
@@ -102,13 +114,13 @@ Return a strictly valid JSON object:
 💬 হোয়াটসঅ্যাপ (WhatsApp): wa.me/8801540503092
 🌐 ফেসবুক পেজ (Facebook Page): https://www.facebook.com/profile.php?id=61583625958904
 
-[3 to 5 targeted Bengali/English hashtags for this job circular 2026]
+[3 to 5 targeted Bengali/English hashtags for this circular]
 ---
 4. "specific_tags": A list of 4 to 6 specific SEO tags without emojis or commas.
-5. "top_text": 2-3 clean Bengali words for Thumbnail Top Bar (e.g., "সরকারি চাকরি", "পানি উন্নয়ন বোর্ড"). DO NOT use any ✪ or star symbols.
-6. "row1_text": 2-3 short, massive impact words for Thumbnail Hook in RED (e.g., "নিজ জেলায়", "অফিস সহায়ক", "জরুরি নিয়োগ", "আগস্ট মাসের").
+5. "top_text": 2-3 clean Bengali words for Thumbnail Top Bar (e.g., "সরকারি চাকরি", "পানি উন্নয়ন বোর্ড", "জরুরি নিয়োগ"). DO NOT use any ✪ or star symbols.
+6. "row1_text": 2-3 short, impactful words for Thumbnail Hook in RED (e.g., "নিজ জেলায়", "অফিস সহায়ক", "জরুরি নিয়োগ").
 7. "row2_text": 2-4 short words for Thumbnail Sub-line in BLACK (e.g., "DC অফিসে চাকরি", "এডমিট কার্ড প্রকাশ", "(SSC পাশ/৬৪ জেলা)").
-8. "bot_text": Bottom Bar Bengali text (e.g., "({vac_str if vac_str else '১২৮০ পদে'}) নিয়োগ ২০২৬", "আবেদনের শেষ সময় ও নিয়ম"). MUST USE ২০২৬!
+8. "bot_text": Bottom Bar Bengali text (e.g., "আবেদনের নিয়ম ও বিস্তারিত", "({vac_str if vac_str else 'বিশাল সার্কুলার'}) নিয়োগ", "আবেদনের শেষ সময়").
 
 Return strictly valid JSON:
 {{
@@ -124,7 +136,7 @@ Return strictly valid JSON:
 
     base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
 
-    # ------------------ [১ম ধাপ: Ollama ক্লাউড] ------------------
+    # ------------------ [১ম ধাপ: Ollama] ------------------
     if OLLAMA_API_KEY:
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OLLAMA_API_KEY}"}
         for model_name in OLLAMA_MODELS:
@@ -140,9 +152,9 @@ Return strictly valid JSON:
                     raw_content = resp.json().get("message", {}).get("content", "").strip()
                     data = parse_json_safely(raw_content)
                     if data and data.get("optimized_title") and data.get("voiceover_script"):
-                        opt_title = fix_years_to_2026(data.get("optimized_title").strip()[:100])
-                        script = fix_years_to_2026(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
-                        desc = fix_years_to_2026(data.get("video_description", "").strip())
+                        opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
+                        script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
+                        desc = normalize_outdated_years(data.get("video_description", "").strip())
                         raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
                         tags = sanitize_youtube_tags(raw_tags)
                         
@@ -150,7 +162,7 @@ Return strictly valid JSON:
                             "top_text": strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি")),
                             "row1_text": strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ")),
                             "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
-                            "bot_text": strip_unwanted_chars(data.get("bot_text", "নিয়োগ ২০২৬"))
+                            "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
                         }
                         print(f"✨ Successfully Generated via Ollama '{model_name}'!")
                         return opt_title, script, thumb_meta, desc, tags
@@ -164,7 +176,7 @@ Return strictly valid JSON:
             payload = {
                 "model": g_model,
                 "messages": [
-                    {"role": "system", "content": "You are a professional Bengali YouTube SEO specialist. The year is STRICTLY 2026/২০২৬. Output JSON only."},
+                    {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. Output strictly valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},
@@ -177,9 +189,9 @@ Return strictly valid JSON:
                     raw_content = resp.json()['choices'][0]['message']['content']
                     data = parse_json_safely(raw_content)
                     if data and data.get("optimized_title") and data.get("voiceover_script"):
-                        opt_title = fix_years_to_2026(data.get("optimized_title").strip()[:100])
-                        script = fix_years_to_2026(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
-                        desc = fix_years_to_2026(data.get("video_description", "").strip())
+                        opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
+                        script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
+                        desc = normalize_outdated_years(data.get("video_description", "").strip())
                         raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
                         tags = sanitize_youtube_tags(raw_tags)
 
@@ -187,7 +199,7 @@ Return strictly valid JSON:
                             "top_text": strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি")),
                             "row1_text": strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ")),
                             "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
-                            "bot_text": strip_unwanted_chars(data.get("bot_text", "নিয়োগ ২০২৬"))
+                            "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
                         }
                         print(f"✨ Successfully Generated via Groq AI ({g_model})!")
                         return opt_title, script, thumb_meta, desc, tags
