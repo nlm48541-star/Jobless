@@ -10,22 +10,106 @@ GROQ_API = os.environ.get("GROQ_API", "").strip()
 OLLAMA_MODELS = ["kimi-k3", "minimax-m3", "gemma4", "kimi-k2.6"]
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
-def get_current_years():
-    """রিয়েল-টাইম বর্তমান সাল ইংরেজি ও বাংলায় বের করে"""
-    cur_year = datetime.now().year
-    en_to_bn = str.maketrans("0123456789", "০১২৩৪৫৬৭৮৯")
-    cur_year_bn = str(cur_year).translate(en_to_bn)
-    return str(cur_year), cur_year_bn
-
 DEFAULT_BASE_TAGS = [
     'চাকরির সার্কুলার', 'চাকরির খবর', 'সরকারি চাকরি',
     'job circular', 'govt job circular', 'job application bd'
 ]
 
+# 🌟 ১ থেকে ৯৯ পর্যন্ত খাঁটি বাংলা শব্দের ম্যাপিং
+BN_NUMS = {
+    0: 'শূন্য', 1: 'এক', 2: 'দুই', 3: 'তিন', 4: 'চার', 5: 'পাঁচ', 6: 'ছয়', 7: 'সাত', 8: 'আট', 9: 'নয়', 10: 'দশ',
+    11: 'এগারো', 12: 'বারো', 13: 'তেরো', 14: 'চৌদ্দ', 15: 'পনেরো', 16: 'ষোলো', 17: 'সতেরো', 18: 'আঠারো', 19: 'উনিশ', 20: 'বিশ',
+    21: 'একুশ', 22: 'বাইশ', 23: 'তেইশ', 24: 'চব্বিশ', 25: 'পঁচিশ', 26: 'ছাব্বিশ', 27: 'সাতাশ', 28: 'আঠাশ', 29: 'উনত্রিশ', 30: 'ত্রিশ',
+    31: 'একত্রিশ', 32: 'বত্রিশ', 33: 'তেত্রিশ', 34: 'চৌত্রিশ', 35: 'পঁয়ত্রিশ', 36: 'ছত্রিশ', 37: 'সাঁইত্রিশ', 38: 'আটত্রিশ', 39: 'উনচল্লিশ', 40: 'চল্লিশ',
+    41: 'একচল্লিশ', 42: 'বিয়াল্লিশ', 43: 'তেতাল্লিশ', 44: 'চুয়াল্লিশ', 45: 'পঁয়তাল্লিশ', 46: 'ছেচল্লিশ', 47: 'সাতচল্লিশ', 48: 'আটচল্লিশ', 49: 'উনপঞ্চাশ', 50: 'পঞ্চাশ',
+    51: 'একান্ন', 52: 'বায়ান্ন', 53: 'তিপ্পান্ন', 54: 'চুয়ান্ন', 55: 'পঞ্চান্ন', 56: 'ছাপ্পান্ন', 57: 'সাতান্ন', 58: 'আটান্ন', 59: 'উনষাট', 60: 'ষাট',
+    61: 'একষট্টি', 62: 'বাষট্টি', 63: 'তেষট্টি', 64: 'চৌষট্টি', 65: 'পঁয়ষট্টি', 66: 'ছেষট্টি', 67: 'সাতষট্টি', 68: 'আটষট্টি', 69: 'উনসত্তর', 70: 'সত্তর',
+    71: 'একাত্তর', 72: 'বাহাত্তর', 73: 'তিয়াত্তর', 74: 'চৌহাত্তর', 75: 'পঁচাত্তর', 76: 'ছিয়াত্তর', 77: 'সাতাত্তর', 78: 'আটাত্তর', 79: 'উনআশি', 80: 'আশি',
+    81: 'একাশি', 82: 'বিরাশি', 83: 'তিরাশি', 84: 'চুরাশি', 85: 'পঁচাশি', 86: 'ছিয়াশি', 87: 'সাতাশি', 88: 'অষ্টআশি', 89: 'ঊননব্বই', 90: 'নব্বই',
+    91: 'একানব্বই', 92: 'বানব্বই', 93: 'তিরানব্বই', 94: 'চুরানব্বই', 95: 'পঁচানব্বই', 96: 'ছিয়ানব্বই', 97: 'সাতানব্বই', 98: 'আটানব্বই', 99: 'নিরানব্বই'
+}
+
+# 🌟 ফোন নম্বরের জন্য ইংরেজি সংখ্যা বাংলায় উচ্চারণ
+DIGIT_TO_ENG_BN = {
+    '0': 'জিরো', '1': 'ওয়ান', '2': 'টু', '3': 'থ্রি', '4': 'ফোর',
+    '5': 'ফাইভ', '6': 'সিক্স', '7': 'সেভেন', '8': 'এইট', '9': 'নাইন',
+    '০': 'জিরো', '১': 'ওয়ান', '২': 'টু', '৩': 'থ্রি', '৪': 'ফোর',
+    '৫': 'ফাইভ', '৬': 'সিক্স', '৭': 'সেভেন', '৮': 'এইট', '৯': 'নাইন'
+}
+
+def en_bn_to_int(s):
+    trans = str.maketrans('০১২৩৪৫৬৭৮৯', '0123456789')
+    return int(str(s).translate(trans))
+
+def number_to_bangla_words(n):
+    """যেকোনো সংখ্যাকে (০ থেকে কোটি) খাঁটি বাংলায় কথায় রূপান্তর করে"""
+    if n == 0: return 'শূন্য'
+    parts = []
+    
+    koti = n // 10000000
+    if koti > 0:
+        parts.append(number_to_bangla_words(koti) + ' কোটি')
+        n %= 10000000
+        
+    lakh = n // 100000
+    if lakh > 0:
+        parts.append(BN_NUMS.get(lakh, str(lakh)) + ' লাখ')
+        n %= 100000
+        
+    hajar = n // 1000
+    if hajar > 0:
+        parts.append(BN_NUMS.get(hajar, str(hajar)) + ' হাজার')
+        n %= 1000
+        
+    shatok = n // 100
+    if shatok > 0:
+        if shatok == 1: parts.append('একশত')
+        else: parts.append(BN_NUMS.get(shatok, str(shatok)) + ' শত')
+        n %= 100
+        
+    if n > 0:
+        parts.append(BN_NUMS.get(n, str(n)))
+        
+    return ' '.join(parts)
+
+def convert_all_numbers_in_script(text):
+    """
+    স্ক্রিপ্টের ফোন নম্বরকে 'জিরো ওয়ান ফাইভ...' এবং বাকি সব সংখ্যাকে 'একশত পঞ্চাশ' এ রূপান্তর করে
+    """
+    if not text: return ""
+
+    # ১. কমাযুক্ত সংখ্যা পরিষ্কার করা (যেমন: ১২,৫০০ -> ১২৫০০)
+    text = re.sub(r'(\d+),(\d+)', r'\1\2', text)
+    text = re.sub(r'([০-৯]+),([০-৯]+)', r'\1\2', text)
+
+    # ২. ফোন নম্বর শনাক্ত ও ইংরেজিতে কথায় রূপান্তর (১০ থেকে ১৩ ডিজিট)
+    def phone_repl(m):
+        raw_phone = m.group(0)
+        digits = re.findall(r'[0-9০-৯]', raw_phone)
+        return ' '.join(DIGIT_TO_ENG_BN.get(d, d) for d in digits)
+
+    text = re.sub(r'(\+?(?:88|৮৮)?\s*0?1[0-9০-৯]{8,10})', phone_repl, text)
+
+    # ৩. অন্যান্য সব সংখ্যাকে বাংলায় কথায় রূপান্তর
+    def num_repl(m):
+        num_str = m.group(0)
+        try:
+            val = en_bn_to_int(num_str)
+            return number_to_bangla_words(val)
+        except Exception:
+            return num_str
+
+    text = re.sub(r'[0-9০-৯]+', num_repl, text)
+    return text
+
+def get_current_years():
+    cur_year = datetime.now().year
+    en_to_bn = str.maketrans("0123456789", "০১২৩৪৫৬৭৮৯")
+    cur_year_bn = str(cur_year).translate(en_to_bn)
+    return str(cur_year), cur_year_bn
+
 def normalize_outdated_years(text):
-    """শুধুমাত্র পুরনো সাল (যেমন 2024/2025) থাকলে তা বর্তমান সালে রূপান্তর করে, জোর করে নতুন সাল যোগ করে না"""
-    if not text:
-        return text
+    if not text: return text
     cur_en, cur_bn = get_current_years()
     text = re.sub(r'\b202[0-5]\b', cur_en, str(text))
     text = re.sub(r'২০২[০-৫]', cur_bn, text)
@@ -97,14 +181,18 @@ def generate_job_content(title, img_paths):
 Context:
 - Job Circular Title: "{clean_title}"
 - Organization: "{org_name}"
-- Current Year Context: {cur_bn} ({cur_en})
+- Current Year: {cur_bn} ({cur_en})
 
-Guidelines:
-- Mention the year ONLY when naturally appropriate (e.g. in title or circular timeline). If mentioning a year, refer to the current year ({cur_bn}) or circular date. Do NOT force the year where it is unnecessary.
+CRITICAL RULE FOR "voiceover_script":
+Every single number in the voiceover script MUST be written in full words (কথায় লেখা). NEVER use numeric digits (0-9 or ০-৯) in the voiceover script!
+- Years: '২০২৬' must be written as 'দুই হাজার ছাব্বিশ'
+- Numbers/Vacancies: '১৫০' must be written as 'একশত পঞ্চাশ', '২২১' as 'দুইশত একুশ'
+- Dates: '২৫ আগস্ট' must be written as 'পঁচিশ আগস্ট'
+- Phone/WhatsApp numbers must be written digit-by-digit in English phonetics: '01540503092' as 'জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু'.
 
 Return a strictly valid JSON object:
 1. "optimized_title": A UNIQUE, high-CTR, click-worthy YouTube Video Title under 95 characters (Use symbols like 🔥, 🚨, ⚡, 📢, |).
-2. "voiceover_script": A comprehensive continuous spoken Bengali voiceover script (750 to 850 words). Include announcement, job roles, salary scale, eligibility, and your WhatsApp application service call to action. (No brackets, continuous spoken Bengali only).
+2. "voiceover_script": A comprehensive 5-minute continuous spoken Bengali voiceover script (750 to 850 words) with all numbers written in Bengali words and phone numbers in phonetic English.
 3. "video_description": A tailored YouTube Description with circular summary, official contact details, and hashtags:
 ---
 [Circular Summary & Post Highlights here]
@@ -117,10 +205,10 @@ Return a strictly valid JSON object:
 [3 to 5 targeted Bengali/English hashtags for this circular]
 ---
 4. "specific_tags": A list of 4 to 6 specific SEO tags without emojis or commas.
-5. "top_text": 2-3 clean Bengali words for Thumbnail Top Bar (e.g., "সরকারি চাকরি", "পানি উন্নয়ন বোর্ড", "জরুরি নিয়োগ"). DO NOT use any ✪ or star symbols.
+5. "top_text": 2-3 clean Bengali words for Thumbnail Top Bar (e.g., "সরকারি চাকরি", "পানি উন্নয়ন বোর্ড"). DO NOT use any ✪ or star symbols.
 6. "row1_text": 2-3 short, impactful words for Thumbnail Hook in RED (e.g., "নিজ জেলায়", "অফিস সহায়ক", "জরুরি নিয়োগ").
 7. "row2_text": 2-4 short words for Thumbnail Sub-line in BLACK (e.g., "DC অফিসে চাকরি", "এডমিট কার্ড প্রকাশ", "(SSC পাশ/৬৪ জেলা)").
-8. "bot_text": Bottom Bar Bengali text (e.g., "আবেদনের নিয়ম ও বিস্তারিত", "({vac_str if vac_str else 'বিশাল সার্কুলার'}) নিয়োগ", "আবেদনের শেষ সময়").
+8. "bot_text": Bottom Bar Bengali text (e.g., "আবেদনের নিয়ম ও বিস্তারিত", "({vac_str if vac_str else 'বিশাল সার্কুলার'}) নিয়োগ").
 
 Return strictly valid JSON:
 {{
@@ -153,7 +241,11 @@ Return strictly valid JSON:
                     data = parse_json_safely(raw_content)
                     if data and data.get("optimized_title") and data.get("voiceover_script"):
                         opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
-                        script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
+                        
+                        # 🌟 সংখ্যাকে কথায় রূপান্তর করা
+                        raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
+                        script = convert_all_numbers_in_script(raw_script)
+
                         desc = normalize_outdated_years(data.get("video_description", "").strip())
                         raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
                         tags = sanitize_youtube_tags(raw_tags)
@@ -176,7 +268,7 @@ Return strictly valid JSON:
             payload = {
                 "model": g_model,
                 "messages": [
-                    {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. Output strictly valid JSON only."},
+                    {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. All numbers in voiceover_script must be in Bengali words. Output strictly valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},
@@ -190,7 +282,11 @@ Return strictly valid JSON:
                     data = parse_json_safely(raw_content)
                     if data and data.get("optimized_title") and data.get("voiceover_script"):
                         opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
-                        script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
+                        
+                        # 🌟 সংখ্যাকে কথায় রূপান্তর করা
+                        raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
+                        script = convert_all_numbers_in_script(raw_script)
+
                         desc = normalize_outdated_years(data.get("video_description", "").strip())
                         raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
                         tags = sanitize_youtube_tags(raw_tags)
