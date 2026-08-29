@@ -9,6 +9,17 @@ from youtube_uploader import get_youtube_service, upload_to_youtube
 
 TMP_DIR = "temp_assets"
 LIVESTREAM_DIR = "workspace_live"
+HISTORY_FILE = os.path.join(WORKSPACE_DIR, "history.txt")
+
+def add_to_history(title):
+    """সফলভাবে আপলোড হওয়া ভিডিওর টাইটেল history.txt-এ সেভ করে"""
+    try:
+        os.makedirs(WORKSPACE_DIR, exist_ok=True)
+        with open(HISTORY_FILE, "a", encoding="utf-8") as hf:
+            hf.write(f"{title.strip()}\n")
+        print(f"📝 [HISTORY] Successfully saved '{title[:45]}...' to history.txt")
+    except Exception as e:
+        print(f"⚠️ Failed to update history.txt: {e}")
 
 def process_ready_videos(yt):
     print("\nScanning Drive folders for Videos / AI Processing...")
@@ -20,7 +31,7 @@ def process_ready_videos(yt):
     for folder_name in folders:
         folder_path = os.path.join(WORKSPACE_DIR, folder_name)
         try:
-            # ১. যদি কোনো ফোল্ডারের নামে 'এনজিও' বা 'ব্যাংক' থাকে, সাথে সাথে ডিলিট
+            # ১. যদি কোনো ফোল্ডারের টাইটেলে 'এনজিও' বা 'ব্যাংক' থাকে, সাথে সাথে ডিলিট
             if is_forbidden_article(folder_name):
                 print(f"🚫 [FILTERED] Deleting forbidden folder '{folder_name}' (এনজিও / ব্যাংক).")
                 shutil.rmtree(folder_path, ignore_errors=True)
@@ -32,7 +43,6 @@ def process_ready_videos(yt):
             for file in sorted(os.listdir(folder_path)):
                 ext = file.lower().split('.')[-1]
                 if ext in ['mp3', 'wav', 'm4a', 'aac']:
-                    # যদি আগের ব্যর্থ রানের voiceover.mp3 থাকে তা ইগনোর করে ফ্রেশ জেনারেট করবে
                     if file.lower() == "voiceover.mp3":
                         try: os.remove(os.path.join(folder_path, file))
                         except Exception: pass
@@ -103,8 +113,13 @@ def process_ready_videos(yt):
                 schedule_upload=True
             )
             
-            # ৭. ৯:১৬ পোর্ট্রেট ভিডিও (JobLive)
+            # ৭. সফল হলে history.txt তে সেভ করা ও ৯:১৬ পোর্ট্রেট ভিডিও (JobLive)
             if upload_success:
+                # 🌟 সফল আপলোডের পর history.txt-এ নাম সেভ
+                add_to_history(raw_title)
+                if folder_name != raw_title:
+                    add_to_history(folder_name)
+
                 try:
                     if not os.path.exists(LIVESTREAM_DIR): os.makedirs(LIVESTREAM_DIR, exist_ok=True)
                     safe_name = clean_filename(video_title)[:45].strip()
@@ -144,6 +159,7 @@ def process_shorts_folder(yt):
                 description=video_title, tags=None, schedule_upload=True
             )
             if upload_success:
+                add_to_history(f"[SHORTS] {video_title}")
                 try: os.remove(file_path)
                 except Exception: pass
 
