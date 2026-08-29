@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, random
+import os, re, random
 from PIL import Image, ImageDraw, ImageFont
 from ai_service import strip_unwanted_chars
 
@@ -38,49 +38,96 @@ def get_fixed_bar_font():
     return valid_fonts[0] if valid_fonts else "BengaliFont.ttf"
 
 def get_two_distinct_middle_fonts():
-    """
-    🌟 নিশ্চিত করে যে মাঝখানের দুটি লাইনে দুটি সম্পূর্ণ আলাদা এবং ভিন্ন র‍্যান্ডম ফন্ট ব্যবহৃত হবে
-    """
+    """মাঝখানের দুটি লাইনের জন্য আলাদা দুটি ভিন্ন ১০০% ইউনিকোড বাংলা ফন্ট বেছে নেয়"""
     valid_fonts = get_verified_bengali_fonts()
-    # মাঝখানের জন্য স্টাইলিশ ফন্ট তালিকা (Kalpurush বাদে)
     display_fonts = [f for f in valid_fonts if "kalpurush" not in os.path.basename(f).lower()]
     
     if len(display_fonts) >= 2:
-        # ২টি সম্পূর্ণ ভিন্ন ফন্ট বাছাই
-        font1, font2 = random.sample(display_fonts, 2)
-        return font1, font2
+        return random.sample(display_fonts, 2)
     elif len(display_fonts) == 1 and len(valid_fonts) >= 2:
         font1 = display_fonts[0]
         remaining = [f for f in valid_fonts if f != font1]
-        font2 = random.choice(remaining)
-        return font1, font2
+        return font1, random.choice(remaining)
     elif len(valid_fonts) >= 2:
-        font1, font2 = random.sample(valid_fonts, 2)
-        return font1, font2
+        return random.sample(valid_fonts, 2)
     else:
         bar_f = get_fixed_bar_font()
         return bar_f, bar_f
 
-def get_fitted_font(text, max_w, max_h, font_file=None, start_size=320, min_size=80):
-    if not font_file or not os.path.exists(font_file):
-        font_file = get_fixed_bar_font()
-        
-    if not font_file or not os.path.exists(font_file):
-        return ImageFont.load_default(), start_size
+def get_english_bold_font(font_size):
+    """ইংরেজি শব্দের জন্য লিনাক্স/উবুন্টু সিস্টেমের বোল্ড ইংরেজি ফন্ট লোড করে"""
+    eng_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"
+    ]
+    for p in eng_paths:
+        if os.path.exists(p):
+            try: return ImageFont.truetype(p, font_size)
+            except Exception: pass
+    try: return ImageFont.truetype("DejaVuSans-Bold.ttf", font_size)
+    except Exception: return ImageFont.load_default()
 
+def split_text_by_script(text):
+    """বাক্যটিকে বাংলা অংশ এবং ইংরেজি অংশে ভাগ করে"""
+    tokens = re.split(r'([A-Za-z0-9]+)', text)
+    segments = []
+    for t in tokens:
+        if not t: continue
+        is_eng = bool(re.match(r'^[A-Za-z0-9]+$', t))
+        segments.append((t, is_eng))
+    return segments
+
+def measure_mixed_text(text, bn_font_path, font_size):
+    """বাংলা ও ইংরেজি মিশ্রিত লাইনের মোট প্রস্থ ও উচ্চতা পরিমাপ করে"""
+    try: bn_font = ImageFont.truetype(bn_font_path, font_size)
+    except Exception: bn_font = ImageFont.load_default()
+    eng_font = get_english_bold_font(font_size)
+
+    segments = split_text_by_script(text)
+    total_w, max_h = 0, 0
+
+    for seg_text, is_eng in segments:
+        f = eng_font if is_eng else bn_font
+        bbox = f.getbbox(seg_text)
+        total_w += (bbox[2] - bbox[0])
+        h = bbox[3] - bbox[1]
+        if h > max_h: max_h = h
+
+    return total_w, max_h
+
+def get_best_fitted_mixed_font_size(text, max_w, max_h, bn_font_path, start_size=320, min_size=80):
+    """টেক্সট যেন সীমানার বাইরে না যায় সেজন্য পারফেক্ট ফন্ট সাইজ বের করে"""
     for fs in range(start_size, min_size, -4):
-        try:
-            f = ImageFont.truetype(font_file, fs)
-            bbox = f.getbbox(text)
-            if (bbox[2] - bbox[0]) <= max_w and (bbox[3] - bbox[1]) <= max_h:
-                return f, fs
-        except Exception:
-            pass
-            
-    try:
-        return ImageFont.truetype(font_file, min_size), min_size
-    except Exception:
-        return ImageFont.load_default(), min_size
+        w, h = measure_mixed_text(text, bn_font_path, fs)
+        if w <= max_w and h <= max_h:
+            return fs, h
+    return min_size, max_h
+
+def draw_mixed_text_centered(draw, center_x, center_y, text, bn_font_path, font_size, fill_color):
+    """বাংলা ও ইংরেজি ফন্ট আলাদা করে নিখুঁতভাবে লাইনের মাঝখানে ড্র করে"""
+    try: bn_font = ImageFont.truetype(bn_font_path, font_size)
+    except Exception: bn_font = ImageFont.load_default()
+    eng_font = get_english_bold_font(font_size)
+
+    segments = split_text_by_script(text)
+    total_w = 0
+    seg_widths = []
+
+    for seg_text, is_eng in segments:
+        f = eng_font if is_eng else bn_font
+        bbox = f.getbbox(seg_text)
+        w = bbox[2] - bbox[0]
+        seg_widths.append(w)
+        total_w += w
+
+    cur_x = center_x - (total_w // 2)
+
+    for (seg_text, is_eng), w in zip(segments, seg_widths):
+        f = eng_font if is_eng else bn_font
+        draw.text((cur_x, center_y), seg_text, font=f, fill=fill_color, anchor="lm")
+        cur_x += w
 
 def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     W, H = 1920, 1080
@@ -95,7 +142,7 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     row2_text = strip_unwanted_chars(thumb_meta.get("row2_text", "(SSC পাশ/৬৪ জেলা)"))
     bot_text = strip_unwanted_chars(thumb_meta.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
 
-    # ১. ফন্ট নির্ধারণ (টপ/বটমে ফিক্সড Kalpurush এবং মাঝের দুটি লাইনে ২টি সম্পূর্ণ আলাদা ফন্ট)
+    # ফন্ট নির্ধারণ
     bar_font = get_fixed_bar_font()
     font_line1, font_line2 = get_two_distinct_middle_fonts()
 
@@ -103,7 +150,7 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     print(f"   ├─ Middle Line 1 (Red)  : {os.path.basename(str(font_line1))}")
     print(f"   └─ Middle Line 2 (Black): {os.path.basename(str(font_line2))}")
 
-    # ২. টপ বার (0 to 200px)
+    # ১. টপ বার (0 to 200px)
     green_bg = "#00531b"
     draw.rectangle([0, 0, W, 200], fill=green_bg)
     
@@ -113,39 +160,31 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
             gov_logo = Image.open(gov_logo_path).convert("RGBA").resize((150, 150), Image.LANCZOS)
             img.paste(gov_logo, (35, 25), gov_logo)
             img.paste(gov_logo, (W - 185, 25), gov_logo)
-        except Exception:
-            pass
+        except Exception: pass
 
-    f_top, _ = get_fitted_font(top_text, max_w=W - 420, max_h=150, font_file=bar_font, start_size=155, min_size=80)
-    draw.text((W // 2, 100), top_text, fill="#ffffff", font=f_top, anchor="mm")
+    fs_top, _ = get_best_fitted_mixed_font_size(top_text, max_w=W - 420, max_h=150, bn_font_path=bar_font, start_size=155, min_size=80)
+    draw_mixed_text_centered(draw, W // 2, 100, top_text, bar_font, fs_top, "#ffffff")
 
-    # ৩. মিডল সেকশন (200 to 880px) — মাঝের দুটি লাইনে দুটি আলাদা ফন্টে বিশাল বড় লেখা
+    # ২. মিডল সেকশন (200 to 880px) — মাঝের দুটি লাইনে দুটি আলাদা ফন্ট ও বাংলা+ইংরেজি মিক্সড রেন্ডারিং
     draw.rectangle([0, 200, W, 880], fill="#ffffff")
 
-    # লাল লাইন ১ (বিশাল সাইজ)
-    f_l1, _ = get_fitted_font(row1_text, max_w=W - 100, max_h=340, font_file=font_line1, start_size=310, min_size=130)
-    # কালো লাইন ২ (বিশাল সাইজ)
-    f_l2, _ = get_fitted_font(row2_text, max_w=W - 100, max_h=290, font_file=font_line2, start_size=260, min_size=110)
+    fs_l1, h1 = get_best_fitted_mixed_font_size(row1_text, max_w=W - 100, max_h=340, bn_font_path=font_line1, start_size=310, min_size=130)
+    fs_l2, h2 = get_best_fitted_mixed_font_size(row2_text, max_w=W - 100, max_h=290, bn_font_path=font_line2, start_size=260, min_size=110)
 
-    bb1 = f_l1.getbbox(row1_text)
-    h1 = bb1[3] - bb1[1]
-    bb2 = f_l2.getbbox(row2_text)
-    h2 = bb2[3] - bb2[1]
-
-    line_spacing = 15
+    line_spacing = 20
     total_content_height = h1 + line_spacing + h2
     start_y = 540 - (total_content_height // 2)
 
-    # লাইন ১: উজ্জ্বল লাল
-    draw.text((W // 2, start_y + (h1 // 2)), row1_text, fill="#d60000", font=f_l1, anchor="mm")
+    # লাল লাইন ১ (মাঝের ১ম লাইন)
+    draw_mixed_text_centered(draw, W // 2, start_y + (h1 // 2), row1_text, font_line1, fs_l1, "#d60000")
 
-    # লাইন ২: গাঢ় কালো
-    draw.text((W // 2, start_y + h1 + line_spacing + (h2 // 2)), row2_text, fill="#000000", font=f_l2, anchor="mm")
+    # কালো লাইন ২ (মাঝের ২য় লাইন - SSC/HSC সহ যেকোনো ইংরেজি শব্দ ক্রিস্প বোল্ড ফন্টে আসবে)
+    draw_mixed_text_centered(draw, W // 2, start_y + h1 + line_spacing + (h2 // 2), row2_text, font_line2, fs_l2, "#000000")
 
-    # ৪. বটম বার (880 to 1080px)
+    # ৩. বটম বার (880 to 1080px)
     draw.rectangle([0, 880, W, H], fill=green_bg)
-    f_bot, _ = get_fitted_font(bot_text, max_w=W - 80, max_h=150, font_file=bar_font, start_size=155, min_size=80)
-    draw.text((W // 2, 980), bot_text, fill="#ffe600", font=f_bot, anchor="mm")
+    fs_bot, _ = get_best_fitted_mixed_font_size(bot_text, max_w=W - 80, max_h=150, bn_font_path=bar_font, start_size=155, min_size=80)
+    draw_mixed_text_centered(draw, W // 2, 980, bot_text, bar_font, fs_bot, "#ffe600")
 
     draw.line([(0, 200), (W, 200)], fill="#003d14", width=6)
     draw.line([(0, 880), (W, 880)], fill="#003d14", width=6)
