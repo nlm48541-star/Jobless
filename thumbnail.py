@@ -6,10 +6,9 @@ from ai_service import strip_unwanted_chars
 FONTS_DIR = "Fonts"
 
 def is_valid_bengali_font(font_path):
-    """চেক করে ফন্টটি আসলেই বাংলা ইউনিকোড অক্ষর সাপোর্ট করে কিনা (বক্স ঠেকানোর জন্য)"""
+    """চেক করে ফন্টটি আসলেই বাংলা ইউনিকোড অক্ষর সাপোর্ট করে কিনা"""
     try:
         test_font = ImageFont.truetype(font_path, 40)
-        # বাংলা অক্ষরের মাস্ক সাইজ টেস্ট
         mask = test_font.getmask("বাংলাদেশ চাকরি")
         if mask.size[0] > 0 and mask.size[1] > 0:
             return True
@@ -24,7 +23,6 @@ def get_verified_bengali_fonts():
         for f in sorted(os.listdir(FONTS_DIR)):
             if f.lower().endswith(('.ttf', '.otf')):
                 full_p = os.path.join(FONTS_DIR, f)
-                # Akhand.ttf (নন-ইউনিকোড) এড়িয়ে চলা এবং ভ্যালিডেশন চেক
                 if "akhand.ttf" == f.lower():
                     continue
                 if is_valid_bengali_font(full_p):
@@ -79,9 +77,6 @@ def get_fitted_font(text, max_w, max_h, font_file=None, start_size=320, min_size
         return ImageFont.load_default(), min_size
 
 def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
-    """
-    🌟 কোনো বক্স এরর ছাড়া মাঝের দুটি লাইনে ২টি আলাদা বাংলা ফন্ট দিয়ে আল্ট্রা-বোল্ড থাম্বনেইল তৈরি করে
-    """
     W, H = 1920, 1080
     img = Image.new("RGB", (W, H), "#ffffff")
     draw = ImageDraw.Draw(img)
@@ -92,15 +87,13 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     top_text = strip_unwanted_chars(thumb_meta.get("top_text", "সরকারি চাকরি"))
     row1_text = strip_unwanted_chars(thumb_meta.get("row1_text", "জরুরি নিয়োগ"))
     row2_text = strip_unwanted_chars(thumb_meta.get("row2_text", "(SSC পাশ/৬৪ জেলা)"))
-    bot_text = strip_unwanted_chars(thumb_meta.get("bot_text", "নিয়োগ ২০২৬"))
+    bot_text = strip_unwanted_chars(thumb_meta.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
 
     # ফন্ট নির্ধারণ
     bar_font = get_fixed_bar_font()
     font_line1, font_line2 = get_two_distinct_middle_fonts()
-    
-    print(f"🎨 Selected Verified Bengali Fonts -> Bar: {os.path.basename(str(bar_font))} | Line 1: {os.path.basename(str(font_line1))} | Line 2: {os.path.basename(str(font_line2))}")
 
-    # ১. টপ বার (0 to 200px)
+    # ১. টপ বার
     green_bg = "#00531b"
     draw.rectangle([0, 0, W, 200], fill=green_bg)
     
@@ -116,12 +109,10 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     f_top, _ = get_fitted_font(top_text, max_w=W - 420, max_h=150, font_file=bar_font, start_size=155, min_size=80)
     draw.text((W // 2, 100), top_text, fill="#ffffff", font=f_top, anchor="mm")
 
-    # ২. মিডল সেকশন (200 to 880px) — মাঝের দুটি লাইনে দুটি আলাদা ফন্টে বিশাল বড় লেখা
+    # ২. মিডল সেকশন (মাঝের দুটি লাইনে দুটি আলাদা ফন্ট)
     draw.rectangle([0, 200, W, 880], fill="#ffffff")
 
-    # লাল লাইন ১ (বিশাল সাইজ)
     f_l1, _ = get_fitted_font(row1_text, max_w=W - 100, max_h=340, font_file=font_line1, start_size=310, min_size=130)
-    # কালো লাইন ২ (বিশাল সাইজ)
     f_l2, _ = get_fitted_font(row2_text, max_w=W - 100, max_h=290, font_file=font_line2, start_size=260, min_size=110)
 
     bb1 = f_l1.getbbox(row1_text)
@@ -139,7 +130,7 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     # লাইন ২: গাঢ় কালো
     draw.text((W // 2, start_y + h1 + line_spacing + (h2 // 2)), row2_text, fill="#000000", font=f_l2, anchor="mm")
 
-    # ৩. বটম বার (880 to 1080px)
+    # ৩. বটম বার
     draw.rectangle([0, 880, W, H], fill=green_bg)
     f_bot, _ = get_fitted_font(bot_text, max_w=W - 80, max_h=150, font_file=bar_font, start_size=155, min_size=80)
     draw.text((W // 2, 980), bot_text, fill="#ffe600", font=f_bot, anchor="mm")
