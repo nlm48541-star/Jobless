@@ -3,19 +3,24 @@ import os, json, re, base64, requests
 from datetime import datetime
 from PIL import Image
 
-OLLAMA_API_KEY = os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", "")).strip()
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "https://api.ollama.com").rstrip("/")
 GROQ_API = os.environ.get("GROQ_API", "").strip()
 
+# 🌟 Ollama মডেলের অগ্রাধিকার তালিকা
 OLLAMA_MODELS = ["kimi-k3", "minimax-m3", "gemma4", "kimi-k2.6"]
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+
+def get_all_ollama_keys():
+    """একাধিক Ollama Cloud API Key লোড করে"""
+    raw_keys = os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", os.environ.get("OLLAMA_API_KEYS", ""))).strip()
+    if not raw_keys: return []
+    return [k.strip() for k in re.split(r'[\r\n,;]+', raw_keys) if k.strip()]
 
 DEFAULT_BASE_TAGS = [
     'চাকরির সার্কুলার', 'চাকরির খবর', 'সরকারি চাকরি',
     'job circular', 'govt job circular', 'job application bd'
 ]
 
-# ১ থেকে ৯৯ পর্যন্ত খাঁটি বাংলা শব্দের ম্যাপিং
 BN_NUMS = {
     0: 'শূন্য', 1: 'এক', 2: 'দুই', 3: 'তিন', 4: 'চার', 5: 'পাঁচ', 6: 'ছয়', 7: 'সাত', 8: 'আট', 9: 'নয়', 10: 'দশ',
     11: 'এগারো', 12: 'বারো', 13: 'তেরো', 14: 'চৌদ্দ', 15: 'পনেরো', 16: 'ষোলো', 17: 'সতেরো', 18: 'আঠারো', 19: 'উনিশ', 20: 'বিশ',
@@ -85,7 +90,6 @@ def convert_all_numbers_in_script(text):
             return num_str
 
     text = re.sub(r'[0-9০-৯]+', num_repl, text)
-    # 🌟 'ঘরে বসে' কথাটি স্ক্রিপ্ট থেকে স্বয়ংক্রিয়ভাবে মুছে ফেলা
     text = re.sub(r'ঘরে\s*বসে\s*', '', text)
     return text
 
@@ -211,40 +215,48 @@ Return strictly valid JSON:
 
     base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
 
-    # ------------------ [১ম ধাপ: Ollama] ------------------
-    if OLLAMA_API_KEY:
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OLLAMA_API_KEY}"}
-        for model_name in OLLAMA_MODELS:
-            print(f"🤖 Attempting Ollama Model '{model_name}' for '{clean_title}'...")
-            payload = {
-                "model": model_name,
-                "messages": [{"role": "user", "content": prompt, "images": base64_images}],
-                "stream": False, "options": {"temperature": 0.5}
-            }
-            try:
-                resp = requests.post(f"{OLLAMA_API_URL}/api/chat", headers=headers, json=payload, timeout=45)
-                if resp.status_code == 200:
-                    raw_content = resp.json().get("message", {}).get("content", "").strip()
-                    data = parse_json_safely(raw_content)
-                    if data and data.get("optimized_title") and data.get("voiceover_script"):
-                        opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
-                        raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
-                        script = convert_all_numbers_in_script(raw_script)
-                        desc = normalize_outdated_years(data.get("video_description", "").strip())
-                        raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
-                        tags = sanitize_youtube_tags(raw_tags)
-                        
-                        thumb_meta = {
-                            "top_text": strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি")),
-                            "row1_text": strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ")),
-                            "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
-                            "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
-                        }
-                        print(f"✨ Successfully Generated via Ollama '{model_name}' (4-min Script)!")
-                        return opt_title, script, thumb_meta, desc, tags
-            except Exception: pass
+    # ------------------ [১ম ধাপ: Ollama ক্লাউডের মাল্টিপল কী রোটেশন] ------------------
+    ollama_keys = get_all_ollama_keys()
+    if ollama_keys:
+        for k_idx, o_key in enumerate(ollama_keys, start=1):
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
+            for model_name in OLLAMA_MODELS:
+                print(f"🤖 Attempting Ollama Key #{k_idx}/{len(ollama_keys)} (Model: '{model_name}') for '{clean_title}'...")
+                payload = {
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": prompt, "images": base64_images}],
+                    "stream": False, "options": {"temperature": 0.5}
+                }
+                try:
+                    resp = requests.post(f"{OLLAMA_API_URL}/api/chat", headers=headers, json=payload, timeout=45)
+                    if resp.status_code == 200:
+                        raw_content = resp.json().get("message", {}).get("content", "").strip()
+                        data = parse_json_safely(raw_content)
+                        if data and data.get("optimized_title"):
+                            opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
+                            raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip()))
+                            script = convert_all_numbers_in_script(raw_script)
+                            desc = normalize_outdated_years(data.get("video_description", "").strip())
+                            raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
+                            tags = sanitize_youtube_tags(raw_tags)
+                            
+                            thumb_meta = {
+                                "top_text": strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি")),
+                                "row1_text": strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ")),
+                                "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
+                                "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
+                            }
+                            print(f"✨ Successfully Generated via Ollama Key #{k_idx} ('{model_name}')!")
+                            return opt_title, script, thumb_meta, desc, tags
+                    elif resp.status_code in [401, 402, 429]:
+                        print(f"⚠️ Ollama Key #{k_idx} returned {resp.status_code}. Moving to next Ollama key...")
+                        break  # এই কী ফেইল হলে পরের কীতে জাম্প করবে
+                    else:
+                        print(f"⚠️ Ollama Key #{k_idx} ('{model_name}') returned {resp.status_code}. Trying next model...")
+                except Exception as oe:
+                    print(f"⚠️ Network error with Ollama Key #{k_idx}: {oe}")
 
-    # ------------------ [২য় ধাপ: Groq AI] ------------------
+    # ------------------ [২য় ধাপ: সুপারফাস্ট Groq AI ইঞ্জিন] ------------------
     if GROQ_API:
         headers = {"Authorization": f"Bearer {GROQ_API}", "Content-Type": "application/json"}
         for g_model in GROQ_MODELS:
@@ -264,9 +276,9 @@ Return strictly valid JSON:
                 if resp.status_code == 200:
                     raw_content = resp.json()['choices'][0]['message']['content']
                     data = parse_json_safely(raw_content)
-                    if data and data.get("optimized_title") and data.get("voiceover_script"):
+                    if data and data.get("optimized_title"):
                         opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
-                        raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
+                        raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip()))
                         script = convert_all_numbers_in_script(raw_script)
                         desc = normalize_outdated_years(data.get("video_description", "").strip())
                         raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
@@ -278,7 +290,7 @@ Return strictly valid JSON:
                             "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
                             "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
                         }
-                        print(f"✨ Successfully Generated via Groq AI ({g_model}) (4-min Script)!")
+                        print(f"✨ Successfully Generated via Groq AI ({g_model})!")
                         return opt_title, script, thumb_meta, desc, tags
             except Exception: pass
 
