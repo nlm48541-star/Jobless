@@ -16,6 +16,12 @@ def get_all_ollama_keys():
     if not raw_keys: return []
     return [k.strip() for k in re.split(r'[\r\n,;]+', raw_keys) if k.strip()]
 
+def get_all_groq_keys():
+    """একাধিক Groq API Key লোড করে"""
+    raw_keys = os.environ.get("GROQ_API", os.environ.get("GROQ_API_KEYS", "")).strip()
+    if not raw_keys: return []
+    return [k.strip() for k in re.split(r'[\r\n,;]+', raw_keys) if k.strip()]
+
 DEFAULT_BASE_TAGS = [
     'চাকরির সার্কুলার', 'চাকরির খবর', 'সরকারি চাকরি',
     'job circular', 'govt job circular', 'job application bd'
@@ -42,7 +48,7 @@ DIGIT_TO_ENG_BN = {
 }
 
 def en_bn_to_int(s):
-    trans = str.maketrans('০১২৩৪৫৬৭৮৯', '0123456789')
+    trans = str.maketrans('০১২৩৪৫ঈ৭৮৯', '0123456789')
     return int(str(s).translate(trans))
 
 def number_to_bangla_words(n):
@@ -215,13 +221,15 @@ Return strictly valid JSON:
 
     base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
 
-    # ------------------ [১ম ধাপ: Ollama ক্লাউডের মাল্টিপল কী রোটেশন] ------------------
+    # ------------------ [১ম ধাপ: Ollama ক্লাউডের সম্পূর্ণ মডেল ও কী রোটেশন] ------------------
     ollama_keys = get_all_ollama_keys()
     if ollama_keys:
         for k_idx, o_key in enumerate(ollama_keys, start=1):
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
+            
+            # 🌟 প্রতিটা কী-এর আন্ডারে সবগুলো মডেল একে একে ট্রাই করবে
             for model_name in OLLAMA_MODELS:
-                print(f"🤖 Attempting Ollama Key #{k_idx}/{len(ollama_keys)} (Model: '{model_name}') for '{clean_title}'...")
+                print(f"🤖 Attempting Ollama Key #{k_idx}/{len(ollama_keys)} (Model: '{model_name}') for '{clean_title[:40]}'...")
                 payload = {
                     "model": model_name,
                     "messages": [{"role": "user", "content": prompt, "images": base64_images}],
@@ -248,50 +256,54 @@ Return strictly valid JSON:
                             }
                             print(f"✨ Successfully Generated via Ollama Key #{k_idx} ('{model_name}')!")
                             return opt_title, script, thumb_meta, desc, tags
-                    elif resp.status_code in [401, 402, 429]:
-                        print(f"⚠️ Ollama Key #{k_idx} returned {resp.status_code}. Moving to next Ollama key...")
-                        break  # এই কী ফেইল হলে পরের কীতে জাম্প করবে
                     else:
-                        print(f"⚠️ Ollama Key #{k_idx} ('{model_name}') returned {resp.status_code}. Trying next model...")
+                        print(f"⚠️ Ollama Key #{k_idx} ('{model_name}') returned {resp.status_code}. Trying next model on Key #{k_idx}...")
                 except Exception as oe:
-                    print(f"⚠️ Network error with Ollama Key #{k_idx}: {oe}")
+                    print(f"⚠️ Network error on Key #{k_idx} ('{model_name}'): {oe}")
+
+            print(f"❌ All models failed for Ollama Key #{k_idx}. Moving to next Key...")
 
     # ------------------ [২য় ধাপ: সুপারফাস্ট Groq AI ইঞ্জিন] ------------------
-    if GROQ_API:
-        headers = {"Authorization": f"Bearer {GROQ_API}", "Content-Type": "application/json"}
-        for g_model in GROQ_MODELS:
-            print(f"🤖 Attempting Groq AI Model '{g_model}'...")
-            payload = {
-                "model": g_model,
-                "messages": [
-                    {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. Write a 4-minute script (550-650 words) with numbers in words and WhatsApp application call to action. Output strictly valid JSON only."},
-                    {"role": "user", "content": prompt}
-                ],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.5,
-                "max_tokens": 2500
-            }
-            try:
-                resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=30)
-                if resp.status_code == 200:
-                    raw_content = resp.json()['choices'][0]['message']['content']
-                    data = parse_json_safely(raw_content)
-                    if data and data.get("optimized_title"):
-                        opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
-                        raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip()))
-                        script = convert_all_numbers_in_script(raw_script)
-                        desc = normalize_outdated_years(data.get("video_description", "").strip())
-                        raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
-                        tags = sanitize_youtube_tags(raw_tags)
+    groq_keys = get_all_groq_keys()
+    if groq_keys:
+        for g_idx, g_key in enumerate(groq_keys, start=1):
+            headers = {"Authorization": f"Bearer {g_key}", "Content-Type": "application/json"}
+            for g_model in GROQ_MODELS:
+                print(f"🤖 Attempting Groq Key #{g_idx} (Model: '{g_model}')...")
+                payload = {
+                    "model": g_model,
+                    "messages": [
+                        {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. Write a 4-minute script (550-650 words) with numbers in words and WhatsApp application call to action. Output strictly valid JSON only."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.5,
+                    "max_tokens": 2500
+                }
+                try:
+                    resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=30)
+                    if resp.status_code == 200:
+                        raw_content = resp.json()['choices'][0]['message']['content']
+                        data = parse_json_safely(raw_content)
+                        if data and data.get("optimized_title"):
+                            opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
+                            raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip()))
+                            script = convert_all_numbers_in_script(raw_script)
+                            desc = normalize_outdated_years(data.get("video_description", "").strip())
+                            raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
+                            tags = sanitize_youtube_tags(raw_tags)
 
-                        thumb_meta = {
-                            "top_text": strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি")),
-                            "row1_text": strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ")),
-                            "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
-                            "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
-                        }
-                        print(f"✨ Successfully Generated via Groq AI ({g_model})!")
-                        return opt_title, script, thumb_meta, desc, tags
-            except Exception: pass
+                            thumb_meta = {
+                                "top_text": strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি")),
+                                "row1_text": strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ")),
+                                "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
+                                "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
+                            }
+                            print(f"✨ Successfully Generated via Groq AI ({g_model})!")
+                            return opt_title, script, thumb_meta, desc, tags
+                    else:
+                        print(f"⚠️ Groq Key #{g_idx} ('{g_model}') returned {resp.status_code}: {resp.text[:120]}")
+                except Exception as ge:
+                    print(f"⚠️ Groq exception on Key #{g_idx} ('{g_model}'): {ge}")
 
     return None, None, None, None, None
