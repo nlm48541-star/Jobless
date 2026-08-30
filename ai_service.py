@@ -15,7 +15,7 @@ DEFAULT_BASE_TAGS = [
     'job circular', 'govt job circular', 'job application bd'
 ]
 
-# 🌟 ১ থেকে ৯৯ পর্যন্ত খাঁটি বাংলা শব্দের ম্যাপিং
+# ১ থেকে ৯৯ পর্যন্ত খাঁটি বাংলা শব্দের ম্যাপিং
 BN_NUMS = {
     0: 'শূন্য', 1: 'এক', 2: 'দুই', 3: 'তিন', 4: 'চার', 5: 'পাঁচ', 6: 'ছয়', 7: 'সাত', 8: 'আট', 9: 'নয়', 10: 'দশ',
     11: 'এগারো', 12: 'বারো', 13: 'তেরো', 14: 'চৌদ্দ', 15: 'পনেরো', 16: 'ষোলো', 17: 'সতেরো', 18: 'আঠারো', 19: 'উনিশ', 20: 'বিশ',
@@ -29,7 +29,6 @@ BN_NUMS = {
     91: 'একানব্বই', 92: 'বানব্বই', 93: 'তিরানব্বই', 94: 'চুরানব্বই', 95: 'পঁচানব্বই', 96: 'ছিয়ানব্বই', 97: 'সাতানব্বই', 98: 'আটানব্বই', 99: 'নিরানব্বই'
 }
 
-# 🌟 ফোন নম্বরের জন্য ইংরেজি সংখ্যা বাংলায় উচ্চারণ
 DIGIT_TO_ENG_BN = {
     '0': 'জিরো', '1': 'ওয়ান', '2': 'টু', '3': 'থ্রি', '4': 'ফোর',
     '5': 'ফাইভ', '6': 'সিক্স', '7': 'সেভেন', '8': 'এইট', '9': 'নাইন',
@@ -42,47 +41,34 @@ def en_bn_to_int(s):
     return int(str(s).translate(trans))
 
 def number_to_bangla_words(n):
-    """যেকোনো সংখ্যাকে (০ থেকে কোটি) খাঁটি বাংলায় কথায় রূপান্তর করে"""
     if n == 0: return 'শূন্য'
     parts = []
-    
     koti = n // 10000000
     if koti > 0:
         parts.append(number_to_bangla_words(koti) + ' কোটি')
         n %= 10000000
-        
     lakh = n // 100000
     if lakh > 0:
         parts.append(BN_NUMS.get(lakh, str(lakh)) + ' লাখ')
         n %= 100000
-        
     hajar = n // 1000
     if hajar > 0:
         parts.append(BN_NUMS.get(hajar, str(hajar)) + ' হাজার')
         n %= 1000
-        
     shatok = n // 100
     if shatok > 0:
         if shatok == 1: parts.append('একশত')
         else: parts.append(BN_NUMS.get(shatok, str(shatok)) + ' শত')
         n %= 100
-        
     if n > 0:
         parts.append(BN_NUMS.get(n, str(n)))
-        
     return ' '.join(parts)
 
 def convert_all_numbers_in_script(text):
-    """
-    স্ক্রিপ্টের ফোন নম্বরকে 'জিরো ওয়ান ফাইভ...' এবং বাকি সব সংখ্যাকে 'একশত পঞ্চাশ' এ রূপান্তর করে
-    """
     if not text: return ""
-
-    # ১. কমাযুক্ত সংখ্যা পরিষ্কার করা (যেমন: ১২,৫০০ -> ১২৫০০)
     text = re.sub(r'(\d+),(\d+)', r'\1\2', text)
     text = re.sub(r'([০-৯]+),([০-৯]+)', r'\1\2', text)
 
-    # ২. ফোন নম্বর শনাক্ত ও ইংরেজিতে কথায় রূপান্তর (১০ থেকে ১৩ ডিজিট)
     def phone_repl(m):
         raw_phone = m.group(0)
         digits = re.findall(r'[0-9০-৯]', raw_phone)
@@ -90,7 +76,6 @@ def convert_all_numbers_in_script(text):
 
     text = re.sub(r'(\+?(?:88|৮৮)?\s*0?1[0-9০-৯]{8,10})', phone_repl, text)
 
-    # ৩. অন্যান্য সব সংখ্যাকে বাংলায় কথায় রূপান্তর
     def num_repl(m):
         num_str = m.group(0)
         try:
@@ -100,6 +85,8 @@ def convert_all_numbers_in_script(text):
             return num_str
 
     text = re.sub(r'[0-9০-৯]+', num_repl, text)
+    # 🌟 'ঘরে বসে' কথাটি স্ক্রিপ্ট থেকে স্বয়ংক্রিয়ভাবে মুছে ফেলা
+    text = re.sub(r'ঘরে\s*বসে\s*', '', text)
     return text
 
 def get_current_years():
@@ -113,6 +100,7 @@ def normalize_outdated_years(text):
     cur_en, cur_bn = get_current_years()
     text = re.sub(r'\b202[0-5]\b', cur_en, str(text))
     text = re.sub(r'২০২[০-৫]', cur_bn, text)
+    text = re.sub(r'ঘরে\s*বসে\s*', '', text)
     return text
 
 def sanitize_youtube_tags(raw_tags, max_total_chars=400):
@@ -181,31 +169,30 @@ def generate_job_content(title, img_paths):
 Context:
 - Job Circular Title: "{clean_title}"
 - Organization: "{org_name}"
-- Current Year: {cur_bn} ({cur_en})
+- Current Year Context: {cur_bn} ({cur_en})
 
-CRITICAL RULE FOR "voiceover_script":
-Every single number in the voiceover script MUST be written in full words (কথায় লেখা). NEVER use numeric digits (0-9 or ০-৯) in the voiceover script!
-- Years: '২০২৬' must be written as 'দুই হাজার ছাব্বিশ'
-- Numbers/Vacancies: '১৫০' must be written as 'একশত পঞ্চাশ', '২২১' as 'দুইশত একুশ'
-- Dates: '২৫ আগস্ট' must be written as 'পঁচিশ আগস্ট'
-- Phone/WhatsApp numbers must be written digit-by-digit in English phonetics: '01540503092' as 'জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু'.
+CRITICAL SCRIPT RULES:
+1. SCRIPT LENGTH: Exactly 4 minutes long (550 to 650 words). Continuous spoken natural Bengali.
+2. YEAR RULE: Mention the year AT MOST ONCE during the initial announcement. DO NOT repeatedly mention or force the year across paragraphs.
+3. NUMBERS IN WORDS: Every number, vacancy count, salary scale, and date MUST be written in Bengali words (কথায় লেখা). Never use raw digits (0-9).
+4. CALL TO ACTION: You MUST clearly tell the audience that if they want to apply for this job accurately and safely, they should contact our application service via the WhatsApp number shown on the screen or in the description (01540503092 -> 'জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু'). Do NOT use the phrase 'ঘরে বসে'.
 
 Return a strictly valid JSON object:
-1. "optimized_title": A UNIQUE, high-CTR, click-worthy YouTube Video Title under 95 characters (Use symbols like 🔥, 🚨, ⚡, 📢, |).
-2. "voiceover_script": A comprehensive 5-minute continuous spoken Bengali voiceover script (750 to 850 words) with all numbers written in Bengali words and phone numbers in phonetic English.
+1. "optimized_title": A UNIQUE, high-CTR YouTube Video Title under 95 characters (Use symbols like 🔥, 🚨, ⚡, 📢, |).
+2. "voiceover_script": A comprehensive 4-minute continuous spoken Bengali script (550 to 650 words) with all numbers written in words, year mentioned at most once, and the WhatsApp application service call to action.
 3. "video_description": A tailored YouTube Description with circular summary, official contact details, and hashtags:
 ---
 [Circular Summary & Post Highlights here]
 
-স্বাগতম আমাদের ইউটিউব চ্যানেলে! আমরা চাকরিপ্রার্থীদের জন্য সরকারি ও বেসরকারি সব ধরনের চাকরির আবেদন প্রক্রিয়াটি সহজ ও নিয়মতান্ত্রিক করতে কাজ করে থাকি।
-আমাদের মাধ্যমে যেকোনো চাকরির আবেদন সম্পন্ন করতে আজই যোগাযোগ করুন:
+আমরা চাকরিপ্রার্থীদের জন্য সরকারি ও বেসরকারি সব ধরনের চাকরির আবেদন প্রক্রিয়াটি সহজ ও নিয়মতান্ত্রিক করতে কাজ করে থাকি।
+আমাদের মাধ্যমে যেকোনো চাকরির আবেদন নির্ভুল ও সঠিক নিয়মে সম্পন্ন করতে আজই যোগাযোগ করুন:
 💬 হোয়াটসঅ্যাপ (WhatsApp): wa.me/8801540503092
 🌐 ফেসবুক পেজ (Facebook Page): https://www.facebook.com/profile.php?id=61583625958904
 
 [3 to 5 targeted Bengali/English hashtags for this circular]
 ---
 4. "specific_tags": A list of 4 to 6 specific SEO tags without emojis or commas.
-5. "top_text": 2-3 clean Bengali words for Thumbnail Top Bar (e.g., "সরকারি চাকরি", "পানি উন্নয়ন বোর্ড"). DO NOT use any ✪ or star symbols.
+5. "top_text": 2-3 clean Bengali words for Thumbnail Top Bar (e.g., "সরকারি চাকরি", "পানি উন্নয়ন বোর্ড", "জরুরি নিয়োগ"). DO NOT use any ✪ or star symbols.
 6. "row1_text": 2-3 short, impactful words for Thumbnail Hook in RED (e.g., "নিজ জেলায়", "অফিস সহায়ক", "জরুরি নিয়োগ").
 7. "row2_text": 2-4 short words for Thumbnail Sub-line in BLACK (e.g., "DC অফিসে চাকরি", "এডমিট কার্ড প্রকাশ", "(SSC পাশ/৬৪ জেলা)").
 8. "bot_text": Bottom Bar Bengali text (e.g., "আবেদনের নিয়ম ও বিস্তারিত", "({vac_str if vac_str else 'বিশাল সার্কুলার'}) নিয়োগ").
@@ -241,11 +228,8 @@ Return strictly valid JSON:
                     data = parse_json_safely(raw_content)
                     if data and data.get("optimized_title") and data.get("voiceover_script"):
                         opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
-                        
-                        # 🌟 সংখ্যাকে কথায় রূপান্তর করা
                         raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
                         script = convert_all_numbers_in_script(raw_script)
-
                         desc = normalize_outdated_years(data.get("video_description", "").strip())
                         raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
                         tags = sanitize_youtube_tags(raw_tags)
@@ -256,7 +240,7 @@ Return strictly valid JSON:
                             "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
                             "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
                         }
-                        print(f"✨ Successfully Generated via Ollama '{model_name}'!")
+                        print(f"✨ Successfully Generated via Ollama '{model_name}' (4-min Script)!")
                         return opt_title, script, thumb_meta, desc, tags
             except Exception: pass
 
@@ -268,7 +252,7 @@ Return strictly valid JSON:
             payload = {
                 "model": g_model,
                 "messages": [
-                    {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. All numbers in voiceover_script must be in Bengali words. Output strictly valid JSON only."},
+                    {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. Write a 4-minute script (550-650 words) with numbers in words and WhatsApp application call to action. Output strictly valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},
@@ -282,11 +266,8 @@ Return strictly valid JSON:
                     data = parse_json_safely(raw_content)
                     if data and data.get("optimized_title") and data.get("voiceover_script"):
                         opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
-                        
-                        # 🌟 সংখ্যাকে কথায় রূপান্তর করা
                         raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script").strip()))
                         script = convert_all_numbers_in_script(raw_script)
-
                         desc = normalize_outdated_years(data.get("video_description", "").strip())
                         raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
                         tags = sanitize_youtube_tags(raw_tags)
@@ -297,7 +278,7 @@ Return strictly valid JSON:
                             "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
                             "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
                         }
-                        print(f"✨ Successfully Generated via Groq AI ({g_model})!")
+                        print(f"✨ Successfully Generated via Groq AI ({g_model}) (4-min Script)!")
                         return opt_title, script, thumb_meta, desc, tags
             except Exception: pass
 
