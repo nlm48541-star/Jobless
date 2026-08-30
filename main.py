@@ -12,14 +12,24 @@ LIVESTREAM_DIR = "workspace_live"
 HISTORY_FILE = os.path.join(WORKSPACE_DIR, "history.txt")
 
 def add_to_history(title):
-    """সফলভাবে আপলোড হওয়া ভিডিওর টাইটেল history.txt-এ সেভ করে"""
-    try:
-        os.makedirs(WORKSPACE_DIR, exist_ok=True)
-        with open(HISTORY_FILE, "a", encoding="utf-8") as hf:
-            hf.write(f"{title.strip()}\n")
-        print(f"📝 [HISTORY] Successfully saved '{title[:45]}...' to history.txt")
-    except Exception as e:
-        print(f"⚠️ Failed to update history.txt: {e}")
+    """history.txt ফাইলে ডুপ্লিকেট ছাড়া শুধুমাত্র একবার টাইটেল সেভ করে"""
+    if not title or not str(title).strip(): return
+    clean_t = str(title).strip()
+    existing_records = set()
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as hf:
+                existing_records = {line.strip() for line in hf if line.strip()}
+        except Exception: pass
+
+    if clean_t not in existing_records:
+        try:
+            os.makedirs(WORKSPACE_DIR, exist_ok=True)
+            with open(HISTORY_FILE, "a", encoding="utf-8") as hf:
+                hf.write(f"{clean_t}\n")
+            print(f"📝 [HISTORY] Saved to history: '{clean_t[:45]}...'")
+        except Exception as e:
+            print(f"⚠️ Failed to update history.txt: {e}")
 
 def process_ready_videos(yt):
     print("\nScanning Drive folders for Videos / AI Processing...")
@@ -31,23 +41,19 @@ def process_ready_videos(yt):
     for folder_name in folders:
         folder_path = os.path.join(WORKSPACE_DIR, folder_name)
         try:
-            # ১. যদি কোনো ফোল্ডারের টাইটেলে 'এনজিও' বা 'ব্যাংক' থাকে, সাথে সাথে ডিলিট
+            # ১. টাইটেলে 'এনজিও' বা 'ব্যাংক' থাকলে ডিলিট
             if is_forbidden_article(folder_name):
                 print(f"🚫 [FILTERED] Deleting forbidden folder '{folder_name}' (এনজিও / ব্যাংক).")
                 shutil.rmtree(folder_path, ignore_errors=True)
                 continue
 
-            custom_audio_file, txt_path = None, None
+            existing_audio_file, txt_path = None, None
             img_files = []
             
             for file in sorted(os.listdir(folder_path)):
                 ext = file.lower().split('.')[-1]
                 if ext in ['mp3', 'wav', 'm4a', 'aac']:
-                    if file.lower() == "voiceover.mp3":
-                        try: os.remove(os.path.join(folder_path, file))
-                        except Exception: pass
-                    else:
-                        custom_audio_file = file
+                    existing_audio_file = file
                 elif ext in ['txt']: 
                     txt_path = os.path.join(folder_path, file)
                 elif ext in ['jpg', 'jpeg', 'png', 'webp']: 
@@ -73,27 +79,31 @@ def process_ready_videos(yt):
 
             print(f"\n========== Process started: {folder_name} ==========")
 
-            # ৩. এআই দিয়ে স্ক্রিপ্ট ও মেটাডাটা তৈরি
+            # ৩. এআই মেটাডাটা ও থাম্বনেইল তথ্য জেনারেশন
             opt_title, voiceover_script, thumb_meta, video_desc, video_tags = generate_job_content(raw_title, img_files)
-            
-            if not opt_title or not voiceover_script:
+            if not opt_title:
                 print(f"🛑 [CANCELLED] All AI models failed for '{folder_name}'. Video creation aborted.")
                 continue
 
             video_title = opt_title
 
-            # ৪. ElevenLabs Eleven v3 দিয়ে ফ্রেশ বাংলা অডিও তৈরি
-            if not custom_audio_file:
+            # 🌟 ৪. [আপনার নতুন লজিক]: ফোল্ডারে আগে থেকে অডিও থাকলে সরাসরি সেটি ব্যবহার করা হবে
+            if existing_audio_file:
+                audio_path = os.path.join(folder_path, existing_audio_file)
+                print(f"🎵 [PRE-EXISTING AUDIO] Using folder audio '{existing_audio_file}' directly (Skipping new audio synthesis).")
+            else:
+                # অডিও না থাকলে ElevenLabs দিয়ে নতুন তৈরি হবে
+                if not voiceover_script:
+                    print(f"🛑 [CANCELLED] No script available for '{folder_name}'.")
+                    continue
                 gen_audio_path = os.path.join(folder_path, "voiceover.mp3")
                 audio_success = generate_voiceover_audio_pipeline(voiceover_script, gen_audio_path)
                 if not audio_success or not os.path.exists(gen_audio_path):
-                    print(f"🛑 [CANCELLED] ElevenLabs audio synthesis failed for '{folder_name}'. Aborting.")
+                    print(f"🛑 [CANCELLED] ElevenLabs failed for '{folder_name}'. Video creation aborted.")
                     continue
                 audio_path = gen_audio_path
-            else:
-                audio_path = os.path.join(folder_path, custom_audio_file)
 
-            # ৫. থাম্বনেইল জেনারেশন
+            # ৫. থাম্বনেইল তৈরি
             thumbnail_path = os.path.join(TMP_DIR, "thumbnail.jpg")
             if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
             generate_dynamic_thumbnail(raw_title, thumbnail_path, thumb_meta=thumb_meta)
@@ -113,12 +123,9 @@ def process_ready_videos(yt):
                 schedule_upload=True
             )
             
-            # ৭. সফল হলে history.txt তে সেভ করা ও ৯:১৬ পোর্ট্রেট ভিডিও (JobLive)
+            # ৭. সফল আপলোডের পর history.txt-এ নাম সেভ ও ড্রাইভ ফোল্ডার ডিলিট
             if upload_success:
-                # 🌟 সফল আপলোডের পর history.txt-এ নাম সেভ
                 add_to_history(raw_title)
-                if folder_name != raw_title:
-                    add_to_history(folder_name)
 
                 try:
                     if not os.path.exists(LIVESTREAM_DIR): os.makedirs(LIVESTREAM_DIR, exist_ok=True)
