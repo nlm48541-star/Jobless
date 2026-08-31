@@ -6,18 +6,16 @@ from PIL import Image
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "https://api.ollama.com").rstrip("/")
 GROQ_API = os.environ.get("GROQ_API", "").strip()
 
-# 🌟 Ollama মডেলের অগ্রাধিকার তালিকা
+# 🌟 Ollama ও Groq মডেল অগ্রাধিকার তালিকা
 OLLAMA_MODELS = ["kimi-k3", "minimax-m3", "gemma4", "kimi-k2.6"]
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
 def get_all_ollama_keys():
-    """একাধিক Ollama Cloud API Key লোড করে"""
     raw_keys = os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", os.environ.get("OLLAMA_API_KEYS", ""))).strip()
     if not raw_keys: return []
     return [k.strip() for k in re.split(r'[\r\n,;]+', raw_keys) if k.strip()]
 
 def get_all_groq_keys():
-    """একাধিক Groq API Key লোড করে"""
     raw_keys = os.environ.get("GROQ_API", os.environ.get("GROQ_API_KEYS", "")).strip()
     if not raw_keys: return []
     return [k.strip() for k in re.split(r'[\r\n,;]+', raw_keys) if k.strip()]
@@ -27,6 +25,7 @@ DEFAULT_BASE_TAGS = [
     'job circular', 'govt job circular', 'job application bd'
 ]
 
+# ১ থেকে ৯৯ পর্যন্ত খাঁটি বাংলা শব্দের ম্যাপিং
 BN_NUMS = {
     0: 'শূন্য', 1: 'এক', 2: 'দুই', 3: 'তিন', 4: 'চার', 5: 'পাঁচ', 6: 'ছয়', 7: 'সাত', 8: 'আট', 9: 'নয়', 10: 'দশ',
     11: 'এগারো', 12: 'বারো', 13: 'তেরো', 14: 'চৌদ্দ', 15: 'পনেরো', 16: 'ষোলো', 17: 'সতেরো', 18: 'আঠারো', 19: 'উনিশ', 20: 'বিশ',
@@ -48,7 +47,7 @@ DIGIT_TO_ENG_BN = {
 }
 
 def en_bn_to_int(s):
-    trans = str.maketrans('০১২৩৪৫ঈ৭৮৯', '0123456789')
+    trans = str.maketrans('০১২৩৪৫৬৭৮৯', '0123456789')
     return int(str(s).translate(trans))
 
 def number_to_bangla_words(n):
@@ -177,24 +176,32 @@ def generate_job_content(title, img_paths):
 
     prompt = f"""You are a professional Bengali YouTube SEO specialist and scriptwriter.
 Context:
-- Job Circular Title: "{clean_title}"
+- Circular: "{clean_title}"
 - Organization: "{org_name}"
-- Current Year Context: {cur_bn} ({cur_en})
 
 CRITICAL SCRIPT RULES:
-1. SCRIPT LENGTH: Exactly 4 minutes long (550 to 650 words). Continuous spoken natural Bengali.
-2. YEAR RULE: Mention the year AT MOST ONCE during the initial announcement. DO NOT repeatedly mention or force the year across paragraphs.
-3. NUMBERS IN WORDS: Every number, vacancy count, salary scale, and date MUST be written in Bengali words (কথায় লেখা). Never use raw digits (0-9).
-4. CALL TO ACTION: You MUST clearly tell the audience that if they want to apply for this job accurately and safely, they should contact our application service via the WhatsApp number shown on the screen or in the description (01540503092 -> 'জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু'). Do NOT use the phrase 'ঘরে বসে'.
+1. SCRIPT LENGTH: Exactly 3 minutes long (380 to 440 words). Continuous spoken natural Bengali.
+2. NO YEAR MENTION: Do NOT mention any year (e.g. 2026/২০২৬) in the voiceover script.
+3. DIRECT CORE INFORMATION TO COVER (No unnecessary fluff or long speeches):
+   - Name of the hiring organization and nature of the recruitment.
+   - Total number of vacancies and specific post names.
+   - Number of vacancies for each specific post.
+   - Required educational qualifications and experience for each specific post.
+   - Application start date and application deadline.
+   - Special eligibility conditions (e.g. specific age limit, or district quota if applicable).
+4. WHAT NOT TO INCLUDE (STRICTLY FORBIDDEN):
+   - Do NOT describe application procedures (do not mention website links, SMS fee submission rules, or photo/signature pixel sizes).
+5. NUMBERS IN WORDS: Every number, vacancy count, salary scale, and date MUST be written in full Bengali words (কথায় লেখা). Never use numeric digits (0-9).
+6. CALL TO ACTION: Instruct viewers that if they want to apply for this job accurately and safely, they should contact our application service via the WhatsApp number shown on screen or in the description (01540503092 -> 'জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু'). Do NOT use the phrase 'ঘরে বসে'.
 
 Return a strictly valid JSON object:
 1. "optimized_title": A UNIQUE, high-CTR YouTube Video Title under 95 characters (Use symbols like 🔥, 🚨, ⚡, 📢, |).
-2. "voiceover_script": A comprehensive 4-minute continuous spoken Bengali script (550 to 650 words) with all numbers written in words, year mentioned at most once, and the WhatsApp application service call to action.
+2. "voiceover_script": A comprehensive 3-minute continuous spoken Bengali script (380 to 440 words) covering only the core circular details with all numbers in words and the WhatsApp application call to action.
 3. "video_description": A tailored YouTube Description with circular summary, official contact details, and hashtags:
 ---
 [Circular Summary & Post Highlights here]
 
-আমরা চাকরিপ্রার্থীদের জন্য সরকারি ও বেসরকারি সব ধরনের চাকরির আবেদন প্রক্রিয়াটি সহজ ও নিয়মতান্ত্রিক করতে কাজ করে থাকি।
+স্বাগতম আমাদের ইউটিউব চ্যানেলে! আমরা চাকরিপ্রার্থীদের জন্য সরকারি ও বেসরকারি সব ধরনের চাকরির আবেদন প্রক্রিয়াটি সহজ ও নিয়মতান্ত্রিক করতে কাজ করে থাকি।
 আমাদের মাধ্যমে যেকোনো চাকরির আবেদন নির্ভুল ও সঠিক নিয়মে সম্পন্ন করতে আজই যোগাযোগ করুন:
 💬 হোয়াটসঅ্যাপ (WhatsApp): wa.me/8801540503092
 🌐 ফেসবুক পেজ (Facebook Page): https://www.facebook.com/profile.php?id=61583625958904
@@ -227,7 +234,6 @@ Return strictly valid JSON:
         for k_idx, o_key in enumerate(ollama_keys, start=1):
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
             
-            # 🌟 প্রতিটা কী-এর আন্ডারে সবগুলো মডেল একে একে ট্রাই করবে
             for model_name in OLLAMA_MODELS:
                 print(f"🤖 Attempting Ollama Key #{k_idx}/{len(ollama_keys)} (Model: '{model_name}') for '{clean_title[:40]}'...")
                 payload = {
@@ -254,7 +260,7 @@ Return strictly valid JSON:
                                 "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
                                 "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
                             }
-                            print(f"✨ Successfully Generated via Ollama Key #{k_idx} ('{model_name}')!")
+                            print(f"✨ Successfully Generated via Ollama Key #{k_idx} ('{model_name}') [3-min Script]!")
                             return opt_title, script, thumb_meta, desc, tags
                     else:
                         print(f"⚠️ Ollama Key #{k_idx} ('{model_name}') returned {resp.status_code}. Trying next model on Key #{k_idx}...")
@@ -273,12 +279,12 @@ Return strictly valid JSON:
                 payload = {
                     "model": g_model,
                     "messages": [
-                        {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. Write a 4-minute script (550-650 words) with numbers in words and WhatsApp application call to action. Output strictly valid JSON only."},
+                        {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. Write a 3-minute concise script (380-440 words) with numbers in words, no years, and application call to action. Output strictly valid JSON only."},
                         {"role": "user", "content": prompt}
                     ],
                     "response_format": {"type": "json_object"},
                     "temperature": 0.5,
-                    "max_tokens": 2500
+                    "max_tokens": 2000
                 }
                 try:
                     resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=30)
@@ -299,7 +305,7 @@ Return strictly valid JSON:
                                 "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
                                 "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
                             }
-                            print(f"✨ Successfully Generated via Groq AI ({g_model})!")
+                            print(f"✨ Successfully Generated via Groq AI ({g_model}) [3-min Script]!")
                             return opt_title, script, thumb_meta, desc, tags
                     else:
                         print(f"⚠️ Groq Key #{g_idx} ('{g_model}') returned {resp.status_code}: {resp.text[:120]}")
