@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 import os, re, time, requests
 
-# 🌟 ফ্রি এপিআই-এর জন্য অনুমোদিত সবচেয়ে সেরা পুরুষ কণ্ঠ (George - News Anchor Tone)
 FREE_PERMITTED_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"
+TRACKER_FILE = os.path.join("workspace", "eleven_key_tracker.txt")
 
 def mask_key(k):
     if not k or len(k) <= 8: return "****"
@@ -18,47 +18,58 @@ def clean_script_for_speech(raw_text):
     return text
 
 def get_all_elevenlabs_keys():
+    """এন্টার (Newline) বা কমা দিয়ে সাজানো সব ElevenLabs এপিআই কি লোড করে"""
     raw_keys = os.environ.get("ELEVENLABS_API_KEYS", os.environ.get("ELEVENLABS_API_KEY", "")).strip()
     if not raw_keys: return []
-    return [k.strip() for k in re.split(r'[\r\n,;]+', raw_keys) if k.strip()]
+    # এন্টার (\n), কমা, সেমিকোলন দিয়ে ক্লিন পার্সিং
+    lines = re.split(r'[\r\n,;]+', raw_keys)
+    return [k.strip() for k in lines if k.strip() and not k.strip().startswith('#')]
+
+def get_saved_key_index(total_keys):
+    """ড্রাইভ/ওয়ার্কস্পেস থেকে সর্বশেষ সফল বা সক্রিয় কি ইনডেক্স পড়ে নেয়"""
+    if total_keys == 0: return 0
+    if os.path.exists(TRACKER_FILE):
+        try:
+            with open(TRACKER_FILE, "r", encoding="utf-8") as f:
+                saved = int(f.read().strip())
+                return saved % total_keys
+        except Exception: pass
+    return 0
+
+def save_key_index(idx, total_keys):
+    """পরবর্তী রান বা পরবর্তী ভিডিওর জন্য কি ইনডেক্স মনে রাখে"""
+    if total_keys == 0: return
+    try:
+        os.makedirs(os.path.dirname(TRACKER_FILE), exist_ok=True)
+        with open(TRACKER_FILE, "w", encoding="utf-8") as f:
+            f.write(str(idx % total_keys))
+    except Exception: pass
 
 def get_best_free_voice(api_key):
-    """
-    অ্যাকাউন্ট স্ক্যান করে শুধুমাত্র ফ্রি-অনুমোদিত (premade বা generated) ভয়েস সিলেক্ট করে।
-    লাইব্রেরি/প্রফেশনাল ভয়েস এড়িয়ে চলে যাতে 402 এরর না আসে।
-    """
     try:
         url = "https://api.elevenlabs.io/v1/voices"
         headers = {"xi-api-key": api_key}
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code == 200:
             voices = resp.json().get("voices", [])
-            
-            # ১. ব্যবহারকারীর তৈরি কাস্টম ভয়েস
             for v in voices:
                 if v.get("category") == "generated":
                     return v.get("voice_id"), f"'{v.get('name')}' (Custom Generated)"
-            
-            # ২. ডিফল্ট সেরা ফ্রি পুরুষ ভয়েস (George / Adam)
             for v in voices:
                 if v.get("category") == "premade" and "george" in v.get("name", "").lower():
                     return v.get("voice_id"), f"'{v.get('name')}' (Premade Official)"
             for v in voices:
                 if v.get("category") == "premade" and "adam" in v.get("name", "").lower():
                     return v.get("voice_id"), f"'{v.get('name')}' (Premade Official)"
-                    
-            # ৩. যেকোনো সক্রিয় premade ভয়েস
             for v in voices:
                 if v.get("category") == "premade":
                     return v.get("voice_id"), f"'{v.get('name')}' (Premade Official)"
-    except Exception:
-        pass
-        
+    except Exception: pass
     return FREE_PERMITTED_VOICE_ID, "'George' (Default Premade Official)"
 
 def generate_voiceover_audio_pipeline(text, output_audio_path):
     print("\n" + "="*65)
-    print("🎙️ [AUDIO ENGINE] Starting ElevenLabs Eleven v3 Voiceover Pipeline")
+    print("🎙️ [AUDIO ENGINE] Starting ElevenLabs Voiceover (Smart Cyclic Pool)")
     print("="*65)
 
     speech_text = clean_script_for_speech(text)
@@ -70,19 +81,26 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
     print(f"📝 [Script Preview]: \"{speech_text[:140]}...\"\n")
 
     eleven_keys = get_all_elevenlabs_keys()
-    if not eleven_keys:
+    total_keys = len(eleven_keys)
+    if total_keys == 0:
         print("❌ [CRITICAL ERROR] No ElevenLabs API keys found in secrets!")
         print("="*65 + "\n")
         return False
 
-    print(f"🔑 [API Key Pool] Total {len(eleven_keys)} ElevenLabs key(s) loaded.")
+    start_idx = get_saved_key_index(total_keys)
+    print(f"🔑 [API Key Pool] Total {total_keys} key(s) loaded. Resuming from Key #{start_idx + 1}...")
 
-    for idx, api_key in enumerate(eleven_keys, start=1):
+    # 🌟 সাইক্লিক রোটেশন: শেষ যেখানে হয়েছিল সেখান থেকে শুরু হয়ে পুরো লুপ ঘুরবে
+    for offset in range(total_keys):
+        current_idx = (start_idx + offset) % total_keys
+        api_key = eleven_keys[current_idx]
+        key_num = current_idx + 1
         masked = mask_key(api_key)
+
         voice_id, voice_name = get_best_free_voice(api_key)
         tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
-        print(f"\n--- [Attempting Key #{idx}/{len(eleven_keys)}] ---")
+        print(f"\n--- [Attempting Key #{key_num}/{total_keys}] ---")
         print(f"  • Active Key    : {masked}")
         print(f"  • Selected Voice: {voice_name} [ID: {voice_id}]")
         print(f"  • Model         : eleven_v3 (Language: 'bn' - Bengali)")
@@ -119,26 +137,30 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
                 with open(output_audio_path, "wb") as f:
                     f.write(resp.content)
 
-                print(f"  ✅ [SUCCESS] Eleven v3 Bengali Voiceover Generated Successfully!")
+                # 🌟 সফল হলে এই কি-টিই মেমোরিতে সেভ করে রাখবে
+                save_key_index(current_idx, total_keys)
+
+                print(f"  ✅ [SUCCESS] Eleven v3 Bengali Voiceover Generated Successfully via Key #{key_num}!")
                 print(f"  📁 Saved Path  : {output_audio_path} ({audio_mb} MB / {audio_bytes:,} bytes)")
                 print("="*65 + "\n")
                 return True
 
             else:
-                print(f"  ⚠️ [FAILED] Server returned status code: {resp.status_code}")
+                print(f"  ⚠️ [FAILED] Key #{key_num} returned: {resp.status_code}")
                 print(f"  📄 Error Body  : {resp.text[:300]}")
                 
-                if resp.status_code in [401, 402, 429] or "quota" in resp.text.lower() or "credit" in resp.text.lower():
-                    print("  🔄 Reason      : Quota exhausted or invalid key. Trying next key...")
-                else:
-                    print("  🔄 Reason      : API error. Trying next key...")
+                # কোটা শেষ হলে পরবর্তী কী-কে পয়েন্টার হিসেবে সেভ করে দেবে
+                save_key_index(current_idx + 1, total_keys)
+                print(f"  🔄 Moving pointer to next Key #{((current_idx + 1) % total_keys) + 1}...")
                 continue
 
         except requests.exceptions.Timeout:
-            print(f"  ❌ [TIMEOUT] Request timed out after 120s with Key #{idx}.")
+            print(f"  ❌ [TIMEOUT] Request timed out after 120s with Key #{key_num}.")
+            save_key_index(current_idx + 1, total_keys)
             continue
         except Exception as e:
-            print(f"  ❌ [ERROR] Network exception with Key #{idx}: {e}")
+            print(f"  ❌ [ERROR] Network exception with Key #{key_num}: {e}")
+            save_key_index(current_idx + 1, total_keys)
             continue
 
     print("\n" + "="*65)
