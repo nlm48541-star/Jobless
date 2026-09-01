@@ -7,8 +7,8 @@ from PIL import Image
 
 WORKSPACE_DIR = "workspace"
 
-# 🌟 শুধুমাত্র টাইটেলে এই শব্দগুলো থাকলে স্কিপ করবে
-FORBIDDEN_KEYWORDS = ['এনজিও', 'ngo', 'ব্যাংক', 'bank']
+# 🌟 নিষিদ্ধ কিওয়ার্ড ফিল্টার ('চলমান' সহ)
+FORBIDDEN_KEYWORDS = ['এনজিও', 'ngo', 'ব্যাংক', 'bank', 'চলমান']
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -27,7 +27,6 @@ def clean_filename(text):
     return text[:90]
 
 def extract_image_urls_from_html(html_content, base_url=""):
-    """HTML থেকে সব ধরনের লেজি-লোড ও সাধারণ ছবির URL বের করে"""
     if not html_content: return []
     soup = BeautifulSoup(html_content, 'html.parser')
     img_urls = []
@@ -55,7 +54,6 @@ def extract_image_urls_from_html(html_content, base_url=""):
                     src = urljoin(base_url, src)
                     
                 src_lower = src.lower()
-                # অপ্রয়োজনীয় সাইট লোগো, আইকন ইত্যাদি বাদ দেওয়া
                 if any(ext in src_lower for ext in ['.jpg', '.jpeg', '.png', '.webp']) or 'uploads' in src_lower:
                     if not any(bad in src_lower for bad in ['logo', 'avatar', 'gravatar', 'icon', 'emoji', 'share', 'button', 'badge']):
                         if src.startswith("http") and src not in img_urls:
@@ -64,7 +62,6 @@ def extract_image_urls_from_html(html_content, base_url=""):
     return img_urls
 
 def scrape_images_from_webpage(page_url):
-    """আরএসএসে ছবি না থাকলে সরাসরি আর্টিকেলের ওয়েবপেজ থেকে ছবি আনে"""
     try:
         req_headers = HEADERS.copy()
         req_headers["Referer"] = page_url
@@ -75,7 +72,6 @@ def scrape_images_from_webpage(page_url):
     return []
 
 def download_image(url, output_path, referer_url=""):
-    """নিরাপদভাবে ছবি ডাউনলোড করে (৩ কেবির ছোট ফাইল বাদ দেয়)"""
     try:
         req_headers = HEADERS.copy()
         if referer_url:
@@ -129,14 +125,14 @@ def check_new_articles_and_prepare_folders():
                 if folder_title.lower() == "shorts" or not folder_title or folder_title in existing or folder_title in history_logs: 
                     continue 
 
-                # 🌟 শুধুমাত্র টাইটেলে 'এনজিও' বা 'ব্যাংক' থাকলে স্কিপ করা হবে (কনটেন্টে থাকলে স্কিপ হবে না)
+                # 🌟 শুধুমাত্র টাইটেলে 'এনজিও', 'ব্যাংক' বা 'চলমান' থাকলে স্কিপ হবে
                 if is_forbidden_article(raw_title) or is_forbidden_article(folder_title):
-                    print(f"🚫 [FILTERED] Skipping '{folder_title}' (Title contains 'এনজিও' / 'ব্যাংক').")
+                    print(f"🚫 [FILTERED] Skipping '{folder_title}' (Title contains 'এনজিও' / 'ব্যাংক' / 'চলমান').")
                     continue
 
                 content = entry.content[0].value if hasattr(entry, 'content') else getattr(entry, 'summary', "")
 
-                # 🌟 ছবি সংগ্রহ (প্রথমে RSS থেকে, না পেলে লাইভ পেজ থেকে)
+                # ছবি খোঁজা
                 valid_img_urls = extract_image_urls_from_html(content, base_url=link)
                 if not valid_img_urls and link:
                     valid_img_urls = scrape_images_from_webpage(link)
@@ -148,7 +144,6 @@ def check_new_articles_and_prepare_folders():
                 folder_path = os.path.join(WORKSPACE_DIR, folder_title)
                 os.makedirs(folder_path, exist_ok=True)
                 
-                # অস্থায়ীভাবে সব ছবি ডাউনলোড করা
                 downloaded_temp_files = []
                 for idx, src in enumerate(valid_img_urls, start=1):
                     temp_img_path = os.path.join(folder_path, f"temp_{idx}.jpg")
@@ -160,7 +155,7 @@ def check_new_articles_and_prepare_folders():
                     shutil.rmtree(folder_path, ignore_errors=True)
                     continue
 
-                # 🌟 একাধিক ছবি থাকলে ১ম ছবিটি ১৬:৯ ব্যানার হলে বাদ দেওয়া হবে (১টি ছবি থাকলে বাদ হবে না)
+                # একাধিক ছবি থাকলে ১ম ১৬:৯ ব্যানার রিমুভ
                 if len(downloaded_temp_files) > 1:
                     try:
                         with Image.open(downloaded_temp_files[0]) as first_img:
@@ -172,7 +167,7 @@ def check_new_articles_and_prepare_folders():
                                 print(f"✂️ [16:9 Banner Removed] 1st image was a website banner ({w}x{h}). Keeping official circular pages.")
                     except Exception: pass
 
-                # চূড়ান্ত ছবিগুলোকে ক্রমানুসারে 1.jpg, 2.jpg হিসেবে নামকরণ করা
+                # চূড়ান্ত নামকরণ (1.jpg, 2.jpg)
                 final_img_count = 0
                 for final_idx, temp_path in enumerate(downloaded_temp_files, start=1):
                     final_path = os.path.join(folder_path, f"{final_idx}.jpg")
