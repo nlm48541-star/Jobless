@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os
+import os, random
 import numpy as np
 from PIL import Image
 from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips, ImageClip, CompositeVideoClip
@@ -38,7 +38,7 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
                 return img_np[0:target_h, x_start : x_start + target_w]
             clip = VideoClip(frame_getter, duration=duration)
     else:
-        # ১৬:৯ ল্যান্ডস্কেপ ভিডিও (YouTube Regular Video)
+        # ১৬:৯ ল্যান্ডস্কেপ ভিডিও (Regular Video)
         if ratio >= target_ratio: 
             new_h, new_w = target_h, int((target_h / h) * w)
         else: 
@@ -73,7 +73,9 @@ def apply_front_overlay(main_clip, target_w, target_h):
     if front_path and os.path.exists(front_path):
         try:
             pil_front = Image.open(front_path).convert("RGBA")
-            scale_ratio = 0.28 if target_w >= target_h else 0.38
+            
+            # 🌟 ১. সাইজ আরেকটু বড় করা হয়েছে (ল্যান্ডস্কেপে ৩৫% এবং পোর্ট্রেটে ৪৫%)
+            scale_ratio = 0.35 if target_w >= target_h else 0.45
             scaled_w = int(target_w * scale_ratio)
             scaled_h = int((scaled_w / pil_front.width) * pil_front.height)
             pil_front_resized = pil_front.resize((scaled_w, scaled_h), Image.LANCZOS)
@@ -85,16 +87,25 @@ def apply_front_overlay(main_clip, target_w, target_h):
             mask_clip = ImageClip(front_np[:, :, 3] / 255.0, ismask=True).set_duration(main_clip.duration)
             front_clip = front_clip.set_mask(mask_clip)
             
-            pad = 25
+            pad = 30
             avail_w = max(1, target_w - scaled_w - 2 * pad)
             avail_h = max(1, target_h - scaled_h - 2 * pad)
-            vx, vy = avail_w / 45.0, avail_h / 32.0
+            
+            # 🌟 ২. স্থির ও ধীর গতি (Fixed Slow Speed: প্রতি সেকেন্ডে ২৮ ও ২০ পিক্সেল)
+            speed_x = 28.0
+            speed_y = 20.0
+            
+            # 🌟 ৩. র‍্যান্ডম প্রারম্ভিক পজিশন ও ডিরেকশন (Random Starting Point)
+            init_x_phase = random.uniform(0, 2 * avail_w)
+            init_y_phase = random.uniform(0, 2 * avail_h)
+            dir_x = random.choice([-1.0, 1.0])
+            dir_y = random.choice([-1.0, 1.0])
             
             def floating_pos(t):
-                x_val = (t * vx) % (2 * avail_w)
-                x = x_val if x_val <= avail_w else (2 * avail_w - x_val)
-                y_val = (t * vy) % (2 * avail_h)
-                y = y_val if y_val <= avail_h else (2 * avail_h - y_val)
+                curr_x = (init_x_phase + dir_x * speed_x * t) % (2 * avail_w)
+                curr_y = (init_y_phase + dir_y * speed_y * t) % (2 * avail_h)
+                x = curr_x if curr_x <= avail_w else (2 * avail_w - curr_x)
+                y = curr_y if curr_y <= avail_h else (2 * avail_h - curr_y)
                 return (pad + int(x), pad + int(y))
             
             front_clip = front_clip.set_position(floating_pos)
