@@ -21,20 +21,15 @@ def get_youtube_service():
     return build('youtube', 'v3', credentials=creds)
 
 def get_upload_status_dict(schedule_upload=True):
-    """
-    ১ম ভিডিওটি সাথে সাথে পাবলিক করবে এবং পরেরগুলো ১ ঘণ্টা পর পর শিডিউল করবে
-    """
+    """১ম ভিডিওটি সাথে সাথে পাবলিক করবে এবং পরেরগুলো ১ ঘণ্টা পর পর শিডিউল করবে"""
     global IS_FIRST_VIDEO_IN_RUN
     now_utc = datetime.now(timezone.utc)
 
     if not schedule_upload:
         return {'privacyStatus': 'public'}
 
-    # 🌟 ১. যদি এই রানের ১ম ভিডিও হয়, তাহলে সাথে সাথে পাবলিক (Public / Instant Live)
     if IS_FIRST_VIDEO_IN_RUN:
         IS_FIRST_VIDEO_IN_RUN = False
-        
-        # ট্র্যাকার ফাইলে বর্তমান সময় সেভ
         try:
             os.makedirs(os.path.dirname(SCHEDULE_TRACKER_FILE), exist_ok=True)
             with open(SCHEDULE_TRACKER_FILE, "w", encoding="utf-8") as sf:
@@ -44,7 +39,6 @@ def get_upload_status_dict(schedule_upload=True):
         print("📢 [Publish Policy] 1st Video of the run ➔ Publishing IMMEDIATELY as PUBLIC!")
         return {'privacyStatus': 'public'}
 
-    # 🌟 ২. পরবর্তী ভিডিওগুলোর জন্য ১ ঘণ্টা পর পর শিডিউল
     base_time = now_utc + timedelta(hours=1)
     if os.path.exists(SCHEDULE_TRACKER_FILE):
         try:
@@ -103,7 +97,13 @@ def upload_to_youtube(yt, video_file, title, thumbnail_path, description, tags, 
             'snippet': {
                 'title': safe_title,
                 'description': description if description else safe_title,
-                'tags': safe_tags
+                'tags': safe_tags,
+                # 🌟 ক্যাটাগরি: News & Politics (ID: 25)
+                'categoryId': '25',
+                # 🌟 টাইটেল ও ডেসক্রিপশনের ভাষা: বাংলা
+                'defaultLanguage': 'bn',
+                # 🌟 ভিডিওর অডিও ভাষা: বাংলা
+                'defaultAudioLanguage': 'bn'
             },
             'status': status_dict 
         }
