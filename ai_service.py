@@ -6,26 +6,46 @@ from PIL import Image
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "https://api.ollama.com").rstrip("/")
 GROQ_API = os.environ.get("GROQ_API", "").strip()
 
-# 🌟 Ollama ও Groq মডেল অগ্রাধিকার তালিকা
 OLLAMA_MODELS = ["kimi-k3", "minimax-m3", "gemma4", "kimi-k2.6"]
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+OLLAMA_TRACKER_FILE = os.path.join("workspace", "ollama_key_tracker.txt")
 
 def get_all_ollama_keys():
+    """এন্টার (Newline) বা কমা দিয়ে সাজানো সব Ollama Cloud API Key লোড করে"""
     raw_keys = os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", os.environ.get("OLLAMA_API_KEYS", ""))).strip()
     if not raw_keys: return []
-    return [k.strip() for k in re.split(r'[\r\n,;]+', raw_keys) if k.strip()]
+    lines = re.split(r'[\r\n,;]+', raw_keys)
+    return [k.strip() for k in lines if k.strip() and not k.strip().startswith('#')]
 
 def get_all_groq_keys():
+    """এন্টার বা কমা দিয়ে সাজানো সব Groq API Key লোড করে"""
     raw_keys = os.environ.get("GROQ_API", os.environ.get("GROQ_API_KEYS", "")).strip()
     if not raw_keys: return []
-    return [k.strip() for k in re.split(r'[\r\n,;]+', raw_keys) if k.strip()]
+    lines = re.split(r'[\r\n,;]+', raw_keys)
+    return [k.strip() for k in lines if k.strip() and not k.strip().startswith('#')]
+
+def get_saved_ollama_index(total_keys):
+    if total_keys == 0: return 0
+    if os.path.exists(OLLAMA_TRACKER_FILE):
+        try:
+            with open(OLLAMA_TRACKER_FILE, "r", encoding="utf-8") as f:
+                return int(f.read().strip()) % total_keys
+        except Exception: pass
+    return 0
+
+def save_ollama_index(idx, total_keys):
+    if total_keys == 0: return
+    try:
+        os.makedirs(os.path.dirname(OLLAMA_TRACKER_FILE), exist_ok=True)
+        with open(OLLAMA_TRACKER_FILE, "w", encoding="utf-8") as f:
+            f.write(str(idx % total_keys))
+    except Exception: pass
 
 DEFAULT_BASE_TAGS = [
     'চাকরির সার্কুলার', 'চাকরির খবর', 'সরকারি চাকরি',
     'job circular', 'govt job circular', 'job application bd'
 ]
 
-# ১ থেকে ৯৯ পর্যন্ত খাঁটি বাংলা শব্দের ম্যাপিং
 BN_NUMS = {
     0: 'শূন্য', 1: 'এক', 2: 'দুই', 3: 'তিন', 4: 'চার', 5: 'পাঁচ', 6: 'ছয়', 7: 'সাত', 8: 'আট', 9: 'নয়', 10: 'দশ',
     11: 'এগারো', 12: 'বারো', 13: 'তেরো', 14: 'চৌদ্দ', 15: 'পনেরো', 16: 'ষোলো', 17: 'সতেরো', 18: 'আঠারো', 19: 'উনিশ', 20: 'বিশ',
@@ -228,14 +248,20 @@ Return strictly valid JSON:
 
     base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
 
-    # ------------------ [১ম ধাপ: Ollama ক্লাউডের সম্পূর্ণ মডেল ও কী রোটেশন] ------------------
+    # ------------------ [১ম ধাপ: Ollama ক্লাউডের স্মার্ট সাইক্লিক মেমোরি রোটেশন] ------------------
     ollama_keys = get_all_ollama_keys()
-    if ollama_keys:
-        for k_idx, o_key in enumerate(ollama_keys, start=1):
+    total_o_keys = len(ollama_keys)
+    if total_o_keys > 0:
+        start_o_idx = get_saved_ollama_index(total_o_keys)
+        for offset in range(total_o_keys):
+            cur_k_idx = (start_o_idx + offset) % total_o_keys
+            o_key = ollama_keys[cur_k_idx]
+            k_num = cur_k_idx + 1
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
             
+            key_worked = False
             for model_name in OLLAMA_MODELS:
-                print(f"🤖 Attempting Ollama Key #{k_idx}/{len(ollama_keys)} (Model: '{model_name}') for '{clean_title[:40]}'...")
+                print(f"🤖 Attempting Ollama Key #{k_num}/{total_o_keys} (Model: '{model_name}') for '{clean_title[:40]}'...")
                 payload = {
                     "model": model_name,
                     "messages": [{"role": "user", "content": prompt, "images": base64_images}],
@@ -260,14 +286,18 @@ Return strictly valid JSON:
                                 "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
                                 "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
                             }
-                            print(f"✨ Successfully Generated via Ollama Key #{k_idx} ('{model_name}') [3-min Script]!")
+                            # 🌟 সফল হলে এই কী ইনডেক্স সেভ রাখবে
+                            save_ollama_index(cur_k_idx, total_o_keys)
+                            print(f"✨ Successfully Generated via Ollama Key #{k_num} ('{model_name}') [3-min Script]!")
                             return opt_title, script, thumb_meta, desc, tags
                     else:
-                        print(f"⚠️ Ollama Key #{k_idx} ('{model_name}') returned {resp.status_code}. Trying next model on Key #{k_idx}...")
+                        print(f"⚠️ Ollama Key #{k_num} ('{model_name}') returned {resp.status_code}. Trying next model on Key #{k_num}...")
                 except Exception as oe:
-                    print(f"⚠️ Network error on Key #{k_idx} ('{model_name}'): {oe}")
+                    print(f"⚠️ Network error on Key #{k_num} ('{model_name}'): {oe}")
 
-            print(f"❌ All models failed for Ollama Key #{k_idx}. Moving to next Key...")
+            # এই কী-এর সব মডেল ফেইল হলে পয়েন্টার ১ ধাপ এগিয়ে দেবে
+            save_ollama_index(cur_k_idx + 1, total_o_keys)
+            print(f"❌ All models failed for Ollama Key #{k_num}. Moving pointer to Key #{((cur_k_idx + 1) % total_o_keys) + 1}...")
 
     # ------------------ [২য় ধাপ: সুপারফাস্ট Groq AI ইঞ্জিন] ------------------
     groq_keys = get_all_groq_keys()
