@@ -12,6 +12,8 @@ fonttools
 torch --index-url https://download.pytorch.org/whl/cpu
 transformers
 scipy
+soundfile
+parler-tts
 piper-tts
 onnxruntime
 edge-tts
