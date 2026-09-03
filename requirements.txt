@@ -9,3 +9,9 @@ Pillow
 requests
 numpy<2.0.0
 fonttools
+torch --index-url https://download.pytorch.org/whl/cpu
+transformers
+scipy
+piper-tts
+onnxruntime
+edge-tts
