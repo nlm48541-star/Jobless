@@ -58,6 +58,8 @@ jobs:
           Ollama_API_Key: ${{ secrets.Ollama_API_Key }}
           ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
+          TTS_ENGINE: ${{ secrets.TTS_ENGINE }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python main.py
 
       # 🌟 প্রসেস করা ও ডিলিট করা ফোল্ডার ড্রাইভ থেকে স্থায়ীভাবে রিমুভ করবে
