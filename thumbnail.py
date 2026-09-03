@@ -6,7 +6,6 @@ from ai_service import strip_unwanted_chars
 FONTS_DIR = "Fonts"
 PHOTOS_DIR = "Photos"
 
-# 🌟 ১৮টি নির্দিষ্ট প্রতিষ্ঠান ও তাদের লোগো ফাইলের ম্যাপিং
 ORG_LOGO_RULES = [
     (['সেনাবাহিনী', 'সেনা', 'army', 'সৈনিক', 'কমিশনড অফিসার'], ['Army.png', 'army.png']),
     (['নৌবাহিনী', 'নৌ', 'navy', 'নাবিক', 'sailor'], ['Navy.png', 'navy.png']),
@@ -28,19 +27,12 @@ ORG_LOGO_RULES = [
     (['গণপূর্ত', 'pwd', 'গণপূর্ত অধিদপ্তর'], ['PWD.jpeg', 'PWD.png', 'pwd.jpeg', 'pwd.png', 'PWD.jpg']),
 ]
 
-# 🌟 ৬টি উজ্জ্বল ও হাই-কনট্রাস্ট প্রিমিয়াম কালার কম্বিনেশন
 VIBRANT_PALETTES = [
-    # ১. ক্লাসিক নেভি ব্লু ও ইলেকট্রিক ইয়োলো
     {"bar_bg": "#001275", "border": "#000a40", "bar_text": "#ffffff", "bot_text": "#ffffff", "sub_bg": "#ffe600", "sub_text": "#000000", "hook_text": "#d80000"},
-    # ২. রয়েল ব্লু ও সান গোল্ড
     {"bar_bg": "#002fa7", "border": "#001c66", "bar_text": "#ffffff", "bot_text": "#ffe600", "sub_bg": "#ffd700", "sub_text": "#000000", "hook_text": "#d60000"},
-    # ৩. এমারেল্ড ফরেস্ট গ্রিন ও নিওন ইয়োলো
     {"bar_bg": "#00521b", "border": "#003310", "bar_text": "#ffffff", "bot_text": "#ffe600", "sub_bg": "#ffea00", "sub_text": "#000000", "hook_text": "#d80000"},
-    # ৪. ডিপ ক্রিমসন রেড ও ব্রাইট গোল্ড
     {"bar_bg": "#6b0014", "border": "#42000c", "bar_text": "#ffffff", "bot_text": "#ffffff", "sub_bg": "#ffea00", "sub_text": "#000000", "hook_text": "#d80000"},
-    # ৫. ডিপ ভায়োলেট ও ইলেকট্রিক ইয়োলো
     {"bar_bg": "#38006b", "border": "#20003d", "bar_text": "#ffffff", "bot_text": "#ffe600", "sub_bg": "#ffe600", "sub_text": "#000000", "hook_text": "#d60000"},
-    # ৬. ডিপ ডার্ক টিল ও গোল্ডেন ইয়োলো
     {"bar_bg": "#004754", "border": "#002a33", "bar_text": "#ffffff", "bot_text": "#ffffff", "sub_bg": "#ffea00", "sub_text": "#000000", "hook_text": "#d80000"}
 ]
 
@@ -163,8 +155,9 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
 
     top_text = strip_unwanted_chars(thumb_meta.get("top_text", "সরকারি চাকরি"))
     row1_text = strip_unwanted_chars(thumb_meta.get("row1_text", "জরুরি নিয়োগ"))
-    row2_text = strip_unwanted_chars(thumb_meta.get("row2_text", "(SSC পাশ/৬৪ জেলা)"))
-    bot_text = strip_unwanted_chars(thumb_meta.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
+    row2_text = strip_unwanted_chars(thumb_meta.get("row2_text", "বিশাল নিয়োগ"))
+    sub_text = strip_unwanted_chars(thumb_meta.get("sub_text", "SSC/HSC পাশ যোগ্যতা"))
+    bot_text = strip_unwanted_chars(thumb_meta.get("bot_text", "আবেদনের শেষ তারিখ ও নিয়ম"))
 
     bar_font = get_fixed_bar_font()
     font_line1, font_line2 = get_two_distinct_middle_fonts()
@@ -173,7 +166,7 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     matched_logo = find_matched_org_logo(title) or find_matched_org_logo(top_text)
 
     # =========================================================================
-    # 🌟 ১. স্পেশাল অর্গানাইজেশন ডিজাইন (৩টি টেক্সট বক্স + ডানপাশে বড় লোগো)
+    # 🌟 ১. স্পেশাল অর্গানাইজেশন ডিজাইন (৩টি সম্পূর্ণ আলাদা টেক্সট বক্স + বড় লোগো)
     # =========================================================================
     if matched_logo and os.path.exists(matched_logo):
         theme = random.choice(VIBRANT_PALETTES)
@@ -208,30 +201,28 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
         except Exception as e:
             print(f"⚠️ Logo paste notice: {e}")
 
-        # বামে ৩টি স্ট্যাকড টেক্সট বক্স (0 to 1260px) — বিশালাকার ফন্ট সাইজ
-        # বক্স ১: হলুদ সাব-হুক (200 to 380px, উচ্চতা ১৮০px)
+        # বামে ৩টি স্ট্যাকড সম্পূর্ণ আলাদা টেক্সট বক্স (0 to 1260px)
+        # বক্স ১: হলুদ সাব-হুক (200 to 380px) -> row1_text (যেমন: 'সহকারী শিক্ষক' বা 'অফিসার ক্যাডেট')
         draw.rectangle([0, 200, split_x, 380], fill=theme["sub_bg"])
         fs_b1, _ = get_best_fitted_mixed_font_size(row1_text, max_w=split_x - 40, max_h=150, bn_font_path=font_line1, start_size=220, min_size=90)
         draw_mixed_text_centered(draw, split_x // 2, 290, row1_text, font_line1, fs_b1, theme["sub_text"])
 
-        # বক্স ২: সাদা ব্যাকগ্রাউন্ডে বিশাল লাল মেইন হুক (380 to 700px, উচ্চতা ৩২০px)
+        # বক্স ২: সাদা ব্যাকগ্রাউন্ডে বিশাল লাল মেইন হুক (380 to 700px) -> row2_text (যেমন: '১০,২১৯ পদে' বা '১৫৩২ পদে')
         draw.rectangle([0, 380, split_x, 700], fill="#ffffff")
         fs_b2, _ = get_best_fitted_mixed_font_size(row2_text, max_w=split_x - 40, max_h=280, bn_font_path=font_line2, start_size=330, min_size=120)
         draw_mixed_text_centered(draw, split_x // 2, 540, row2_text, font_line2, fs_b2, theme["hook_text"])
 
-        # বক্স ৩: হলুদ সাব-লাইন (700 to 880px, উচ্চতা ১৮০px)
+        # বক্স ৩: হলুদ সাব-লাইন (700 to 880px) -> sub_text (যেমন: 'HSC পাশ যোগ্যতা' বা 'স্নাতক পাশ')
         draw.rectangle([0, 700, split_x, 880], fill=theme["sub_bg"])
-        b3_text = strip_unwanted_chars(thumb_meta.get("row2_text", "SSC/HSC পাশ"))
-        if b3_text == row2_text: b3_text = "আবেদনের নিয়ম ও যোগ্যতা"
-        fs_b3, _ = get_best_fitted_mixed_font_size(b3_text, max_w=split_x - 40, max_h=150, bn_font_path=font_line1, start_size=200, min_size=80)
-        draw_mixed_text_centered(draw, split_x // 2, 790, b3_text, font_line1, fs_b3, theme["sub_text"])
+        fs_b3, _ = get_best_fitted_mixed_font_size(sub_text, max_w=split_x - 40, max_h=150, bn_font_path=font_line1, start_size=200, min_size=80)
+        draw_mixed_text_centered(draw, split_x // 2, 790, sub_text, font_line1, fs_b3, theme["sub_text"])
 
         # বর্ডার ও সেপারেটর লাইন
         draw.line([(split_x, 200), (split_x, 880)], fill=theme["border"], width=7)
         draw.line([(0, 380), (split_x, 380)], fill=theme["border"], width=6)
         draw.line([(0, 700), (split_x, 700)], fill=theme["border"], width=6)
 
-        # বটম বার (880 to 1080px)
+        # বটম বার (880 to 1080px) -> bot_text (সার্কুলারভিত্তিক ডায়নামিক শেষ তারিখ/নিয়ম)
         draw.rectangle([0, 880, W, H], fill=theme["bar_bg"])
         fs_bot, _ = get_best_fitted_mixed_font_size(bot_text, max_w=W - 80, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
         draw_mixed_text_centered(draw, W // 2, 980, bot_text, bar_font, fs_bot, theme["bot_text"])
@@ -240,7 +231,7 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
         draw.line([(0, 880), (W, 880)], fill=theme["border"], width=7)
 
     # =========================================================================
-    # 🌟 ২. রেগুলার ডিজাইন (আপনার আগের ক্লাসিক গ্রিন ডিজাইন ১০০% অক্ষুণ্ণ)
+    # 🌟 ২. রেগুলার ডিজাইন (ক্লাসিক ফুল ওয়াইড্থ ডিজাইন)
     # =========================================================================
     else:
         print(f"📄 [Classic Thumbnail] Regular layout for '{title[:35]}...'")
@@ -260,23 +251,23 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
         fs_top, _ = get_best_fitted_mixed_font_size(top_text, max_w=W - 420, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
         draw_mixed_text_centered(draw, W // 2, 100, top_text, bar_font, fs_top, "#ffffff")
 
-        # মিডল সেকশন (ফুল ওয়াইড্থ সাদা ব্যাকগ্রাউন্ডে বিশালাকার টেক্সট)
+        # মিডল সেকশন (ফুল ওয়াইড্থ সাদা ব্যাকগ্রাউন্ড)
         draw.rectangle([0, 200, W, 880], fill="#ffffff")
 
         fs_l1, h1 = get_best_fitted_mixed_font_size(row1_text, max_w=W - 80, max_h=340, bn_font_path=font_line1, start_size=330, min_size=130)
-        fs_l2, h2 = get_best_fitted_mixed_font_size(row2_text, max_w=W - 80, max_h=290, bn_font_path=font_line2, start_size=280, min_size=110)
+        fs_l2, h2 = get_best_fitted_mixed_font_size(sub_text, max_w=W - 80, max_h=290, bn_font_path=font_line2, start_size=280, min_size=110)
 
         line_spacing = 15
         total_content_height = h1 + line_spacing + h2
         start_y = 540 - (total_content_height // 2)
 
-        # লাল লাইন ১ (বিশাল লাল লেখা)
+        # লাল লাইন ১ (মেইন হুক)
         draw_mixed_text_centered(draw, W // 2, start_y + (h1 // 2), row1_text, font_line1, fs_l1, "#d80000")
 
-        # কালো লাইন ২ (বিশাল কালো লেখা)
-        draw_mixed_text_centered(draw, W // 2, start_y + h1 + line_spacing + (h2 // 2), row2_text, font_line2, fs_l2, "#000000")
+        # কালো লাইন ২ (যোগ্যতা / জেলা)
+        draw_mixed_text_centered(draw, W // 2, start_y + h1 + line_spacing + (h2 // 2), sub_text, font_line2, fs_l2, "#000000")
 
-        # বটম বার
+        # বটম বার (ডায়নামিক সার্কুলার টেক্সট)
         draw.rectangle([0, 880, W, H], fill=green_bg)
         fs_bot, _ = get_best_fitted_mixed_font_size(bot_text, max_w=W - 80, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
         draw_mixed_text_centered(draw, W // 2, 980, bot_text, bar_font, fs_bot, "#ffe600")
@@ -285,4 +276,4 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
         draw.line([(0, 880), (W, 880)], fill="#003310", width=7)
 
     img.save(output_path, "JPEG", quality=100, subsampling=0)
-    print(f"✅ Generated Ultra-HD Dynamic Thumbnail: '{row1_text} | {row2_text}'")
+    print(f"✅ Generated Dynamic Thumbnail: '{row1_text} | {sub_text} | {bot_text}'")
