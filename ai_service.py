@@ -11,14 +11,12 @@ GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 OLLAMA_TRACKER_FILE = os.path.join("workspace", "ollama_key_tracker.txt")
 
 def get_all_ollama_keys():
-    """এন্টার (Newline) বা কমা দিয়ে সাজানো সব Ollama Cloud API Key লোড করে"""
     raw_keys = os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", os.environ.get("OLLAMA_API_KEYS", ""))).strip()
     if not raw_keys: return []
     lines = re.split(r'[\r\n,;]+', raw_keys)
     return [k.strip() for k in lines if k.strip() and not k.strip().startswith('#')]
 
 def get_all_groq_keys():
-    """এন্টার বা কমা দিয়ে সাজানো সব Groq API Key লোড করে"""
     raw_keys = os.environ.get("GROQ_API", os.environ.get("GROQ_API_KEYS", "")).strip()
     if not raw_keys: return []
     lines = re.split(r'[\r\n,;]+', raw_keys)
@@ -161,10 +159,10 @@ def extract_vacancy_and_qual(title):
     vac_match = re.search(r'(\d+|[০-৯]+)\s*(টি\s*)?পদে', title)
     vac_str = vac_match.group(0) if vac_match else ""
     qual = ""
-    if any(k in title.upper() for k in ["SSC", "এসএসসি"]): qual = "SSC পাশ"
-    elif any(k in title.upper() for k in ["HSC", "এইচএসসি"]): qual = "HSC পাশ"
+    if any(k in title.upper() for k in ["SSC", "এসএসসি"]): qual = "SSC পাশ যোগ্যতা"
+    elif any(k in title.upper() for k in ["HSC", "এইচএসসি"]): qual = "HSC পাশ যোগ্যতা"
     elif any(k in title for k in ["৮ম", "অষ্টম"]): qual = "৮ম শ্রেণি পাশ"
-    elif any(k in title for k in ["স্নাতক", "ডিগ্রী", "অনার্স", "Degree", "Honours"]): qual = "ডিগ্রী/অনার্স পাশ"
+    elif any(k in title for k in ["স্নাতক", "ডিগ্রী", "অনার্স", "Degree", "Honours"]): qual = "স্নাতক পাশ যোগ্যতা"
     return vac_str, qual
 
 def encode_image_base64(image_path, max_dim=1024):
@@ -194,45 +192,19 @@ def generate_job_content(title, img_paths):
     org_name = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else " ".join(words[:min(3, len(words))])
     vac_str, qual_str = extract_vacancy_and_qual(clean_title)
 
-    prompt = f"""You are a professional Bengali YouTube SEO specialist and scriptwriter.
+    prompt = f"""You are a professional Bengali YouTube SEO specialist, scriptwriter, and thumbnail strategist.
 Context:
-- Circular: "{clean_title}"
+- Job Circular Title: "{clean_title}"
 - Organization: "{org_name}"
 
-CRITICAL SCRIPT RULES:
-1. SCRIPT LENGTH: Exactly 3 minutes long (380 to 440 words). Continuous spoken natural Bengali.
-2. NO YEAR MENTION: Do NOT mention any year (e.g. 2026/২০২৬) in the voiceover script.
-3. DIRECT CORE INFORMATION TO COVER (No unnecessary fluff or long speeches):
-   - Name of the hiring organization and nature of the recruitment.
-   - Total number of vacancies and specific post names.
-   - Number of vacancies for each specific post.
-   - Required educational qualifications and experience for each specific post.
-   - Application start date and application deadline.
-   - Special eligibility conditions (e.g. specific age limit, or district quota if applicable).
-4. WHAT NOT TO INCLUDE (STRICTLY FORBIDDEN):
-   - Do NOT describe application procedures (do not mention website links, SMS fee submission rules, or photo/signature pixel sizes).
-5. NUMBERS IN WORDS: Every number, vacancy count, salary scale, and date MUST be written in full Bengali words (কথায় লেখা). Never use numeric digits (0-9).
-6. CALL TO ACTION: Instruct viewers that if they want to apply for this job accurately and safely, they should contact our application service via the WhatsApp number shown on screen or in the description (01540503092 -> 'জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু'). Do NOT use the phrase 'ঘরে বসে'.
-
-Return a strictly valid JSON object:
-1. "optimized_title": A UNIQUE, high-CTR YouTube Video Title under 95 characters (Use symbols like 🔥, 🚨, ⚡, 📢, |).
-2. "voiceover_script": A comprehensive 3-minute continuous spoken Bengali script (380 to 440 words) covering only the core circular details with all numbers in words and the WhatsApp application call to action.
-3. "video_description": A tailored YouTube Description with circular summary, official contact details, and hashtags:
----
-[Circular Summary & Post Highlights here]
-
-আমরা চাকরিপ্রার্থীদের জন্য সরকারি ও বেসরকারি সব ধরনের চাকরির আবেদন প্রক্রিয়াটি সহজ ও নিয়মতান্ত্রিক করতে কাজ করে থাকি।
-আমাদের মাধ্যমে যেকোনো চাকরির আবেদন নির্ভুল ও সঠিক নিয়মে সম্পন্ন করতে আজই যোগাযোগ করুন:
-💬 হোয়াটসঅ্যাপ (WhatsApp): wa.me/8801540503092
-🌐 ফেসবুক পেজ (Facebook Page): https://www.facebook.com/profile.php?id=61583625958904
-
-[3 to 5 targeted Bengali/English hashtags for this circular]
----
-4. "specific_tags": A list of 4 to 6 specific SEO tags without emojis or commas.
-5. "top_text": 2-3 clean Bengali words for Thumbnail Top Bar (e.g., "সরকারি চাকরি", "পানি উন্নয়ন বোর্ড", "জরুরি নিয়োগ"). DO NOT use any ✪ or star symbols.
-6. "row1_text": 2-3 short, impactful words for Thumbnail Hook in RED (e.g., "নিজ জেলায়", "অফিস সহায়ক", "জরুরি নিয়োগ").
-7. "row2_text": 2-4 short words for Thumbnail Sub-line in BLACK (e.g., "DC অফিসে চাকরি", "এডমিট কার্ড প্রকাশ", "(SSC পাশ/৬৪ জেলা)").
-8. "bot_text": Bottom Bar Bengali text (e.g., "আবেদনের নিয়ম ও বিস্তারিত", "({vac_str if vac_str else 'বিশাল সার্কুলার'}) নিয়োগ").
+CRITICAL INSTRUCTIONS:
+1. SCRIPT: Exactly 3 minutes (380 to 440 words). Continuous spoken Bengali. Do NOT mention any year in the script. All numbers must be in full Bengali words. WhatsApp call to action at the end without using 'ঘরে বসে'.
+2. THUMBNAIL TEXT RULES (MUST BE HIGHLY ATTRACTIVE, DYNAMIC, AND UNIQUE FOR THIS JOB):
+   - "top_text": 2-3 words. Organization name or Category (e.g. "{org_name}", "সরকারি চাকরি", "বেসরকারি চাকরি").
+   - "row1_text": 2-3 words. Main Eye-Catching Hook (e.g. "অফিসার ক্যাডেট", "জরুরি নিয়োগ", "আকর্ষণীয় বেতন", "নতুন বেতন কাঠামো", "প্রকৌশলী নিয়োগ").
+   - "row2_text": 2-3 words. Specific Vacancy or Post count in RED (e.g. "{vac_str if vac_str else 'বিশাল শূন্যপদ'}", "১০,২১৯ পদে", "১৫৩২ পদে", "৮৫টি পদে").
+   - "sub_text": 2-3 words. Specific Qualification / District (e.g. "{qual_str if qual_str else 'SSC/HSC পাশ'}", "স্নাতক পাশ যোগ্যতা", "৬৪ জেলা থেকে আবেদন").
+   - "bot_text": 2-4 words. DYNAMIC & UNIQUE bottom bar text specifically tailored for this job (e.g. "আবেদনের শেষ তারিখ ও নিয়ম", "({vac_str if vac_str else 'হাজারো পদে'}) মেগা সার্কুলার", "বেতন স্কেল ও সুযোগ-সুবিধা", "বয়সসীমা ও যোগ্যতা", "অনলাইনে আবেদন শুরু"). NEVER use the same repetitive phrase for all jobs!
 
 Return strictly valid JSON:
 {{
@@ -243,12 +215,13 @@ Return strictly valid JSON:
   "top_text": "...",
   "row1_text": "...",
   "row2_text": "...",
+  "sub_text": "...",
   "bot_text": "..."
 }}"""
 
     base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
 
-    # ------------------ [১ম ধাপ: Ollama ক্লাউডের স্মার্ট সাইক্লিক মেমোরি রোটেশন] ------------------
+    # ------------------ [১ম ধাপ: Ollama ক্লাউড] ------------------
     ollama_keys = get_all_ollama_keys()
     total_o_keys = len(ollama_keys)
     if total_o_keys > 0:
@@ -259,7 +232,6 @@ Return strictly valid JSON:
             k_num = cur_k_idx + 1
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
             
-            key_worked = False
             for model_name in OLLAMA_MODELS:
                 print(f"🤖 Attempting Ollama Key #{k_num}/{total_o_keys} (Model: '{model_name}') for '{clean_title[:40]}'...")
                 payload = {
@@ -280,26 +252,29 @@ Return strictly valid JSON:
                             raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
                             tags = sanitize_youtube_tags(raw_tags)
                             
+                            # 🌟 ডায়নামিক বটম টেক্সট নির্বাচন
+                            gen_bot = data.get("bot_text", "").strip()
+                            if not gen_bot or "আবেদনের নিয়ম ও বিস্তারিত" in gen_bot:
+                                gen_bot = f"({vac_str}) বিশাল সার্কুলার" if vac_str else "আবেদনের শেষ তারিখ ও নিয়ম"
+
                             thumb_meta = {
-                                "top_text": strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি")),
+                                "top_text": strip_unwanted_chars(data.get("top_text", org_name)),
                                 "row1_text": strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ")),
-                                "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
-                                "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
+                                "row2_text": strip_unwanted_chars(data.get("row2_text", vac_str if vac_str else "বিশাল নিয়োগ")),
+                                "sub_text": strip_unwanted_chars(data.get("sub_text", qual_str if qual_str else "SSC/HSC পাশ")),
+                                "bot_text": strip_unwanted_chars(gen_bot)
                             }
-                            # 🌟 সফল হলে এই কী ইনডেক্স সেভ রাখবে
                             save_ollama_index(cur_k_idx, total_o_keys)
-                            print(f"✨ Successfully Generated via Ollama Key #{k_num} ('{model_name}') [3-min Script]!")
+                            print(f"✨ Successfully Generated via Ollama Key #{k_num} ('{model_name}')!")
                             return opt_title, script, thumb_meta, desc, tags
                     else:
-                        print(f"⚠️ Ollama Key #{k_num} ('{model_name}') returned {resp.status_code}. Trying next model on Key #{k_num}...")
+                        print(f"⚠️ Ollama Key #{k_num} ('{model_name}') returned {resp.status_code}. Trying next model...")
                 except Exception as oe:
-                    print(f"⚠️ Network error on Key #{k_num} ('{model_name}'): {oe}")
+                    print(f"⚠️ Network error on Key #{k_num}: {oe}")
 
-            # এই কী-এর সব মডেল ফেইল হলে পয়েন্টার ১ ধাপ এগিয়ে দেবে
             save_ollama_index(cur_k_idx + 1, total_o_keys)
-            print(f"❌ All models failed for Ollama Key #{k_num}. Moving pointer to Key #{((cur_k_idx + 1) % total_o_keys) + 1}...")
 
-    # ------------------ [২য় ধাপ: সুপারফাস্ট Groq AI ইঞ্জিন] ------------------
+    # ------------------ [২য় ধাপ: Groq AI] ------------------
     groq_keys = get_all_groq_keys()
     if groq_keys:
         for g_idx, g_key in enumerate(groq_keys, start=1):
@@ -309,7 +284,7 @@ Return strictly valid JSON:
                 payload = {
                     "model": g_model,
                     "messages": [
-                        {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. Write a 3-minute concise script (380-440 words) with numbers in words, no years, and application call to action. Output strictly valid JSON only."},
+                        {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. Output strictly valid JSON only."},
                         {"role": "user", "content": prompt}
                     ],
                     "response_format": {"type": "json_object"},
@@ -329,17 +304,22 @@ Return strictly valid JSON:
                             raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
                             tags = sanitize_youtube_tags(raw_tags)
 
+                            gen_bot = data.get("bot_text", "").strip()
+                            if not gen_bot or "আবেদনের নিয়ম ও বিস্তারিত" in gen_bot:
+                                gen_bot = f"({vac_str}) বিশাল সার্কুলার" if vac_str else "আবেদনের শেষ তারিখ ও নিয়ম"
+
                             thumb_meta = {
-                                "top_text": strip_unwanted_chars(data.get("top_text", "সরকারি চাকরি")),
+                                "top_text": strip_unwanted_chars(data.get("top_text", org_name)),
                                 "row1_text": strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ")),
-                                "row2_text": strip_unwanted_chars(data.get("row2_text", "(SSC পাশ/৬৪ জেলা)")),
-                                "bot_text": strip_unwanted_chars(data.get("bot_text", "আবেদনের নিয়ম ও বিস্তারিত"))
+                                "row2_text": strip_unwanted_chars(data.get("row2_text", vac_str if vac_str else "বিশাল নিয়োগ")),
+                                "sub_text": strip_unwanted_chars(data.get("sub_text", qual_str if qual_str else "SSC/HSC পাশ")),
+                                "bot_text": strip_unwanted_chars(gen_bot)
                             }
-                            print(f"✨ Successfully Generated via Groq AI ({g_model}) [3-min Script]!")
+                            print(f"✨ Successfully Generated via Groq AI ({g_model})!")
                             return opt_title, script, thumb_meta, desc, tags
                     else:
                         print(f"⚠️ Groq Key #{g_idx} ('{g_model}') returned {resp.status_code}: {resp.text[:120]}")
                 except Exception as ge:
-                    print(f"⚠️ Groq exception on Key #{g_idx} ('{g_model}'): {ge}")
+                    print(f"⚠️ Groq exception on Key #{g_idx}: {ge}")
 
     return None, None, None, None, None
