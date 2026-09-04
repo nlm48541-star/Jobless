@@ -12,7 +12,7 @@ concurrency:
 jobs:
   run-automation:
     runs-on: ubuntu-latest
-    timeout-minutes: 60 # 🌟 ১০ মিনিট ওয়েট লুপের জন্য নিরাপদ ৬০ মিনিট টাইমআউট
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -24,10 +24,11 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
+      # 🌟 বাংলা ফন্ট ও প্যাকেজ (fonts-noto-extra বাদ দিয়ে সুপারফাস্ট ১৫ সেকেন্ডে ইনস্টল)
       - name: Install System Dependencies (Fonts, FFmpeg, Rclone)
         run: |
           sudo apt-get update
-          sudo apt-get install -y fonts-beng fonts-beng-extra fonts-noto-extra libraqm-dev libraqm0 libfribidi0 libharfbuzz0b ffmpeg rclone
+          sudo apt-get install -y fonts-beng fonts-beng-extra libraqm-dev libraqm0 libfribidi0 libharfbuzz0b ffmpeg rclone
 
       - name: Install Python Dependencies
         run: |
