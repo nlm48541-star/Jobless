@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 import os, re, time, shutil, requests, subprocess
-from gradio_client import Client
 
 LOCAL_MODELS_DIR = os.path.join("workspace", "local_tts_models")
-MAX_SPACE_WAIT_SECONDS = 600  # 🌟 প্রতিটি মডেলের জন্য সর্বোচ্চ ১০ মিনিট (৬০০ সেকেন্ড) অপেক্ষা
+MAX_SPACE_WAIT_SECONDS = 600
 
 def clean_script_for_speech(raw_text):
     if not raw_text: return ""
@@ -19,9 +18,12 @@ def clean_script_for_speech(raw_text):
 # =========================================================================
 
 def execute_space_with_10min_wait(space_name, predict_call, output_audio_path, hf_token=None):
-    """
-    একটি Hugging Face Space চালু হওয়া ও অডিও তৈরি হওয়ার জন্য পুরো ১০ মিনিট পর্যন্ত অপেক্ষা করে
-    """
+    try:
+        from gradio_client import Client
+    except ImportError:
+        print("  ⚠️ 'gradio_client' module not installed. Skipping Cloud Space...")
+        return False
+
     print(f"\n  🚀 Connecting to Space: '{space_name}' (Max wait: 10 minutes / {MAX_SPACE_WAIT_SECONDS}s)...")
     start_time = time.time()
     retry_count = 0
@@ -34,7 +36,6 @@ def execute_space_with_10min_wait(space_name, predict_call, output_audio_path, h
             print(f"  ⏳ [Attempt #{retry_count}] Waking up/Checking Space (Elapsed: {elapsed}s/{MAX_SPACE_WAIT_SECONDS}s)...")
             client = Client(space_name, hf_token=hf_token if hf_token else None)
             
-            # স্পেস প্রেডিকশন এক্সিকিউট করা
             result = predict_call(client)
             
             if result and os.path.exists(result) and os.path.getsize(result) > 1000:
@@ -47,7 +48,6 @@ def execute_space_with_10min_wait(space_name, predict_call, output_audio_path, h
         except Exception as e:
             err_msg = str(e).strip().replace('\n', ' ')
             print(f"  ℹ️ Space is booting/warming up: {err_msg[:95]}...")
-            # পরবর্তী চেকের জন্য ২০ সেকেন্ড অপেক্ষা
             time.sleep(20)
 
     print(f"  ❌ [TIMEOUT] Space '{space_name}' did not respond within 10 minutes.")
@@ -58,33 +58,26 @@ def execute_space_with_10min_wait(space_name, predict_call, output_audio_path, h
 # =========================================================================
 
 def try_indic_parler_space(speech_text, output_audio_path, hf_token):
-    """১. AI4Bharat Indic Parler-TTS Space"""
     desc_prompt = "A clear, professional Bengali male news anchor with confident tone and natural pace."
     def _call(client):
         return client.predict(text=speech_text, description=desc_prompt, api_name="/predict")
-    
     return execute_space_with_10min_wait("ai4bharat/indic-parler-tts", _call, output_audio_path, hf_token)
 
 def try_cosyvoice_space(speech_text, output_audio_path, hf_token):
-    """২. BUET Bengali CosyVoice 3 Space"""
     def _call(client):
         return client.predict(text=speech_text, api_name="/predict")
-    
     return execute_space_with_10min_wait("kawshikbuet17/bengali-cosyvoice3-tts-demo", _call, output_audio_path, hf_token)
 
 def try_orpheus_space(speech_text, output_audio_path, hf_token):
-    """৩. Orpheus Bangla Emotional TTS Space"""
     def _call(client):
         return client.predict(text=speech_text, emotion="normal", api_name="/predict")
-    
     return execute_space_with_10min_wait("ehzawad/orpheus-bangla-emotional-tts-demo", _call, output_audio_path, hf_token)
 
 # =========================================================================
-# 🌟 অফলাইন / লোকাল ফলব্যাক ইঞ্জিনসমূহ (আপনার TTS_ENGINE সিক্রেট অনুযায়ী)
+# 🌟 অফলাইন / লোকাল ফলব্যাক ইঞ্জিনসমূহ
 # =========================================================================
 
 def synthesize_with_edge_fallback(speech_text, output_audio_path):
-    """মাইক্রোসফট ফাস্ট নিউরাল ইঞ্জিন (bn-BD-PradeepNeural)"""
     try:
         import asyncio, edge_tts
         print("\n  🎙️ [LOCAL FALLBACK] Synthesizing via Microsoft Neural Engine (bn-BD-PradeepNeural)...")
@@ -103,7 +96,6 @@ def synthesize_with_edge_fallback(speech_text, output_audio_path):
     return False
 
 def synthesize_with_piper_fallback(speech_text, output_audio_path):
-    """Piper লোকাল ONNX ইঞ্জিন"""
     try:
         os.makedirs(LOCAL_MODELS_DIR, exist_ok=True)
         model_path = os.path.join(LOCAL_MODELS_DIR, "bn_IN-biswas-medium.onnx")
@@ -135,7 +127,6 @@ def synthesize_with_piper_fallback(speech_text, output_audio_path):
     return False
 
 def synthesize_with_local_mms_fallback(speech_text, output_audio_path):
-    """Meta MMS-TTS লোকাল CPU ইঞ্জিন"""
     try:
         import torch, scipy.io.wavfile
         from transformers import AutoTokenizer, VitsModel
@@ -197,11 +188,11 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
 
     hf_token = os.environ.get("HF_TOKEN", os.environ.get("HUGGINGFACE_TOKEN", "")).strip()
 
-    # 🌟 ধাপ ১: Hugging Face শীর্ষ ৩টি জিপিইউ স্পেস পর্যায়ক্রমে (প্রতিটিতে ১০ মিনিট ওয়েটসহ) ট্রাই করা
+    # ধাপ ১: Hugging Face শীর্ষ ৩টি জিপিইউ স্পেস পর্যায়ক্রমে ট্রাই করা
     space_runners = [
-        try_indic_parler_space,  # ১. AI4Bharat Indic Parler-TTS (১০ মিনিট ওয়েট)
-        try_cosyvoice_space,     # ২. BUET Bengali CosyVoice 3 (১০ মিনিট ওয়েট)
-        try_orpheus_space        # ৩. Orpheus Bangla Emotional TTS (১০ মিনিট ওয়েট)
+        try_indic_parler_space,
+        try_cosyvoice_space,
+        try_orpheus_space
     ]
 
     for runner in space_runners:
@@ -212,7 +203,7 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
                 print("="*65 + "\n")
                 return True
 
-    # 🌟 ধাপ ২: ১০ মিনিট পার হয়ে সব স্পেস ফেইল হলে আপনার TTS_ENGINE সিক্রেট অনুযায়ী ফলব্যাক রান হবে
+    # ধাপ ২: স্পেস ফেইল হলে আপনার সিক্রেট অনুযায়ী লোকাল ফলব্যাক
     print("\n⚠️ All Hugging Face Spaces timed out or unavailable. Engaging Fallback Engine...")
     fallback_choice = os.environ.get("TTS_ENGINE", "edge").strip().lower()
 
@@ -223,7 +214,6 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
         if synthesize_with_local_mms_fallback(speech_text, output_audio_path): return True
         if synthesize_with_edge_fallback(speech_text, output_audio_path): return True
     else:
-        # ডিফল্ট ফাস্ট ব্যাকআপ: Microsoft Edge Neural
         if synthesize_with_edge_fallback(speech_text, output_audio_path): return True
         if synthesize_with_piper_fallback(speech_text, output_audio_path): return True
 
