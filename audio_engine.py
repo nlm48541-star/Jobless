@@ -1,20 +1,9 @@
 # -*- coding: utf-8 -*-
-import os, re, time, requests, subprocess
-import numpy as np
+import os, re, time, shutil, requests, subprocess
+from gradio_client import Client
 
-FREE_PERMITTED_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"
-TRACKER_FILE = os.path.join("workspace", "eleven_key_tracker.txt")
 LOCAL_MODELS_DIR = os.path.join("workspace", "local_tts_models")
-
-# গ্লোবাল ক্যাশ ভেরিয়েবল
-CACHED_MMS_MODEL = None
-CACHED_MMS_TOKENIZER = None
-CACHED_BHARAT_MODEL = None
-CACHED_BHARAT_TOKENIZER = None
-
-def mask_key(k):
-    if not k or len(k) <= 8: return "****"
-    return k[:4] + "..." + k[-4:]
+MAX_SPACE_WAIT_SECONDS = 600  # 🌟 প্রতিটি মডেলের জন্য সর্বোচ্চ ১০ মিনিট (৬০০ সেকেন্ড) অপেক্ষা
 
 def clean_script_for_speech(raw_text):
     if not raw_text: return ""
@@ -25,363 +14,218 @@ def clean_script_for_speech(raw_text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-def split_bengali_sentences(text, max_chars=180):
-    raw_sentences = re.split(r'([।\?\!\n]+)', text)
-    chunks = []
-    current = ""
-    for part in raw_sentences:
-        current += part
-        if any(p in part for p in ['।', '?', '!', '\n']) or len(current) >= max_chars:
-            cleaned = current.strip()
-            if cleaned: chunks.append(cleaned)
-            current = ""
-    if current.strip(): chunks.append(current.strip())
-    return chunks
-
-def get_tts_engine_order():
-    raw_setting = os.environ.get("TTS_ENGINE", os.environ.get("TTS_PROVIDER", "")).strip().lower()
-    enable_eleven = os.environ.get("ENABLE_ELEVENLABS", "true").strip().lower()
-
-    default_order = ["bharat", "mms", "piper", "eleven"]
-    if enable_eleven in ["false", "0", "no", "off"]:
-        default_order = ["bharat", "mms", "piper"]
-
-    if not raw_setting:
-        return default_order
-
-    tokens = [t.strip() for t in re.split(r'[\r\n,;]+', raw_setting) if t.strip()]
-    valid_engines = []
-    for t in tokens:
-        if ("bharat" in t or "indic" in t) and "bharat" not in valid_engines: valid_engines.append("bharat")
-        elif ("mms" in t or "meta" in t or "facebook" in t) and "mms" not in valid_engines: valid_engines.append("mms")
-        elif "piper" in t and "piper" not in valid_engines: valid_engines.append("piper")
-        elif "eleven" in t and "eleven" not in valid_engines: valid_engines.append("eleven")
-
-    return valid_engines if valid_engines else default_order
-
 # =========================================================================
-# 🌟 ১. ১০০% আসল লোকাল AI4Bharat Indic-TTS / Indic Parler Engine
+# 🌟 ১০ মিনিট ওয়েট-লুপ হ্যান্ডলার (Generic Space Polling Runner)
 # =========================================================================
-def synthesize_with_local_bharat(speech_text, output_audio_path):
-    global CACHED_BHARAT_MODEL, CACHED_BHARAT_TOKENIZER
-    print("\n--- [ENGINE: 100% Local AI4Bharat Indic-TTS / Parler Model] ---")
 
-    try:
-        import torch, soundfile as sf
-        from transformers import AutoTokenizer
+def execute_space_with_10min_wait(space_name, predict_call, output_audio_path, hf_token=None):
+    """
+    একটি Hugging Face Space চালু হওয়া ও অডিও তৈরি হওয়ার জন্য পুরো ১০ মিনিট পর্যন্ত অপেক্ষা করে
+    """
+    print(f"\n  🚀 Connecting to Space: '{space_name}' (Max wait: 10 minutes / {MAX_SPACE_WAIT_SECONDS}s)...")
+    start_time = time.time()
+    retry_count = 0
 
-        # ধাপ ১: AI4Bharat Parler-TTS লোকাল লোডার
-        if CACHED_BHARAT_MODEL is None or CACHED_BHARAT_TOKENIZER is None:
-            print("  ⏳ Loading AI4Bharat Indic Model into CPU memory...")
-            start_load = time.time()
-            try:
-                from parler_tts import ParlerTTSForConditionalGeneration
-                model_id = "ai4bharat/indic-parler-tts"
-                CACHED_BHARAT_MODEL = ParlerTTSForConditionalGeneration.from_pretrained(model_id)
-                CACHED_BHARAT_TOKENIZER = AutoTokenizer.from_pretrained(model_id)
-                print(f"  ✅ AI4Bharat Parler-TTS Model loaded in {round(time.time() - start_load, 2)}s!")
-            except Exception as pe:
-                print(f"  ℹ️ Loading AI4Bharat Indic-TTS Standard Checkpoint... ({pe})")
-                from transformers import VitsModel
-                CACHED_BHARAT_TOKENIZER = AutoTokenizer.from_pretrained("ai4bharat/indic-tts-coqui-indo_aryan-gpu--t4")
-                CACHED_BHARAT_MODEL = VitsModel.from_pretrained("ai4bharat/indic-tts-coqui-indo_aryan-gpu--t4")
-
-        sentences = split_bengali_sentences(speech_text)
-        print(f"  🎙️ Synthesizing {len(sentences)} sentence chunks via AI4Bharat on CPU...")
-
-        audio_arrays = []
-        sampling_rate = getattr(CACHED_BHARAT_MODEL.config, "sampling_rate", 22050)
-        pause_samples = np.zeros(int(sampling_rate * 0.2), dtype=np.float32)
-
-        start_synth = time.time()
-        for sentence in sentences:
-            if not sentence.strip(): continue
-            
-            # Parler TTS ফরম্যাট
-            if hasattr(CACHED_BHARAT_MODEL, "generate"):
-                desc = "A clear and natural Bengali male speaker with formal tone and smooth pace."
-                desc_inputs = CACHED_BHARAT_TOKENIZER(desc, return_tensors="pt")
-                prompt_inputs = CACHED_BHARAT_TOKENIZER(sentence, return_tensors="pt")
-                with torch.no_grad():
-                    generation = CACHED_BHARAT_MODEL.generate(input_ids=desc_inputs.input_ids, prompt_input_ids=prompt_inputs.input_ids)
-                chunk_audio = generation.squeeze().cpu().numpy().astype(np.float32)
-            else:
-                inputs = CACHED_BHARAT_TOKENIZER(sentence, return_tensors="pt")
-                with torch.no_grad():
-                    output = CACHED_BHARAT_MODEL(**inputs).waveform
-                chunk_audio = output.squeeze().cpu().numpy().astype(np.float32)
-
-            audio_arrays.append(chunk_audio)
-            audio_arrays.append(pause_samples)
-
-        if audio_arrays:
-            full_audio = np.concatenate(audio_arrays)
-            full_audio = np.clip(full_audio, -1.0, 1.0)
-            sf.write(output_audio_path, full_audio, sampling_rate)
-            elapsed = round(time.time() - start_synth, 2)
-            audio_mb = round(os.path.getsize(output_audio_path) / (1024 * 1024), 2)
-            print(f"  ✅ [SUCCESS] AI4Bharat Audio Generated Successfully! ({audio_mb} MB in {elapsed}s)")
-            return True
-
-    except Exception as e:
-        print(f"  ⚠️ AI4Bharat local synthesis error: {e}")
-
-    return False
-
-# =========================================================================
-# 🌟 ২. ১০০% লোকাল Meta MMS-TTS ইঞ্জিন (facebook/mms-tts-ben)
-# =========================================================================
-def synthesize_with_local_mms(speech_text, output_audio_path):
-    global CACHED_MMS_MODEL, CACHED_MMS_TOKENIZER
-    print("\n--- [ENGINE: 100% Local Meta MMS-TTS (facebook/mms-tts-ben)] ---")
-    
-    try:
-        import torch, scipy.io.wavfile
-        from transformers import AutoTokenizer, VitsModel
-
-        if CACHED_MMS_MODEL is None or CACHED_MMS_TOKENIZER is None:
-            print("  ⏳ Loading Meta MMS Model (~140 MB)...")
-            start_load = time.time()
-            CACHED_MMS_TOKENIZER = AutoTokenizer.from_pretrained("facebook/mms-tts-ben")
-            CACHED_MMS_MODEL = VitsModel.from_pretrained("facebook/mms-tts-ben")
-            print(f"  ✅ Meta Model loaded in {round(time.time() - start_load, 2)}s!")
-
-        sentences = split_bengali_sentences(speech_text)
-        print(f"  🎙️ Synthesizing {len(sentences)} chunks via Meta MMS on CPU...")
-
-        audio_arrays = []
-        sampling_rate = CACHED_MMS_MODEL.config.sampling_rate
-        pause_samples = np.zeros(int(sampling_rate * 0.2), dtype=np.float32)
-
-        start_synth = time.time()
-        for sentence in sentences:
-            if not sentence.strip(): continue
-            inputs = CACHED_MMS_TOKENIZER(sentence, return_tensors="pt")
-            with torch.no_grad():
-                output = CACHED_MMS_MODEL(**inputs).waveform
-            
-            chunk_audio = output.squeeze().cpu().numpy().astype(np.float32)
-            audio_arrays.append(chunk_audio)
-            audio_arrays.append(pause_samples)
-
-        if audio_arrays:
-            full_audio = np.concatenate(audio_arrays)
-            full_audio = np.clip(full_audio, -1.0, 1.0)
-            wav_data = (full_audio * 32767).astype(np.int16)
-
-            scipy.io.wavfile.write(output_audio_path, rate=sampling_rate, data=wav_data)
-            elapsed = round(time.time() - start_synth, 2)
-            audio_mb = round(os.path.getsize(output_audio_path) / (1024 * 1024), 2)
-            print(f"  ✅ [SUCCESS] Meta MMS-TTS Generated Successfully! ({audio_mb} MB in {elapsed}s)")
-            return True
-
-    except Exception as e:
-        print(f"  ⚠️ Meta MMS-TTS error: {e}")
-
-    return False
-
-# =========================================================================
-# 🌟 ৩. ১০০% লোকাল Piper Neural TTS ইঞ্জিন
-# =========================================================================
-def ensure_piper_model():
-    os.makedirs(LOCAL_MODELS_DIR, exist_ok=True)
-    model_path = os.path.join(LOCAL_MODELS_DIR, "bn_IN-biswas-medium.onnx")
-    json_path = os.path.join(LOCAL_MODELS_DIR, "bn_IN-biswas-medium.onnx.json")
-
-    base_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/bn/bn_IN/biswas/medium/"
-    if not os.path.exists(model_path):
+    while (time.time() - start_time) < MAX_SPACE_WAIT_SECONDS:
+        elapsed = int(time.time() - start_time)
+        retry_count += 1
+        
         try:
-            print("  ⏳ Downloading Piper Bengali ONNX Model (~60 MB)...")
+            print(f"  ⏳ [Attempt #{retry_count}] Waking up/Checking Space (Elapsed: {elapsed}s/{MAX_SPACE_WAIT_SECONDS}s)...")
+            client = Client(space_name, hf_token=hf_token if hf_token else None)
+            
+            # স্পেস প্রেডিকশন এক্সিকিউট করা
+            result = predict_call(client)
+            
+            if result and os.path.exists(result) and os.path.getsize(result) > 1000:
+                shutil.copyfile(result, output_audio_path)
+                total_time = round(time.time() - start_time, 2)
+                audio_mb = round(os.path.getsize(output_audio_path) / (1024 * 1024), 2)
+                print(f"  ✅ [SUCCESS] Synthesized via '{space_name}'! ({audio_mb} MB in {total_time}s)")
+                return True
+
+        except Exception as e:
+            err_msg = str(e).strip().replace('\n', ' ')
+            print(f"  ℹ️ Space is booting/warming up: {err_msg[:95]}...")
+            # পরবর্তী চেকের জন্য ২০ সেকেন্ড অপেক্ষা
+            time.sleep(20)
+
+    print(f"  ❌ [TIMEOUT] Space '{space_name}' did not respond within 10 minutes.")
+    return False
+
+# =========================================================================
+# 🌟 শীর্ষ ৩টি Hugging Face ক্লাউড জিপিইউ স্পেস
+# =========================================================================
+
+def try_indic_parler_space(speech_text, output_audio_path, hf_token):
+    """১. AI4Bharat Indic Parler-TTS Space"""
+    desc_prompt = "A clear, professional Bengali male news anchor with confident tone and natural pace."
+    def _call(client):
+        return client.predict(text=speech_text, description=desc_prompt, api_name="/predict")
+    
+    return execute_space_with_10min_wait("ai4bharat/indic-parler-tts", _call, output_audio_path, hf_token)
+
+def try_cosyvoice_space(speech_text, output_audio_path, hf_token):
+    """২. BUET Bengali CosyVoice 3 Space"""
+    def _call(client):
+        return client.predict(text=speech_text, api_name="/predict")
+    
+    return execute_space_with_10min_wait("kawshikbuet17/bengali-cosyvoice3-tts-demo", _call, output_audio_path, hf_token)
+
+def try_orpheus_space(speech_text, output_audio_path, hf_token):
+    """৩. Orpheus Bangla Emotional TTS Space"""
+    def _call(client):
+        return client.predict(text=speech_text, emotion="normal", api_name="/predict")
+    
+    return execute_space_with_10min_wait("ehzawad/orpheus-bangla-emotional-tts-demo", _call, output_audio_path, hf_token)
+
+# =========================================================================
+# 🌟 অফলাইন / লোকাল ফলব্যাক ইঞ্জিনসমূহ (আপনার TTS_ENGINE সিক্রেট অনুযায়ী)
+# =========================================================================
+
+def synthesize_with_edge_fallback(speech_text, output_audio_path):
+    """মাইক্রোসফট ফাস্ট নিউরাল ইঞ্জিন (bn-BD-PradeepNeural)"""
+    try:
+        import asyncio, edge_tts
+        print("\n  🎙️ [LOCAL FALLBACK] Synthesizing via Microsoft Neural Engine (bn-BD-PradeepNeural)...")
+        start_t = time.time()
+        async def _make():
+            c = edge_tts.Communicate(speech_text, "bn-BD-PradeepNeural", rate="+0%", pitch="+0Hz")
+            await c.save(output_audio_path)
+        asyncio.run(_make())
+        if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
+            elapsed = round(time.time() - start_t, 2)
+            audio_mb = round(os.path.getsize(output_audio_path) / (1024 * 1024), 2)
+            print(f"  ✅ [SUCCESS] Generated via Microsoft Neural Backup! ({audio_mb} MB in {elapsed}s)")
+            return True
+    except Exception as e:
+        print(f"  ⚠️ Edge fallback notice: {e}")
+    return False
+
+def synthesize_with_piper_fallback(speech_text, output_audio_path):
+    """Piper লোকাল ONNX ইঞ্জিন"""
+    try:
+        os.makedirs(LOCAL_MODELS_DIR, exist_ok=True)
+        model_path = os.path.join(LOCAL_MODELS_DIR, "bn_IN-biswas-medium.onnx")
+        json_path = os.path.join(LOCAL_MODELS_DIR, "bn_IN-biswas-medium.onnx.json")
+        base_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/bn/bn_IN/biswas/medium/"
+
+        if not os.path.exists(model_path):
+            print("  ⏳ Downloading Piper Bengali Model (~60 MB)...")
             r = requests.get(base_url + "bn_IN-biswas-medium.onnx", timeout=60)
             if r.status_code == 200:
                 with open(model_path, "wb") as f: f.write(r.content)
             r2 = requests.get(base_url + "bn_IN-biswas-medium.onnx.json", timeout=30)
             if r2.status_code == 200:
                 with open(json_path, "wb") as f: f.write(r2.content)
-        except Exception: pass
 
-    return model_path if (os.path.exists(model_path) and os.path.getsize(model_path) > 100000) else None
-
-def synthesize_with_local_piper(speech_text, output_audio_path):
-    print("\n--- [ENGINE: 100% Local Piper Neural TTS (ONNX)] ---")
-    model_path = ensure_piper_model()
-    if not model_path: return False
-
-    try:
-        start_time = time.time()
-        print("  🎙️ Synthesizing via Piper ONNX Engine...")
+        print("  🎙️ [LOCAL FALLBACK] Synthesizing via Piper Local ONNX Engine...")
+        start_t = time.time()
         cmd = ["piper", "--model", model_path, "--output_file", output_audio_path]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        stdout, stderr = proc.communicate(input=speech_text, timeout=120)
+        proc.communicate(input=speech_text, timeout=120)
 
         if proc.returncode == 0 and os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 2000:
-            elapsed = round(time.time() - start_time, 2)
+            elapsed = round(time.time() - start_t, 2)
             audio_mb = round(os.path.getsize(output_audio_path) / (1024 * 1024), 2)
-            print(f"  ✅ [SUCCESS] Piper TTS Generated Successfully! ({audio_mb} MB in {elapsed}s)")
+            print(f"  ✅ [SUCCESS] Generated via Piper Local Engine! ({audio_mb} MB in {elapsed}s)")
             return True
     except Exception as e:
-        print(f"  ⚠️ Piper error: {e}")
-
+        print(f"  ⚠️ Piper fallback notice: {e}")
     return False
 
-# =========================================================================
-# 🌟 ৪. ElevenLabs ইঞ্জিন (ঐচ্ছিক ক্লাউড এপিআই)
-# =========================================================================
-def get_all_elevenlabs_keys():
-    raw_keys = os.environ.get("ELEVENLABS_API_KEYS", os.environ.get("ELEVENLABS_API_KEY", "")).strip()
-    if not raw_keys: return []
-    lines = re.split(r'[\r\n,;]+', raw_keys)
-    return [k.strip() for k in lines if k.strip() and not k.strip().startswith('#')]
-
-def get_saved_key_index(total_keys):
-    if total_keys == 0: return 0
-    if os.path.exists(TRACKER_FILE):
-        try:
-            with open(TRACKER_FILE, "r", encoding="utf-8") as f:
-                return int(f.read().strip()) % total_keys
-        except Exception: pass
-    return 0
-
-def save_key_index(idx, total_keys):
-    if total_keys == 0: return
+def synthesize_with_local_mms_fallback(speech_text, output_audio_path):
+    """Meta MMS-TTS লোকাল CPU ইঞ্জিন"""
     try:
-        os.makedirs(os.path.dirname(TRACKER_FILE), exist_ok=True)
-        with open(TRACKER_FILE, "w", encoding="utf-8") as f:
-            f.write(str(idx % total_keys))
-    except Exception: pass
+        import torch, scipy.io.wavfile
+        from transformers import AutoTokenizer, VitsModel
+        print("\n  🎙️ [LOCAL FALLBACK] Synthesizing via Meta MMS Local CPU Model...")
+        start_t = time.time()
 
-def get_best_free_voice(api_key):
-    try:
-        url = "https://api.elevenlabs.io/v1/voices"
-        headers = {"xi-api-key": api_key}
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code == 200:
-            voices = resp.json().get("voices", [])
-            for v in voices:
-                if v.get("category") == "generated": return v.get("voice_id"), f"'{v.get('name')}'"
-            for v in voices:
-                if v.get("category") == "premade" and "george" in v.get("name", "").lower():
-                    return v.get("voice_id"), f"'{v.get('name')}'"
-            for v in voices:
-                if v.get("category") == "premade": return v.get("voice_id"), f"'{v.get('name')}'"
-    except Exception: pass
-    return FREE_PERMITTED_VOICE_ID, "'George'"
+        tokenizer = AutoTokenizer.from_pretrained("facebook/mms-tts-ben")
+        model = VitsModel.from_pretrained("facebook/mms-tts-ben")
 
-def synthesize_with_elevenlabs(speech_text, output_audio_path):
-    print("\n--- [ENGINE: ElevenLabs v3 Cloud] ---")
-    eleven_keys = get_all_elevenlabs_keys()
-    total_keys = len(eleven_keys)
-    if total_keys == 0:
-        print("⚠️ No ElevenLabs API keys found.")
-        return False
+        raw_sentences = re.split(r'([।\?\!\n]+)', speech_text)
+        chunks = []
+        current = ""
+        for p in raw_sentences:
+            current += p
+            if any(sym in p for sym in ['।', '?', '!', '\n']) or len(current) >= 180:
+                if current.strip(): chunks.append(current.strip())
+                current = ""
+        if current.strip(): chunks.append(current.strip())
 
-    start_idx = get_saved_key_index(total_keys)
-    print(f"🔑 Loaded {total_keys} ElevenLabs key(s). Resuming from Key #{start_idx + 1}...")
+        audio_arrays = []
+        sampling_rate = model.config.sampling_rate
+        pause_samples = np.zeros(int(sampling_rate * 0.2), dtype=np.float32)
 
-    for offset in range(total_keys):
-        current_idx = (start_idx + offset) % total_keys
-        api_key = eleven_keys[current_idx]
-        key_num = current_idx + 1
-        masked = mask_key(api_key)
+        for s in chunks:
+            if not s.strip(): continue
+            inputs = tokenizer(s, return_tensors="pt")
+            with torch.no_grad():
+                output = model(**inputs).waveform
+            audio_arrays.append(output.squeeze().cpu().numpy().astype(np.float32))
+            audio_arrays.append(pause_samples)
 
-        voice_id, voice_name = get_best_free_voice(api_key)
-        tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-
-        payload = {
-            "text": speech_text,
-            "model_id": "eleven_v3",
-            "language_code": "bn",
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-        }
-        headers = {
-            "Accept": "audio/mpeg",
-            "Content-Type": "application/json",
-            "xi-api-key": api_key
-        }
-
-        start_time = time.time()
-        try:
-            print(f"  🎙️ Synthesizing with ElevenLabs Key #{key_num}/{total_keys} ({voice_name})...")
-            resp = requests.post(tts_url, json=payload, headers=headers, timeout=90)
-            elapsed = round(time.time() - start_time, 2)
-
-            if resp.status_code == 200:
-                with open(output_audio_path, "wb") as f:
-                    f.write(resp.content)
-                save_key_index(current_idx, total_keys)
-                audio_mb = round(len(resp.content) / (1024 * 1024), 2)
-                print(f"  ✅ [SUCCESS] Generated via ElevenLabs Key #{key_num}! ({audio_mb} MB in {elapsed}s)")
-                return True
-            else:
-                print(f"  ⚠️ Key #{key_num} failed ({resp.status_code}): {resp.text[:100]}")
-                save_key_index(current_idx + 1, total_keys)
-                continue
-        except Exception as e:
-            print(f"  ⚠️ Error with Key #{key_num}: {e}")
-            save_key_index(current_idx + 1, total_keys)
-            continue
-
-    return False
-
-# =========================================================================
-# 🌟 ৫. জরুরি ব্যাকআপ ইঞ্জিন (Edge-TTS)
-# =========================================================================
-def synthesize_with_emergency_neural(speech_text, output_audio_path):
-    try:
-        import asyncio, edge_tts
-        print("\n--- [ENGINE: Fast Neural Emergency Backup] ---")
-        async def _make():
-            c = edge_tts.Communicate(speech_text, "bn-BD-PradeepNeural", rate="+0%", pitch="+0Hz")
-            await c.save(output_audio_path)
-        asyncio.run(_make())
-        if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
-            print("  ✅ [SUCCESS] Generated via Emergency Neural Voice!")
+        if audio_arrays:
+            full_audio = np.concatenate(audio_arrays)
+            full_audio = np.clip(full_audio, -1.0, 1.0)
+            wav_data = (full_audio * 32767).astype(np.int16)
+            scipy.io.wavfile.write(output_audio_path, rate=sampling_rate, data=wav_data)
+            elapsed = round(time.time() - start_t, 2)
+            audio_mb = round(os.path.getsize(output_audio_path) / (1024 * 1024), 2)
+            print(f"  ✅ [SUCCESS] Generated via Meta MMS Local Model! ({audio_mb} MB in {elapsed}s)")
             return True
-    except Exception as ee:
-        print(f"  ⚠️ Emergency Backup Error: {ee}")
+    except Exception as e:
+        print(f"  ⚠️ Meta MMS fallback notice: {e}")
     return False
 
 # =========================================================================
-# 🌟 মূল অডিও পাইপলাইন (Multi-Engine Dynamic Orchestrator)
+# 🌟 মূল অডিও পাইপলাইন (Main Audio Pipeline Orchestrator)
 # =========================================================================
+
 def generate_voiceover_audio_pipeline(text, output_audio_path):
     speech_text = clean_script_for_speech(text)
     clean_chars = len(speech_text)
     words = len(speech_text.split())
 
     print("\n" + "="*65)
-    print("🎙️ [AUDIO ENGINE] Local & Multi-TTS Synthesis Pipeline Active")
+    print("🎙️ [AUDIO ENGINE] Multi-Space 10-Min Wait & Local Fallback Active")
     print(f"📊 [Text Stats] Chars: {clean_chars} | Words: {words}")
     print(f"📝 [Preview]: \"{speech_text[:120]}...\"")
     print("="*65)
 
-    engine_order = get_tts_engine_order()
-    print(f"⚙️ [Execution Plan] Target Priority: {' ➔ '.join(engine_order)}")
+    hf_token = os.environ.get("HF_TOKEN", os.environ.get("HUGGINGFACE_TOKEN", "")).strip()
 
-    # ব্যবহারকারীর পছন্দের ক্রম অনুযায়ী একের পর এক ইঞ্জিন এক্সিকিউট করবে
-    for engine in engine_order:
-        success = False
-        if engine == "bharat":
-            success = synthesize_with_local_bharat(speech_text, output_audio_path)
-        elif engine == "mms":
-            success = synthesize_with_local_mms(speech_text, output_audio_path)
-        elif engine == "piper":
-            success = synthesize_with_local_piper(speech_text, output_audio_path)
-        elif engine == "eleven":
-            success = synthesize_with_elevenlabs(speech_text, output_audio_path)
+    # 🌟 ধাপ ১: Hugging Face শীর্ষ ৩টি জিপিইউ স্পেস পর্যায়ক্রমে (প্রতিটিতে ১০ মিনিট ওয়েটসহ) ট্রাই করা
+    space_runners = [
+        try_indic_parler_space,  # ১. AI4Bharat Indic Parler-TTS (১০ মিনিট ওয়েট)
+        try_cosyvoice_space,     # ২. BUET Bengali CosyVoice 3 (১০ মিনিট ওয়েট)
+        try_orpheus_space        # ৩. Orpheus Bangla Emotional TTS (১০ মিনিট ওয়েট)
+    ]
 
-        if success and os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
-            print("\n" + "="*65)
-            print(f"🎉 [FINAL RESULT] Voiceover successfully rendered via '{engine.upper()}'!")
-            print("="*65 + "\n")
-            return True
+    for runner in space_runners:
+        if runner(speech_text, output_audio_path, hf_token):
+            if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
+                print("\n" + "="*65)
+                print("🎉 [FINAL RESULT] Voiceover synthesized via Hugging Face Cloud GPU!")
+                print("="*65 + "\n")
+                return True
 
-        print(f"⚠️ '{engine.upper()}' failed or skipped. Moving to next provider...")
+    # 🌟 ধাপ ২: ১০ মিনিট পার হয়ে সব স্পেস ফেইল হলে আপনার TTS_ENGINE সিক্রেট অনুযায়ী ফলব্যাক রান হবে
+    print("\n⚠️ All Hugging Face Spaces timed out or unavailable. Engaging Fallback Engine...")
+    fallback_choice = os.environ.get("TTS_ENGINE", "edge").strip().lower()
 
-    # জরুরি ব্যাকআপ
-    print("\n⚠️ Primary engines failed. Activating Emergency Neural Backup...")
-    if synthesize_with_emergency_neural(speech_text, output_audio_path):
-        return True
+    if "piper" in fallback_choice:
+        if synthesize_with_piper_fallback(speech_text, output_audio_path): return True
+        if synthesize_with_edge_fallback(speech_text, output_audio_path): return True
+    elif "mms" in fallback_choice:
+        if synthesize_with_local_mms_fallback(speech_text, output_audio_path): return True
+        if synthesize_with_edge_fallback(speech_text, output_audio_path): return True
+    else:
+        # ডিফল্ট ফাস্ট ব্যাকআপ: Microsoft Edge Neural
+        if synthesize_with_edge_fallback(speech_text, output_audio_path): return True
+        if synthesize_with_piper_fallback(speech_text, output_audio_path): return True
 
-    print("\n❌ [CRITICAL] Voiceover generation failed across all TTS engines.")
+    print("\n❌ [CRITICAL] All TTS pipelines failed.")
     return False
