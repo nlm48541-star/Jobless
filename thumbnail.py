@@ -7,24 +7,24 @@ FONTS_DIR = "Fonts"
 PHOTOS_DIR = "Photos"
 
 ORG_LOGO_RULES = [
-    (['সেনাবাহিনী', 'সেনা', 'army', 'সৈনিক', 'কমিশনড অফিসার'], ['Army.png', 'army.png']),
-    (['নৌবাহিনী', 'নৌ', 'navy', 'নাবিক', 'sailor'], ['Navy.png', 'navy.png']),
-    (['বিমান বাহিনী', 'বিমানবাহিনী', 'airforce', 'air force', 'এয়ারফোর্স'], ['AirForce.png', 'airforce.png']),
-    (['বর্ডার গার্ড', 'বিজিবি', 'bgb', 'বিডিআর', 'bdr'], ['BGB.png', 'bgb.png']),
-    (['পুলিশ', 'police', 'কনস্টেবল', 'এসআই', 'সার্জেন্ট'], ['Police.png', 'police.png']),
+    (['সেনাবাহিনী', 'সেনা', 'army', 'সৈনিক', 'কমিশনড অফিসার'], ['Army.png', 'army.png', 'ARMY.PNG', 'sena.png']),
+    (['নৌবাহিনী', 'নৌ', 'navy', 'নাবিক', 'sailor'], ['Navy.png', 'navy.png', 'NAVY.PNG', 'nou.png']),
+    (['বিমান বাহিনী', 'বিমানবাহিনী', 'airforce', 'air force', 'এয়ারফোর্স'], ['AirForce.png', 'airforce.png', 'biman.png']),
+    (['বর্ডার গার্ড', 'বিজিবি', 'bgb', 'বিডিআর', 'bdr'], ['BGB.png', 'bgb.png', 'Bgb.png']),
+    (['পুলিশ', 'police', 'কনস্টেবল', 'এসআই', 'সার্জেন্ট', 'পুলিশ সুপারের'], ['Police.png', 'police.png', 'POLICE.PNG', 'bd_police.png']),
     (['আনসার', 'ansar', 'ভিডিপি', 'ব্যাটালিয়ন আনসার'], ['Ansar.png', 'ansar.png']),
-    (['কোস্ট গার্ড', 'কোস্টগার্ড', 'coast guard', 'coastguard'], ['CoastGuard.png', 'coastguard.png']),
-    (['র‍্যাব', 'র‌্যাব', 'rab'], ['RAB.png', 'rab.png']),
-    (['ফায়ার সার্ভিস', 'ফায়ার সার্ভিস', 'fire service', 'ফায়ারম্যান'], ['FireService.png', 'fireservice.png']),
-    (['রেলওয়ে', 'রেলওয়ে', 'railway', 'বাংলাদেশ রেলওয়ে'], ['Railway.png', 'railway.png']),
+    (['কোস্ট গার্ড', 'কোস্টগার্ড', 'coast guard', 'coastguard'], ['CoastGuard.png', 'coastguard.png', 'coast_guard.png']),
+    (['র‍্যাব', 'র‌্যাব', 'rab'], ['RAB.png', 'rab.png', 'Rab.png']),
+    (['ফায়ার সার্ভিস', 'ফায়ার সার্ভিস', 'fire service', 'ফায়ারম্যান'], ['FireService.png', 'fireservice.png', 'fire.png', 'Fire.png']),
+    (['রেলওয়ে', 'রেলওয়ে', 'railway', 'বাংলাদেশ রেলওয়ে'], ['Railway.png', 'railway.png', 'rail.png']),
     (['বিসিএস', 'bcs', 'পিএসসি', 'bpsc', 'পাবলিক সার্ভিস'], ['BCS.png', 'bcs.png']),
-    (['প্রাথমিক শিক্ষক', 'প্রাইমারি শিক্ষক', 'প্রাথমিক', 'প্রাইমারি', 'primary teacher', 'সহকারী শিক্ষক'], ['PrimaryTeacher.png', 'primaryteacher.png']),
+    (['প্রাথমিক শিক্ষক', 'প্রাইমারি শিক্ষক', 'প্রাথমিক', 'প্রাইমারি', 'primary teacher', 'সহকারী শিক্ষক'], ['PrimaryTeacher.png', 'primaryteacher.png', 'primary.png']),
     (['খাদ্য অধিদপ্তর', 'খাদ্য', 'food'], ['Food.png', 'food.png']),
-    (['ডাক বিভাগ', 'ডাক', 'পোস্ট অফিস', 'পোস্টাল', 'post office'], ['PostOffice.png', 'postoffice.png']),
-    (['কারা অধিদপ্তর', 'কারারক্ষী', 'কারাগার', 'jail', 'prison'], ['Jail.png', 'jail.png']),
+    (['ডাক বিভাগ', 'ডাক', 'পোস্ট অফিস', 'পোস্টাল', 'post office'], ['PostOffice.png', 'postoffice.png', 'post.png']),
+    (['কারা অধিদপ্তর', 'কারারক্ষী', 'কারাগার', 'jail', 'prison'], ['Jail.png', 'jail.png', 'prison.png']),
     (['পাসপোর্ট অধিদপ্তর', 'পাসপোর্ট', 'passport', 'ইমিগ্রেশন'], ['Passport.png', 'passport.png']),
     (['পরিবার পরিকল্পনা', 'family planning'], ['FamilyPlanning.png', 'familyplanning.png']),
-    (['গণপূর্ত', 'pwd', 'গণপূর্ত অধিদপ্তর'], ['PWD.jpeg', 'PWD.png', 'pwd.jpeg', 'pwd.png', 'PWD.jpg']),
+    (['গণপূর্ত', 'pwd', 'গণপূর্ত অধিদপ্তর'], ['PWD.jpeg', 'PWD.png', 'pwd.jpeg', 'pwd.png', 'PWD.jpg', 'pwd.jpg']),
 ]
 
 VIBRANT_PALETTES = [
@@ -37,13 +37,18 @@ VIBRANT_PALETTES = [
 ]
 
 def find_matched_org_logo(title_text):
+    """কেস-ইনসেনসিটিভভাবে Photos ফোল্ডার থেকে নির্দিষ্ট লোগো খুঁজে বের করে"""
     if not os.path.exists(PHOTOS_DIR): return None
+    
+    # Photos ফোল্ডারের সব ফাইল লোয়ারকেস ম্যাপিং করা
+    disk_files = {f.lower(): os.path.join(PHOTOS_DIR, f) for f in os.listdir(PHOTOS_DIR)}
     t_lower = str(title_text).lower()
+
     for keywords, filenames in ORG_LOGO_RULES:
         if any(k in t_lower for k in keywords):
             for fn in filenames:
-                full_p = os.path.join(PHOTOS_DIR, fn)
-                if os.path.exists(full_p): return full_p
+                if fn.lower() in disk_files:
+                    return disk_files[fn.lower()]
     return None
 
 def is_valid_bengali_font(font_path):
@@ -146,6 +151,36 @@ def draw_mixed_text_centered(draw, center_x, center_y, text, bn_font_path, font_
         draw.text((cur_x, center_y), seg_text, font=f, fill=fill_color, anchor="lm")
         cur_x += w
 
+def render_logo_to_box(img, logo_path, box_rect):
+    """
+    🌟 ১০০% নিখুঁত আলফা কম্পোজিট মেথডে যেকোনো ফরম্যাটের লোগো ড্র করে
+    """
+    try:
+        x1, y1, x2, y2 = box_rect
+        box_w = x2 - x1
+        box_h = y2 - y1
+
+        with Image.open(logo_path) as raw_logo:
+            logo_rgba = raw_logo.convert("RGBA")
+            
+            # লোগো রিসাইজ করা (বক্সের সাইজের ৯০% পর্যন্ত)
+            max_w, max_h = int(box_w * 0.88), int(box_h * 0.88)
+            logo_rgba.thumbnail((max_w, max_h), Image.LANCZOS)
+            lw, lh = logo_rgba.size
+
+            # সাদা ব্যাকগ্রাউন্ডের ওপর আলফা কম্পোজিট
+            box_patch = Image.new("RGBA", (box_w, box_h), (255, 255, 255, 255))
+            px = (box_w - lw) // 2
+            py = (box_h - lh) // 2
+            box_patch.alpha_composite(logo_rgba, (px, py))
+
+            # মূল ইমেজে প্যাচ পেস্ট করা
+            img.paste(box_patch.convert("RGB"), (x1, y1))
+            return True
+    except Exception as e:
+        print(f"⚠️ Logo render exception ({logo_path}): {e}")
+        return False
+
 def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     W, H = 1920, 1080
     img = Image.new("RGB", (W, H), "#ffffff")
@@ -166,21 +201,21 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     matched_logo = find_matched_org_logo(title) or find_matched_org_logo(top_text)
 
     # =========================================================================
-    # 🌟 ১. স্পেশাল অর্গানাইজেশন ডিজাইন (৩টি সম্পূর্ণ আলাদা টেক্সট বক্স + বড় লোগো)
+    # 🌟 ১. স্পেশাল অর্গানাইজেশন ডিজাইন (৩টি টেক্সট বক্স + ডানপাশে বড় লোগো)
     # =========================================================================
     if matched_logo and os.path.exists(matched_logo):
         theme = random.choice(VIBRANT_PALETTES)
-        print(f"✨ [Special Org Thumbnail] Logo: {os.path.basename(matched_logo)} | Theme: {theme['bar_bg']}")
+        print(f"✨ [Special Org Thumbnail] Detected Logo: {os.path.basename(matched_logo)} for '{title[:40]}'...")
 
         # টপ বার (0 to 200px)
         draw.rectangle([0, 0, W, 200], fill=theme["bar_bg"])
         gov_logo_p = os.path.join(PHOTOS_DIR, "Govbd.png")
         if os.path.exists(gov_logo_p):
             try:
-                g_logo = Image.open(gov_logo_p).convert("RGBA").resize((150, 150), Image.LANCZOS)
-                img.paste(g_logo, (35, 25), g_logo)
-                img.paste(g_logo, (W - 185, 25), g_logo)
-                g_logo.close()
+                with Image.open(gov_logo_p) as gl:
+                    gl_rgba = gl.convert("RGBA").resize((150, 150), Image.LANCZOS)
+                    img.paste(gl_rgba, (35, 25), gl_rgba)
+                    img.paste(gl_rgba, (W - 185, 25), gl_rgba)
             except Exception: pass
 
         fs_top, _ = get_best_fitted_mixed_font_size(top_text, max_w=W - 420, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
@@ -188,31 +223,21 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
 
         split_x = 1260
 
-        # ডানে লোগো বক্স (1260 to 1920px) — পিওর হোয়াইট ব্যাকগ্রাউন্ড
-        draw.rectangle([split_x, 200, W, 880], fill="#ffffff")
-        try:
-            org_img = Image.open(matched_logo).convert("RGBA")
-            org_img.thumbnail((560, 560), Image.LANCZOS)
-            lw, lh = org_img.size
-            pos_x = split_x + ((W - split_x - lw) // 2)
-            pos_y = 200 + ((680 - lh) // 2)
-            img.paste(org_img, (pos_x, pos_y), org_img)
-            org_img.close()
-        except Exception as e:
-            print(f"⚠️ Logo paste notice: {e}")
+        # 🌟 ডানপাশের লোগো বক্সে নিশ্চিতভাবে লোগো ড্র করা
+        render_logo_to_box(img, matched_logo, (split_x, 200, W, 880))
 
-        # বামে ৩টি স্ট্যাকড সম্পূর্ণ আলাদা টেক্সট বক্স (0 to 1260px)
-        # বক্স ১: হলুদ সাব-হুক (200 to 380px) -> row1_text (যেমন: 'সহকারী শিক্ষক' বা 'অফিসার ক্যাডেট')
+        # বামে ৩টি স্ট্যাকড সম্পূর্ণ আলাদা টেক্সট বক্স
+        # বক্স ১: হলুদ সাব-হুক (200 to 380px)
         draw.rectangle([0, 200, split_x, 380], fill=theme["sub_bg"])
         fs_b1, _ = get_best_fitted_mixed_font_size(row1_text, max_w=split_x - 40, max_h=150, bn_font_path=font_line1, start_size=220, min_size=90)
         draw_mixed_text_centered(draw, split_x // 2, 290, row1_text, font_line1, fs_b1, theme["sub_text"])
 
-        # বক্স ২: সাদা ব্যাকগ্রাউন্ডে বিশাল লাল মেইন হুক (380 to 700px) -> row2_text (যেমন: '১০,২১৯ পদে' বা '১৫৩২ পদে')
+        # বক্স ২: সাদা ব্যাকগ্রাউন্ডে বিশাল লাল মেইন হুক (380 to 700px)
         draw.rectangle([0, 380, split_x, 700], fill="#ffffff")
         fs_b2, _ = get_best_fitted_mixed_font_size(row2_text, max_w=split_x - 40, max_h=280, bn_font_path=font_line2, start_size=330, min_size=120)
         draw_mixed_text_centered(draw, split_x // 2, 540, row2_text, font_line2, fs_b2, theme["hook_text"])
 
-        # বক্স ৩: হলুদ সাব-লাইন (700 to 880px) -> sub_text (যেমন: 'HSC পাশ যোগ্যতা' বা 'স্নাতক পাশ')
+        # বক্স ৩: হলুদ সাব-লাইন (700 to 880px)
         draw.rectangle([0, 700, split_x, 880], fill=theme["sub_bg"])
         fs_b3, _ = get_best_fitted_mixed_font_size(sub_text, max_w=split_x - 40, max_h=150, bn_font_path=font_line1, start_size=200, min_size=80)
         draw_mixed_text_centered(draw, split_x // 2, 790, sub_text, font_line1, fs_b3, theme["sub_text"])
@@ -222,7 +247,7 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
         draw.line([(0, 380), (split_x, 380)], fill=theme["border"], width=6)
         draw.line([(0, 700), (split_x, 700)], fill=theme["border"], width=6)
 
-        # বটম বার (880 to 1080px) -> bot_text (সার্কুলারভিত্তিক ডায়নামিক শেষ তারিখ/নিয়ম)
+        # বটম বার (880 to 1080px)
         draw.rectangle([0, 880, W, H], fill=theme["bar_bg"])
         fs_bot, _ = get_best_fitted_mixed_font_size(bot_text, max_w=W - 80, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
         draw_mixed_text_centered(draw, W // 2, 980, bot_text, bar_font, fs_bot, theme["bot_text"])
@@ -242,10 +267,10 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
         gov_logo_p = os.path.join(PHOTOS_DIR, "Govbd.png")
         if os.path.exists(gov_logo_p):
             try:
-                g_logo = Image.open(gov_logo_p).convert("RGBA").resize((150, 150), Image.LANCZOS)
-                img.paste(g_logo, (35, 25), g_logo)
-                img.paste(g_logo, (W - 185, 25), g_logo)
-                g_logo.close()
+                with Image.open(gov_logo_p) as gl:
+                    gl_rgba = gl.convert("RGBA").resize((150, 150), Image.LANCZOS)
+                    img.paste(gl_rgba, (35, 25), gl_rgba)
+                    img.paste(gl_rgba, (W - 185, 25), gl_rgba)
             except Exception: pass
 
         fs_top, _ = get_best_fitted_mixed_font_size(top_text, max_w=W - 420, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
@@ -267,7 +292,7 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
         # কালো লাইন ২ (যোগ্যতা / জেলা)
         draw_mixed_text_centered(draw, W // 2, start_y + h1 + line_spacing + (h2 // 2), sub_text, font_line2, fs_l2, "#000000")
 
-        # বটম বার (ডায়নামিক সার্কুলার টেক্সট)
+        # বটম বার
         draw.rectangle([0, 880, W, H], fill=green_bg)
         fs_bot, _ = get_best_fitted_mixed_font_size(bot_text, max_w=W - 80, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
         draw_mixed_text_centered(draw, W // 2, 980, bot_text, bar_font, fs_bot, "#ffe600")
@@ -276,4 +301,4 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
         draw.line([(0, 880), (W, 880)], fill="#003310", width=7)
 
     img.save(output_path, "JPEG", quality=100, subsampling=0)
-    print(f"✅ Generated Dynamic Thumbnail: '{row1_text} | {sub_text} | {bot_text}'")
+    print(f"✅ Generated Ultra-HD Thumbnail: '{row1_text} | {sub_text} | {bot_text}'")
