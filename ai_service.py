@@ -6,7 +6,20 @@ from PIL import Image
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "https://api.ollama.com").rstrip("/")
 GROQ_API = os.environ.get("GROQ_API", "").strip()
 
-OLLAMA_MODELS = ["kimi-k3", "minimax-m3", "gemma4", "kimi-k2.6"]
+# 🌟 আপনার দেওয়া Ollama Cloud অগ্রাধিকার তালিকা + ব্যাকআপ মডেল
+OLLAMA_MODELS = [
+    "gemma4:31b",
+    "gpt-oss:120b",
+    "gpt-oss:20b",
+    "nemotron-3-nano:30b",
+    "nemotron-3-super",
+    "nemotron-3-ultra",
+    "kimi-k3",
+    "minimax-m3",
+    "gemma4",
+    "kimi-k2.6"
+]
+
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 OLLAMA_TRACKER_FILE = os.path.join("workspace", "ollama_key_tracker.txt")
 
@@ -221,7 +234,7 @@ Return strictly valid JSON:
 
     base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
 
-    # ------------------ [১ম ধাপ: Ollama ক্লাউড] ------------------
+    # ------------------ [১ম ধাপ: Ollama ক্লাউডের সুপার মডেল রোটেশন] ------------------
     ollama_keys = get_all_ollama_keys()
     total_o_keys = len(ollama_keys)
     if total_o_keys > 0:
@@ -252,7 +265,6 @@ Return strictly valid JSON:
                             raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
                             tags = sanitize_youtube_tags(raw_tags)
                             
-                            # 🌟 ডায়নামিক বটম টেক্সট নির্বাচন
                             gen_bot = data.get("bot_text", "").strip()
                             if not gen_bot or "আবেদনের নিয়ম ও বিস্তারিত" in gen_bot:
                                 gen_bot = f"({vac_str}) বিশাল সার্কুলার" if vac_str else "আবেদনের শেষ তারিখ ও নিয়ম"
@@ -270,11 +282,11 @@ Return strictly valid JSON:
                     else:
                         print(f"⚠️ Ollama Key #{k_num} ('{model_name}') returned {resp.status_code}. Trying next model...")
                 except Exception as oe:
-                    print(f"⚠️ Network error on Key #{k_num}: {oe}")
+                    print(f"⚠️ Network error on Key #{k_num} ('{model_name}'): {oe}")
 
             save_ollama_index(cur_k_idx + 1, total_o_keys)
 
-    # ------------------ [২য় ধাপ: Groq AI] ------------------
+    # ------------------ [২য় ধাপ: সুপারফাস্ট Groq AI ইঞ্জিন] ------------------
     groq_keys = get_all_groq_keys()
     if groq_keys:
         for g_idx, g_key in enumerate(groq_keys, start=1):
@@ -320,6 +332,6 @@ Return strictly valid JSON:
                     else:
                         print(f"⚠️ Groq Key #{g_idx} ('{g_model}') returned {resp.status_code}: {resp.text[:120]}")
                 except Exception as ge:
-                    print(f"⚠️ Groq exception on Key #{g_idx}: {ge}")
+                    print(f"⚠️ Groq exception on Key #{g_idx} ('{g_model}'): {ge}")
 
     return None, None, None, None, None
