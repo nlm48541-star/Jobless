@@ -2,7 +2,7 @@
 import os, re, time, shutil, requests, subprocess
 
 LOCAL_MODELS_DIR = os.path.join("workspace", "local_tts_models")
-MAX_SPACE_WAIT_SECONDS = 600
+MAX_SPACE_WAIT_SECONDS = 600  # প্রতিটি মডেলের জন্য সর্বোচ্চ ১০ মিনিট অপেক্ষা
 
 def clean_script_for_speech(raw_text):
     if not raw_text: return ""
@@ -12,6 +12,23 @@ def clean_script_for_speech(raw_text):
     text = re.sub(r'[\<\>\{\}\(\)\@\$\^\&\+\=\_\\\/]', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
+
+def create_gradio_client(space_name, hf_token=None):
+    """
+    🌟 gradio_client এর নতুন (token) ও পুরোনো (hf_token) সব ভার্সন সাপোর্ট করে
+    """
+    from gradio_client import Client
+    if not hf_token:
+        return Client(space_name)
+    try:
+        # নতুন gradio_client ভার্সনে 'token' ব্যবহৃত হয়
+        return Client(space_name, token=hf_token)
+    except TypeError:
+        try:
+            # পুরোনো ভার্সনে 'hf_token' ব্যবহৃত হতো
+            return Client(space_name, hf_token=hf_token)
+        except TypeError:
+            return Client(space_name, headers={"Authorization": f"Bearer {hf_token}"})
 
 # =========================================================================
 # 🌟 ১০ মিনিট ওয়েট-লুপ হ্যান্ডলার (Generic Space Polling Runner)
@@ -24,7 +41,7 @@ def execute_space_with_10min_wait(space_name, predict_call, output_audio_path, h
         print("  ⚠️ 'gradio_client' module not installed. Skipping Cloud Space...")
         return False
 
-    print(f"\n  🚀 Connecting to Space: '{space_name}' (Max wait: 10 minutes / {MAX_SPACE_WAIT_SECONDS}s)...")
+    print(f"\n  🚀 Connecting to Space: '{space_name}' (Max wait: 10m / {MAX_SPACE_WAIT_SECONDS}s)...")
     start_time = time.time()
     retry_count = 0
 
@@ -33,8 +50,8 @@ def execute_space_with_10min_wait(space_name, predict_call, output_audio_path, h
         retry_count += 1
         
         try:
-            print(f"  ⏳ [Attempt #{retry_count}] Waking up/Checking Space (Elapsed: {elapsed}s/{MAX_SPACE_WAIT_SECONDS}s)...")
-            client = Client(space_name, hf_token=hf_token if hf_token else None)
+            print(f"  ⏳ [Attempt #{retry_count}] Connecting/Checking Space (Elapsed: {elapsed}s/{MAX_SPACE_WAIT_SECONDS}s)...")
+            client = create_gradio_client(space_name, hf_token)
             
             result = predict_call(client)
             
@@ -45,12 +62,17 @@ def execute_space_with_10min_wait(space_name, predict_call, output_audio_path, h
                 print(f"  ✅ [SUCCESS] Synthesized via '{space_name}'! ({audio_mb} MB in {total_time}s)")
                 return True
 
+        except TypeError as te:
+            # যদি কোনো আর্গুমেন্ট টাইপ এরর হয়, তবে বারবার ১০ মিনিট অপেক্ষা না করে সাথে সাথে ব্রেক করবে
+            print(f"  ⚠️ Gradio Client Argument Error: {te}")
+            break
+
         except Exception as e:
             err_msg = str(e).strip().replace('\n', ' ')
-            print(f"  ℹ️ Space is booting/warming up: {err_msg[:95]}...")
+            print(f"  ℹ️ Space is booting/warming up: {err_msg[:90]}...")
             time.sleep(20)
 
-    print(f"  ❌ [TIMEOUT] Space '{space_name}' did not respond within 10 minutes.")
+    print(f"  ❌ [TIMEOUT] Space '{space_name}' did not complete within 10 minutes.")
     return False
 
 # =========================================================================
@@ -58,17 +80,20 @@ def execute_space_with_10min_wait(space_name, predict_call, output_audio_path, h
 # =========================================================================
 
 def try_indic_parler_space(speech_text, output_audio_path, hf_token):
+    """১. AI4Bharat Indic Parler-TTS Space"""
     desc_prompt = "A clear, professional Bengali male news anchor with confident tone and natural pace."
     def _call(client):
         return client.predict(text=speech_text, description=desc_prompt, api_name="/predict")
     return execute_space_with_10min_wait("ai4bharat/indic-parler-tts", _call, output_audio_path, hf_token)
 
 def try_cosyvoice_space(speech_text, output_audio_path, hf_token):
+    """২. BUET Bengali CosyVoice 3 Space"""
     def _call(client):
         return client.predict(text=speech_text, api_name="/predict")
     return execute_space_with_10min_wait("kawshikbuet17/bengali-cosyvoice3-tts-demo", _call, output_audio_path, hf_token)
 
 def try_orpheus_space(speech_text, output_audio_path, hf_token):
+    """৩. Orpheus Bangla Emotional TTS Space"""
     def _call(client):
         return client.predict(text=speech_text, emotion="normal", api_name="/predict")
     return execute_space_with_10min_wait("ehzawad/orpheus-bangla-emotional-tts-demo", _call, output_audio_path, hf_token)
@@ -80,7 +105,7 @@ def try_orpheus_space(speech_text, output_audio_path, hf_token):
 def synthesize_with_edge_fallback(speech_text, output_audio_path):
     try:
         import asyncio, edge_tts
-        print("\n  🎙️ [LOCAL FALLBACK] Synthesizing via Microsoft Neural Engine (bn-BD-PradeepNeural)...")
+        print("\n  🎙️ [FALLBACK] Synthesizing via Microsoft Neural Engine (bn-BD-PradeepNeural)...")
         start_t = time.time()
         async def _make():
             c = edge_tts.Communicate(speech_text, "bn-BD-PradeepNeural", rate="+0%", pitch="+0Hz")
@@ -111,7 +136,7 @@ def synthesize_with_piper_fallback(speech_text, output_audio_path):
             if r2.status_code == 200:
                 with open(json_path, "wb") as f: f.write(r2.content)
 
-        print("  🎙️ [LOCAL FALLBACK] Synthesizing via Piper Local ONNX Engine...")
+        print("  🎙️ [FALLBACK] Synthesizing via Piper Local ONNX Engine...")
         start_t = time.time()
         cmd = ["piper", "--model", model_path, "--output_file", output_audio_path]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -130,7 +155,7 @@ def synthesize_with_local_mms_fallback(speech_text, output_audio_path):
     try:
         import torch, scipy.io.wavfile
         from transformers import AutoTokenizer, VitsModel
-        print("\n  🎙️ [LOCAL FALLBACK] Synthesizing via Meta MMS Local CPU Model...")
+        print("\n  🎙️ [FALLBACK] Synthesizing via Meta MMS Local CPU Model...")
         start_t = time.time()
 
         tokenizer = AutoTokenizer.from_pretrained("facebook/mms-tts-ben")
@@ -172,7 +197,7 @@ def synthesize_with_local_mms_fallback(speech_text, output_audio_path):
     return False
 
 # =========================================================================
-# 🌟 মূল অডিও পাইপলাইন (Main Audio Pipeline Orchestrator)
+# 🌟 মূল অডিও পাইপলাইন
 # =========================================================================
 
 def generate_voiceover_audio_pipeline(text, output_audio_path):
@@ -203,8 +228,8 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
                 print("="*65 + "\n")
                 return True
 
-    # ধাপ ২: স্পেস ফেইল হলে আপনার সিক্রেট অনুযায়ী লোকাল ফলব্যাক
-    print("\n⚠️ All Hugging Face Spaces timed out or unavailable. Engaging Fallback Engine...")
+    # ধাপ ২: ফলব্যাক ইঞ্জিন এক্সিকিউশন
+    print("\n⚠️ All Hugging Face Spaces unavailable or timed out. Engaging Fallback...")
     fallback_choice = os.environ.get("TTS_ENGINE", "edge").strip().lower()
 
     if "piper" in fallback_choice:
