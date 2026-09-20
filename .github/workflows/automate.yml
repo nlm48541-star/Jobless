@@ -12,7 +12,7 @@ concurrency:
 jobs:
   run-automation:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
@@ -24,7 +24,6 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      # 🌟 বাংলা ফন্ট ও প্যাকেজ (fonts-noto-extra বাদ দিয়ে সুপারফাস্ট ১৫ সেকেন্ডে ইনস্টল)
       - name: Install System Dependencies (Fonts, FFmpeg, Rclone)
         run: |
           sudo apt-get update
@@ -78,7 +77,8 @@ jobs:
             rclone copy ./workspace_live "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --fast-list
           fi
 
-      - name: Cleanup old JobLive videos (Older than 15 days)
+      # 🌟 [৩০ দিন পর ডিলিট ফিক্স]: ৩০ দিনের পুরোনো ভিডিও ফাইলগুলো অটোমেটিক ডিলিট করবে
+      - name: Cleanup old JobLive videos (Older than 30 days)
         if: always()
         run: |
-          rclone delete "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --min-age 15d --fast-list || true
+          rclone delete "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --min-age 30d --fast-list || true
