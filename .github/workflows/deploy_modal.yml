@@ -1,7 +1,16 @@
 name: Deploy Modal Serverless TTS
 
 on:
-  workflow_dispatch: # মোবাইল থেকে বাটন চাপলেই রান হবে
+  workflow_dispatch:
+    inputs:
+      modal_token_id:
+        description: 'Modal Token ID (ak-...)'
+        required: true
+        type: string
+      modal_token_secret:
+        description: 'Modal Token Secret (as-...)'
+        required: true
+        type: string
 
 jobs:
   deploy-modal:
@@ -20,7 +29,7 @@ jobs:
 
       - name: Deploy to Modal Cloud
         env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          MODAL_TOKEN_ID: ${{ inputs.modal_token_id }}
+          MODAL_TOKEN_SECRET: ${{ inputs.modal_token_secret }}
         run: |
           modal deploy modal_app.py
