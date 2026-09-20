@@ -6,8 +6,6 @@ from bs4 import BeautifulSoup
 from PIL import Image
 
 WORKSPACE_DIR = "workspace"
-
-# 🌟 নিষিদ্ধ কিওয়ার্ড ফিল্টার ('চলমান' সহ)
 FORBIDDEN_KEYWORDS = ['এনজিও', 'ngo', 'ব্যাংক', 'bank', 'চলমান']
 
 HEADERS = {
@@ -16,7 +14,6 @@ HEADERS = {
 }
 
 def is_forbidden_article(text):
-    """শুধুমাত্র টাইটেলে নিষিদ্ধ কিওয়ার্ড আছে কিনা যাচাই করে"""
     if not text: return False
     t_lower = text.lower()
     return any(k in t_lower for k in FORBIDDEN_KEYWORDS)
@@ -98,12 +95,13 @@ def check_new_articles_and_prepare_folders():
     time_limit = datetime.now() - timedelta(hours=24)
     existing = [f for f in os.listdir(WORKSPACE_DIR) if os.path.isdir(os.path.join(WORKSPACE_DIR, f))]
     
+    # 🌟 হিস্টোরি ফাইল থেকে আগের সব টাইটেল এবং লিংক রিড করা
     history_file = os.path.join(WORKSPACE_DIR, "history.txt")
-    history_logs = []
+    history_logs = set()
     if os.path.exists(history_file):
         try:
             with open(history_file, 'r', encoding='utf-8') as hf:
-                history_logs = [line.strip() for line in hf if line.strip()]
+                history_logs = {line.strip().lower() for line in hf if line.strip()}
         except Exception: pass
 
     for feed_url in rss_links:
@@ -116,23 +114,24 @@ def check_new_articles_and_prepare_folders():
             try: published_time = datetime.fromtimestamp(time.mktime(entry.published_parsed))
             except Exception: continue
 
-            # ২৪ ঘণ্টার ফিল্টার
             if published_time >= time_limit:
                 raw_title = entry.title.strip()
                 folder_title = clean_filename(raw_title).strip()
                 link = entry.get('link', '').strip()
 
-                if folder_title.lower() == "shorts" or not folder_title or folder_title in existing or folder_title in history_logs: 
-                    continue 
+                if folder_title.lower() == "shorts" or not folder_title or folder_title in existing:
+                    continue
 
-                # 🌟 শুধুমাত্র টাইটেলে 'এনজিও', 'ব্যাংক' বা 'চলমান' থাকলে স্কিপ হবে
+                # 🌟 [ডুপ্লিকেট প্রতিরোধ]: আর্টিকেলের লিংক বা টাইটেল পূর্বে প্রসেস হয়ে থাকলে সাথে সাথে স্কিপ
+                if link.lower() in history_logs or raw_title.lower() in history_logs or folder_title.lower() in history_logs:
+                    continue
+
+                # শুধুমাত্র টাইটেলে নিষিদ্ধ কিওয়ার্ড থাকলে স্কিপ
                 if is_forbidden_article(raw_title) or is_forbidden_article(folder_title):
-                    print(f"🚫 [FILTERED] Skipping '{folder_title}' (Title contains 'এনজিও' / 'ব্যাংক' / 'চলমান').")
+                    print(f"🚫 [FILTERED] Skipping '{folder_title}' (Title contains forbidden keywords).")
                     continue
 
                 content = entry.content[0].value if hasattr(entry, 'content') else getattr(entry, 'summary', "")
-
-                # ছবি খোঁজা
                 valid_img_urls = extract_image_urls_from_html(content, base_url=link)
                 if not valid_img_urls and link:
                     valid_img_urls = scrape_images_from_webpage(link)
@@ -151,7 +150,6 @@ def check_new_articles_and_prepare_folders():
                         downloaded_temp_files.append(temp_img_path)
 
                 if not downloaded_temp_files:
-                    print(f"⏩ Removing '{folder_title}' (Failed to download images).")
                     shutil.rmtree(folder_path, ignore_errors=True)
                     continue
 
@@ -160,14 +158,12 @@ def check_new_articles_and_prepare_folders():
                     try:
                         with Image.open(downloaded_temp_files[0]) as first_img:
                             w, h = first_img.size
-                            ratio = w / h
-                            if ratio >= (16.0 / 9.0) - 0.05:
+                            if (w / h) >= (16.0 / 9.0) - 0.05:
                                 os.remove(downloaded_temp_files[0])
                                 downloaded_temp_files.pop(0)
-                                print(f"✂️ [16:9 Banner Removed] 1st image was a website banner ({w}x{h}). Keeping official circular pages.")
+                                print(f"✂️ [Banner Removed] Dropped 1st banner image ({w}x{h}).")
                     except Exception: pass
 
-                # চূড়ান্ত নামকরণ (1.jpg, 2.jpg)
                 final_img_count = 0
                 for final_idx, temp_path in enumerate(downloaded_temp_files, start=1):
                     final_path = os.path.join(folder_path, f"{final_idx}.jpg")
@@ -180,13 +176,12 @@ def check_new_articles_and_prepare_folders():
                     shutil.rmtree(folder_path, ignore_errors=True)
                     continue
 
-                print(f"✅ New Job Article: {folder_title} ({final_img_count} Images)")
-                with open(os.path.join(folder_path, "title.txt"), "w", encoding="utf-8") as text_file:
-                    text_file.write(raw_title)
+                # 🌟 টাইটেল এবং আর্টিকেলের লিংক দুটিই ফোল্ডারে সেভ করা
+                with open(os.path.join(folder_path, "title.txt"), "w", encoding="utf-8") as tf:
+                    tf.write(raw_title)
+                if link:
+                    with open(os.path.join(folder_path, "link.txt"), "w", encoding="utf-8") as lf:
+                        lf.write(link)
 
+                print(f"✅ Prepared New Article: {folder_title} ({final_img_count} Images)")
                 existing.append(folder_title)
-                history_logs.append(folder_title)
-                try:
-                    with open(history_file, 'a', encoding='utf-8') as hf:
-                        hf.write(f"{folder_title}\n")
-                except Exception: pass
