@@ -12,7 +12,7 @@ concurrency:
 jobs:
   run-automation:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -50,6 +50,7 @@ jobs:
           mkdir -p workspace
           rclone sync "gdrive:" ./workspace --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --fast-list
 
+      # 🌟 সমস্ত প্রয়োজনীয় API Secrets ও Modal Endpoints পাস করা হয়েছে
       - name: Run Python Process (Movie & YouTube upload)
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
@@ -61,6 +62,8 @@ jobs:
           ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
           TTS_ENGINE: ${{ secrets.TTS_ENGINE }}
+          TTS_MODEL: ${{ secrets.TTS_MODEL }}
+          MODAL_ENDPOINTS: ${{ secrets.MODAL_ENDPOINTS }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python main.py
 
@@ -77,7 +80,6 @@ jobs:
             rclone copy ./workspace_live "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --fast-list
           fi
 
-      # 🌟 [৩০ দিন পর ডিলিট ফিক্স]: ৩০ দিনের পুরোনো ভিডিও ফাইলগুলো অটোমেটিক ডিলিট করবে
       - name: Cleanup old JobLive videos (Older than 30 days)
         if: always()
         run: |
