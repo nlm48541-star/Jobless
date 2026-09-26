@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 import os, re, time, base64, requests
 
+FISH_TRACKER_FILE = os.path.join("workspace", "fish_key_tracker.txt")
 MODAL_TRACKER_FILE = os.path.join("workspace", "modal_key_tracker.txt")
+
+def mask_key(k):
+    if not k or len(k) <= 8: return "****"
+    return k[:4] + "..." + k[-4:]
 
 def clean_script_for_speech(raw_text):
     if not raw_text: return ""
@@ -12,112 +17,222 @@ def clean_script_for_speech(raw_text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
+def split_text_into_chunks(text, max_chars=400):
+    raw_parts = re.split(r'([।\?\!\n]+)', text)
+    chunks = []
+    current = ""
+    for p in raw_parts:
+        current += p
+        if any(sym in p for sym in ['।', '?', '!', '\n']) or len(current) >= max_chars:
+            if current.strip(): chunks.append(current.strip())
+            current = ""
+    if current.strip(): chunks.append(current.strip())
+    return chunks
+
+def get_saved_index(file_path, total):
+    if total == 0: return 0
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return int(f.read().strip()) % total
+        except Exception: pass
+    return 0
+
+def save_index(file_path, idx, total):
+    if total == 0: return
+    try:
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(str(idx % total))
+    except Exception: pass
+
+# =========================================================================
+# 🌟 ১. Gemini 3.8 Flash TTS ইঞ্জিন (Official google-genai SDK)
+# =========================================================================
+
+def get_all_gemini_keys():
+    raw_keys = os.environ.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEYS", "")).strip()
+    if not raw_keys: return []
+    lines = re.split(r'[\r\n,;]+', raw_keys)
+    return [k.strip() for k in lines if k.strip() and not k.strip().startswith('#')]
+
+def synthesize_with_gemini(speech_text, output_audio_path):
+    print("\n--- [ENGINE: Gemini 3.8 Flash TTS (Custom Voice)] ---")
+    gemini_keys = get_all_gemini_keys()
+    if not gemini_keys:
+        print("  ⚠️ 'GEMINI_API_KEY' not found in environment secrets.")
+        return False
+
+    voice_id = os.environ.get("GEMINI_VOICE_ID", "voice_z3e67k0f8p8c").strip() or "voice_z3e67k0f8p8c"
+    delivery_style = os.environ.get("GEMINI_DELIVERY_STYLE", "Natural, calm, warm and articulate Bengali pronunciation").strip()
+
+    try:
+        from google import genai
+    except ImportError:
+        print("  ⚠️ 'google-genai' library is not installed.")
+        return False
+
+    for idx, api_key in enumerate(gemini_keys, 1):
+        masked = mask_key(api_key)
+        print(f"  🚀 Attempting Gemini Key #{idx}/{len(gemini_keys)} (Key: {masked})")
+        start_t = time.time()
+        try:
+            client = genai.Client(api_key=api_key)
+            interaction = client.interactions.create(
+                model="gemini-3.8-flash-tts",
+                input=[{
+                    "type": "user_input",
+                    "content": [{
+                        "type": "text",
+                        "text": speech_text,
+                        "annotations": [{
+                            "type": "speech_metadata",
+                            "style": delivery_style
+                        }]
+                    }]
+                }],
+                response_format={"type": "audio"},
+                generation_config={
+                    "speech_config": [{"voice": voice_id}]
+                }
+            )
+
+            if hasattr(interaction, 'output_audio') and hasattr(interaction.output_audio, 'data'):
+                audio_bytes = base64.b64decode(interaction.output_audio.data)
+                if len(audio_bytes) > 2000:
+                    with open(output_audio_path, "wb") as f:
+                        f.write(audio_bytes)
+                    elapsed = round(time.time() - start_t, 2)
+                    audio_mb = round(os.path.getsize(output_audio_path) / (1024 * 1024), 2)
+                    print(f"  ✅ [SUCCESS] Generated via Gemini 3.8 Flash TTS! (Voice: {voice_id}, {audio_mb} MB in {elapsed}s)")
+                    return True
+
+            print(f"  ⚠️ Gemini Key #{idx} returned unexpected response structure.")
+        except Exception as e:
+            print(f"  ⚠️ Gemini Key #{idx} error: {e}")
+
+    return False
+
+# =========================================================================
+# 🌟 ২. Fish Audio Drama 3 ইঞ্জিন
+# =========================================================================
+
+def get_all_fish_keys():
+    raw_keys = os.environ.get("FISH_API_KEYS", os.environ.get("FISH_API_KEY", "")).strip()
+    if not raw_keys: return []
+    lines = re.split(r'[\r\n,;]+', raw_keys)
+    return [k.strip() for k in lines if k.strip() and not k.strip().startswith('#')]
+
+def synthesize_with_fish_audio(speech_text, output_audio_path):
+    print("\n--- [ENGINE: Fish Audio (Drama 3)] ---")
+    fish_keys = get_all_fish_keys()
+    total_keys = len(fish_keys)
+    voice_id = os.environ.get("FISH_VOICE_ID", "").strip()
+
+    if total_keys == 0:
+        return False
+
+    url = "https://api.fish.audio/v1/tts"
+    start_idx = get_saved_index(FISH_TRACKER_FILE, total_keys)
+    chunks = split_text_into_chunks(speech_text, max_chars=400)
+
+    for offset in range(total_keys):
+        cur_idx = (start_idx + offset) % total_keys
+        api_key = fish_keys[cur_idx]
+        key_num = cur_idx + 1
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "model": "drama-3-preview"
+        }
+
+        audio_bytes_list = []
+        key_failed = False
+        start_time = time.time()
+
+        for chunk in chunks:
+            payload = {"text": chunk, "format": "mp3", "mp3_bitrate": 128}
+            if voice_id: payload["reference_id"] = voice_id
+
+            try:
+                resp = requests.post(url, headers=headers, json=payload, timeout=60)
+                if resp.status_code == 200 and len(resp.content) > 1000:
+                    audio_bytes_list.append(resp.content)
+                else:
+                    key_failed = True
+                    break
+            except Exception:
+                key_failed = True
+                break
+
+        if not key_failed and len(audio_bytes_list) == len(chunks):
+            with open(output_audio_path, "wb") as f:
+                for b in audio_bytes_list: f.write(b)
+            save_index(FISH_TRACKER_FILE, cur_idx, total_keys)
+            return True
+        else:
+            save_index(FISH_TRACKER_FILE, cur_idx + 1, total_keys)
+            continue
+
+    return False
+
+# =========================================================================
+# 🌟 ৩. Modal ক্লাউড জিপিইউ ইঞ্জিন
+# =========================================================================
+
 def get_sample_voice_b64():
-    """রিপোজিটরি থেকে sample_voice.mp3 লোড করে base64 এ রূপান্তর করে"""
-    candidates = ["sample_voice.mp3", "sample_voice.wav", "Photos/sample_voice.mp3", "Photos/sample_voice.wav"]
-    for fname in candidates:
+    for fname in ["sample_voice.mp3", "sample_voice.wav", "Photos/sample_voice.mp3", "Photos/sample_voice.wav"]:
         if os.path.exists(fname) and os.path.getsize(fname) > 1000:
             try:
-                with open(fname, "rb") as f:
-                    return base64.b64encode(f.read()).decode('utf-8')
+                with open(fname, "rb") as f: return base64.b64encode(f.read()).decode('utf-8')
             except Exception: pass
     return None
 
 def get_all_modal_endpoints():
-    """এন্টার (Newline) বা কমা দিয়ে সাজানো সব Modal অ্যাকাউন্টের URL লোড করে"""
     raw_urls = os.environ.get("MODAL_ENDPOINTS", os.environ.get("MODAL_URLS", "")).strip()
     if not raw_urls: return []
     lines = re.split(r'[\r\n,;]+', raw_urls)
     return [u.strip() for u in lines if u.strip() and u.strip().startswith("http")]
 
-def get_saved_modal_index(total_endpoints):
-    if total_endpoints == 0: return 0
-    if os.path.exists(MODAL_TRACKER_FILE):
-        try:
-            with open(MODAL_TRACKER_FILE, "r", encoding="utf-8") as f:
-                return int(f.read().strip()) % total_endpoints
-        except Exception: pass
-    return 0
-
-def save_modal_index(idx, total_endpoints):
-    if total_endpoints == 0: return
-    try:
-        os.makedirs(os.path.dirname(MODAL_TRACKER_FILE), exist_ok=True)
-        with open(MODAL_TRACKER_FILE, "w", encoding="utf-8") as f:
-            f.write(str(idx % total_endpoints))
-    except Exception: pass
-
 def synthesize_with_modal_cyclic(speech_text, output_audio_path):
-    """
-    🌟 সিক্রেটে উল্লেখিত মডেল (cosyvoice/bharat/mms) নিয়ে Modal অ্যাকাউন্টে সাইক্লিক রোটেশন চালায়
-    """
     endpoints = get_all_modal_endpoints()
     total_acc = len(endpoints)
     if total_acc == 0:
-        print("  ⚠️ No Modal endpoints configured in MODAL_ENDPOINTS secret.")
         return False
 
-    start_idx = get_saved_modal_index(total_acc)
-    
-    # 🌟 সিক্রেট থেকে ব্যবহারকারীর পছন্দের মডেল রিড করা (cosyvoice, bharat, mms ইত্যাদি)
-    chosen_model = os.environ.get("TTS_MODEL", os.environ.get("TTS_ENGINE", "bharat")).strip().lower()
+    start_idx = get_saved_index(MODAL_TRACKER_FILE, total_acc)
+    chosen_model = os.environ.get("TTS_MODEL", "cosyvoice").strip().lower()
     sample_b64 = get_sample_voice_b64()
 
-    print(f"\n--- [ENGINE: Modal Cloud GPU Multi-Account Pool] ---")
-    print(f"🎯 Target Model Selected: '{chosen_model.upper()}'")
-    print(f"🔑 Total {total_acc} Modal Account(s) loaded. Resuming from Account #{start_idx + 1}...")
-
-    # সাইক্লিক লুপ
     for offset in range(total_acc):
-        current_idx = (start_idx + offset) % total_acc
-        endpoint_url = endpoints[current_idx]
-        acc_num = current_idx + 1
+        cur_idx = (start_idx + offset) % total_acc
+        endpoint_url = endpoints[cur_idx]
+        payload = {"text": speech_text, "model": chosen_model, "sample_voice_b64": sample_b64}
 
-        print(f"\n  🚀 [Attempting Modal Account #{acc_num}/{total_acc}]")
-        print(f"  • Endpoint: {endpoint_url[:45]}...")
-        print(f"  • Model   : {chosen_model.upper()}")
-
-        payload = {
-            "text": speech_text,
-            "model": chosen_model,
-            "sample_voice_b64": sample_b64
-        }
-
-        start_time = time.time()
         try:
-            print(f"  ⏳ Synthesizing with Modal GPU via {chosen_model.upper()}...")
             resp = requests.post(endpoint_url, json=payload, timeout=150)
-            elapsed = round(time.time() - start_time, 2)
-
             if resp.status_code == 200 and len(resp.content) > 3000:
-                with open(output_audio_path, "wb") as f:
-                    f.write(resp.content)
-                
-                # সফল হলে ইনডেক্স মেমোরিতে সেভ থাকবে
-                save_modal_index(current_idx, total_acc)
-                audio_mb = round(os.path.getsize(output_audio_path) / (1024 * 1024), 2)
-                print(f"  ✅ [SUCCESS] Generated via Modal Account #{acc_num}! ({audio_mb} MB in {elapsed}s)")
+                with open(output_audio_path, "wb") as f: f.write(resp.content)
+                save_index(MODAL_TRACKER_FILE, cur_idx, total_acc)
                 return True
             else:
-                print(f"  ⚠️ Modal Account #{acc_num} failed ({resp.status_code}): {resp.text[:100]}")
-                save_modal_index(current_idx + 1, total_acc)
+                save_index(MODAL_TRACKER_FILE, cur_idx + 1, total_acc)
                 continue
-
-        except Exception as e:
-            print(f"  ⚠️ Error with Modal Account #{acc_num}: {e}")
-            save_modal_index(current_idx + 1, total_acc)
+        except Exception:
+            save_index(MODAL_TRACKER_FILE, cur_idx + 1, total_acc)
             continue
 
-    print("⚠️ All Modal accounts exhausted or unreachable.")
     return False
 
 # =========================================================================
-# 🌟 জরুরি অফলাইন ব্যাকআপ ইঞ্জিন (Edge-TTS)
+# 🌟 ৪. Microsoft Edge Neural ব্যাকআপ ইঞ্জিন
 # =========================================================================
-def synthesize_with_emergency_backup(speech_text, output_audio_path):
+
+def synthesize_with_edge_fallback(speech_text, output_audio_path):
+    print("\n--- [ENGINE: Microsoft Neural Fallback (bn-BD-PradeepNeural)] ---")
     try:
         import asyncio, edge_tts
-        print("\n  🎙️ [EMERGENCY BACKUP] Synthesizing via Microsoft Neural Engine (bn-BD-PradeepNeural)...")
         start_t = time.time()
         async def _make():
             c = edge_tts.Communicate(speech_text, "bn-BD-PradeepNeural", rate="+0%", pitch="+0Hz")
@@ -126,38 +241,54 @@ def synthesize_with_emergency_backup(speech_text, output_audio_path):
         if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
             elapsed = round(time.time() - start_t, 2)
             audio_mb = round(os.path.getsize(output_audio_path) / (1024 * 1024), 2)
-            print(f"  ✅ [SUCCESS] Generated via Emergency Neural Backup! ({audio_mb} MB in {elapsed}s)")
+            print(f"  ✅ [SUCCESS] Generated via Microsoft Neural Engine! ({audio_mb} MB in {elapsed}s)")
             return True
     except Exception as e:
-        print(f"  ⚠️ Emergency backup notice: {e}")
+        print(f"  ⚠️ Edge fallback notice: {e}")
     return False
 
 # =========================================================================
-# 🌟 মূল অডিও পাইপলাইন
+# 🌟 মাস্টার অডিও পাইপলাইন (Orchestrator)
 # =========================================================================
+
 def generate_voiceover_audio_pipeline(text, output_audio_path):
     speech_text = clean_script_for_speech(text)
     clean_chars = len(speech_text)
     words = len(speech_text.split())
 
     print("\n" + "="*65)
-    print("🎙️ [AUDIO ENGINE] Dynamic Model Selection & Modal Pool Active")
+    print("🎙️ [AUDIO ENGINE] Multi-Tier Voice Synthesis Active")
     print(f"📊 [Text Stats] Chars: {clean_chars} | Words: {words}")
     print(f"📝 [Preview]: \"{speech_text[:120]}...\"")
     print("="*65)
 
-    # ১. প্রথমে Modal ক্লাউড জিপিইউতে ব্যবহারকারীর পছন্দের মডেলে অডিও তৈরি
-    if synthesize_with_modal_cyclic(speech_text, output_audio_path):
+    target_model = os.environ.get("TTS_MODEL", os.environ.get("TTS_ENGINE", "")).strip().lower()
+
+    # 🌟 ১. যদি TTS_MODEL বা TTS_ENGINE এ 'gemini' দেওয়া থাকে:
+    if "gemini" in target_model:
+        if synthesize_with_gemini(speech_text, output_audio_path):
+            if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
+                print("\n🎉 [FINAL RESULT] Voiceover created via Gemini 3.8 Flash TTS!\n")
+                return True
+        print("⚠️ Gemini TTS failed or exhausted. Cascading to fallback engines...")
+
+    # 🌟 ২. Fish Audio Drama 3
+    if synthesize_with_fish_audio(speech_text, output_audio_path):
         if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
-            print("\n" + "="*65)
-            print("🎉 [FINAL RESULT] Voiceover successfully synthesized via Modal Cloud GPU!")
-            print("="*65 + "\n")
+            print("\n🎉 [FINAL RESULT] Voiceover created via Fish Audio Drama 3!\n")
             return True
 
-    # ২. যদি সব Modal অ্যাকাউন্টের ক্রেডিট ফুরিয়ে যায়, তবে তাৎক্ষণিক ব্যাকআপ ইঞ্জিন
-    print("\n⚠️ Modal pool exhausted. Engaging Instant Emergency Backup...")
-    if synthesize_with_emergency_backup(speech_text, output_audio_path):
-        return True
+    # 🌟 ৩. Modal ক্লাউড জিপিইউ
+    if synthesize_with_modal_cyclic(speech_text, output_audio_path):
+        if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
+            print("\n🎉 [FINAL RESULT] Voiceover created via Modal Cloud GPU!\n")
+            return True
+
+    # 🌟 ৪. চূড়ান্ত জরুরি ব্যাকআপ: Microsoft Edge Neural
+    if synthesize_with_edge_fallback(speech_text, output_audio_path):
+        if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
+            print("\n🎉 [FINAL RESULT] Voiceover created via Microsoft Neural Backup!\n")
+            return True
 
     print("\n❌ [CRITICAL] All audio engines failed.")
     return False
