@@ -5,6 +5,7 @@ on:
     types: [rss_video_check] 
   workflow_dispatch: 
 
+# 🌟 কনকারেন্সি লক: যাতে একাধিক রান একসাথে কিউ হয়ে আটকে না থাকে
 concurrency:
   group: rss-automation-jobless
   cancel-in-progress: true
@@ -12,7 +13,7 @@ concurrency:
 jobs:
   run-automation:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 60 # অডিও জেনারেশন ও ভিডিও রেন্ডারিংয়ের জন্য নিরাপদ টাইমআউট
 
     steps:
       - name: Checkout repository
@@ -24,6 +25,7 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
+      # 🌟 বাংলা ফন্ট, টেক্সট রেন্ডারিং ইঞ্জিন, FFmpeg ও Rclone (সুপারফাস্ট ১৫ সেকেন্ডে ইনস্টল)
       - name: Install System Dependencies (Fonts, FFmpeg, Rclone)
         run: |
           sudo apt-get update
@@ -50,7 +52,7 @@ jobs:
           mkdir -p workspace
           rclone sync "gdrive:" ./workspace --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --fast-list
 
-      # 🌟 সমস্ত প্রয়োজনীয় API Secrets ও Modal Endpoints পাস করা হয়েছে
+      # 🌟 সমস্ত প্রয়োজনীয় API Secrets (Gemini, Fish Audio, Modal, ElevenLabs) পাস করা হয়েছে
       - name: Run Python Process (Movie & YouTube upload)
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
@@ -59,20 +61,25 @@ jobs:
           GDRIVE_PARENT_FOLDER_ID: ${{ secrets.GDRIVE_PARENT_FOLDER_ID }}
           GROQ_API: ${{ secrets.GROQ_API }}
           Ollama_API_Key: ${{ secrets.Ollama_API_Key }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FISH_API_KEYS: ${{ secrets.FISH_API_KEYS }}
+          FISH_VOICE_ID: ${{ secrets.FISH_VOICE_ID }}
+          MODAL_ENDPOINTS: ${{ secrets.MODAL_ENDPOINTS }}
+          TTS_MODEL: ${{ secrets.TTS_MODEL }}
+          TTS_ENGINE: ${{ secrets.TTS_ENGINE }}
           ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
-          TTS_ENGINE: ${{ secrets.TTS_ENGINE }}
-          TTS_MODEL: ${{ secrets.TTS_MODEL }}
-          MODAL_ENDPOINTS: ${{ secrets.MODAL_ENDPOINTS }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python main.py
 
+      # 🌟 প্রসেস করা ও ড্রাইভ থেকে ডিলিট করা ফোল্ডার ক্লিনআপ
       - name: Push updates back to Google Drive (Permanent Folder Cleanup)
         if: always()
         run: |
           rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --drive-use-trash=false --fast-list
           rclone rmdirs "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --leave-root || true
 
+      # পোর্ট্রেট ভিডিও জবলাইভে পাঠানো
       - name: Push JobLive videos to Google Drive
         if: always()
         run: |
@@ -80,6 +87,7 @@ jobs:
             rclone copy ./workspace_live "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --fast-list
           fi
 
+      # 🌟 'JobLive' ফোল্ডার থেকে ৩০ দিনের পুরোনো ভিডিও স্বয়ংক্রিয় ডিলিট
       - name: Cleanup old JobLive videos (Older than 30 days)
         if: always()
         run: |
