@@ -9,6 +9,7 @@ Pillow
 requests
 numpy<2.0.0
 fonttools
+google-genai>=2.25.0
 gradio_client
 soundfile
 scipy
