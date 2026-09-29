@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import os, json, shutil, traceback
-from feed_manager import check_new_articles_and_prepare_folders, clean_filename, is_forbidden_article, WORKSPACE_DIR
+from feed_manager import (
+    check_new_articles_and_prepare_folders, clean_filename, is_forbidden_article, 
+    WORKSPACE_DIR, is_article_skipped, save_skipped_article
+)
 from ai_service import generate_job_content
 from audio_engine import generate_voiceover_audio_pipeline
 from thumbnail import generate_dynamic_thumbnail
@@ -41,6 +44,7 @@ def process_ready_videos(yt):
         folder_path = os.path.join(WORKSPACE_DIR, folder_name)
         try:
             if is_forbidden_article(folder_name):
+                print(f"🚫 [FILTERED] Deleting forbidden folder '{folder_name}'.")
                 shutil.rmtree(folder_path, ignore_errors=True)
                 continue
 
@@ -76,19 +80,37 @@ def process_ready_videos(yt):
                         article_link = lf.read().strip()
                 except Exception: pass
 
+            # 🌟 চেক ১: আর্টিকেলটি ইতিমধ্যে অফলাইন হিসেবে চিহ্নিত কিনা
+            if is_article_skipped(article_link, raw_title):
+                print(f"⏩ [OFFLINE SKIP] '{folder_name}' is already in skipped_articles.json. Deleting folder.")
+                shutil.rmtree(folder_path, ignore_errors=True)
+                continue
+
             if is_forbidden_article(raw_title):
                 shutil.rmtree(folder_path, ignore_errors=True)
                 continue
 
             print(f"\n========== Process started: {folder_name} ==========")
 
-            opt_title, voiceover_script, thumb_meta, video_desc, video_tags = generate_job_content(raw_title, img_files)
+            # 🌟 চেক ২: এআই ইমেজ ও টেক্সট স্ক্যান করে অনলাইন নাকি অফলাইন যাচাই করবে
+            ai_res = generate_job_content(raw_title, img_files)
+            opt_title, voiceover_script, thumb_meta, video_desc, video_tags, app_type, off_reason = ai_res
+
+            # 🚫 যদি অফলাইন (ডাকযোগে/কুরিয়ার/সরাসরি) নিশ্চিত হয়:
+            if app_type == "offline":
+                print(f"🚫 [OFFLINE REJECTED] '{folder_name}' requires physical/postal application ({off_reason}).")
+                save_skipped_article(article_link, raw_title, off_reason)
+                shutil.rmtree(folder_path, ignore_errors=True)
+                print(f"🗑️ Deleted offline circular folder '{folder_name}'. Video creation aborted.\n")
+                continue
+
             if not opt_title:
+                print(f"🛑 [CANCELLED] All AI models failed for '{folder_name}'.")
                 continue
 
             video_title = opt_title
 
-            # ফোল্ডারে অডিও থাকলে সরাসরি সেটি ব্যবহার হবে
+            # অডিও তৈরি
             if existing_audio_file:
                 audio_path = os.path.join(folder_path, existing_audio_file)
                 print(f"🎵 [PRE-EXISTING AUDIO] Using '{existing_audio_file}' directly.")
@@ -100,6 +122,7 @@ def process_ready_videos(yt):
                     continue
                 audio_path = gen_audio_path
 
+            # থাম্বনেইল তৈরি
             thumbnail_path = os.path.join(TMP_DIR, "thumbnail.jpg")
             if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
             generate_dynamic_thumbnail(raw_title, thumbnail_path, thumb_meta=thumb_meta)
@@ -118,11 +141,10 @@ def process_ready_videos(yt):
                 schedule_upload=True
             )
             
-            # 🌟 সফল হলে টাইটেল এবং আর্টিকেলের লিংক দুটোই হিস্টোরিতে সেভ হবে (যাতে ডুপ্লিকেট না হয়)
+            # সফল হলে হিস্টোরিতে সেভ
             if upload_success:
                 add_to_history(raw_title)
-                if article_link:
-                    add_to_history(article_link)
+                if article_link: add_to_history(article_link)
 
                 try:
                     if not os.path.exists(LIVESTREAM_DIR): os.makedirs(LIVESTREAM_DIR, exist_ok=True)
