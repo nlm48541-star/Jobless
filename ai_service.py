@@ -6,7 +6,6 @@ from PIL import Image
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "https://api.ollama.com").rstrip("/")
 GROQ_API = os.environ.get("GROQ_API", "").strip()
 
-# 🌟 আপনার দেওয়া Ollama Cloud অগ্রাধিকার তালিকা + ব্যাকআপ মডেল
 OLLAMA_MODELS = [
     "gemma4:31b",
     "gpt-oss:120b",
@@ -205,22 +204,35 @@ def generate_job_content(title, img_paths):
     org_name = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else " ".join(words[:min(3, len(words))])
     vac_str, qual_str = extract_vacancy_and_qual(clean_title)
 
-    prompt = f"""You are a professional Bengali YouTube SEO specialist, scriptwriter, and thumbnail strategist.
+    # 🌟 প্রম্পটে ইমেজ এবং টেক্সট থেকে আবেদন পদ্ধতি স্ক্যান করার কড়া নিয়ম
+    prompt = f"""You are a professional Bengali YouTube SEO specialist, scriptwriter, and circular inspector.
 Context:
 - Job Circular Title: "{clean_title}"
 - Organization: "{org_name}"
 
-CRITICAL INSTRUCTIONS:
-1. SCRIPT: Exactly 3 minutes (380 to 440 words). Continuous spoken Bengali. Do NOT mention any year in the script. All numbers must be in full Bengali words. WhatsApp call to action at the end without using 'ঘরে বসে'.
-2. THUMBNAIL TEXT RULES (MUST BE HIGHLY ATTRACTIVE, DYNAMIC, AND UNIQUE FOR THIS JOB):
-   - "top_text": 2-3 words. Organization name or Category (e.g. "{org_name}", "সরকারি চাকরি", "বেসরকারি চাকরি").
-   - "row1_text": 2-3 words. Main Eye-Catching Hook (e.g. "অফিসার ক্যাডেট", "জরুরি নিয়োগ", "আকর্ষণীয় বেতন", "নতুন বেতন কাঠামো", "প্রকৌশলী নিয়োগ").
-   - "row2_text": 2-3 words. Specific Vacancy or Post count in RED (e.g. "{vac_str if vac_str else 'বিশাল শূন্যপদ'}", "১০,২১৯ পদে", "১৫৩২ পদে", "৮৫টি পদে").
-   - "sub_text": 2-3 words. Specific Qualification / District (e.g. "{qual_str if qual_str else 'SSC/HSC পাশ'}", "স্নাতক পাশ যোগ্যতা", "৬৪ জেলা থেকে আবেদন").
-   - "bot_text": 2-4 words. DYNAMIC & UNIQUE bottom bar text specifically tailored for this job (e.g. "আবেদনের শেষ তারিখ ও নিয়ম", "({vac_str if vac_str else 'হাজারো পদে'}) মেগা সার্কুলার", "বেতন স্কেল ও সুযোগ-সুবিধা", "বয়সসীমা ও যোগ্যতা", "অনলাইনে আবেদন শুরু"). NEVER use the same repetitive phrase for all jobs!
+CRITICAL STEP 1 - APPLICATION SUBMISSION INSPECTION (CHECK BOTH IMAGES AND TEXT):
+Carefully inspect the official scanned notice images and text to see how applicants must submit their application:
+- Set "application_type": "offline" ONLY IF candidates are required to submit application papers via:
+  1. Postal Mail / Post Office (ডাকযোগে / রেজিস্টার্ড ডাকে / ডাক মারফত)
+  2. Courier Service (কুরিয়ারের মাধ্যমে)
+  3. Direct Physical In-Person submission by hand (সরাসরি অফিসে গিয়ে / হাতে হাতে জমা দেওয়া)
+  And state the reason in "offline_reason" (e.g. "আবেদনপত্র ডাকযোগে পাঠাতে হবে").
+- Set "application_type": "online" IF candidates can apply Online (e.g. teletalk.com.bd, web portal, online link, or email).
+CAUTION: If circular states 'অনলাইনে আবেদন করতে হবে, ডাকযোগে কোনো আবেদন গ্রহণযোগ্য নয়', that is ONLINE, not offline!
+
+CRITICAL STEP 2 - CONTENT GENERATION (ONLY IF ONLINE):
+1. SCRIPT: Exactly 3 minutes (380 to 440 words). Spoken Bengali. No year. Numbers in Bengali words. WhatsApp call to action at end (without 'ঘরে বসে').
+2. THUMBNAIL TEXTS:
+   - "top_text": 2-3 words. Organization name or Category.
+   - "row1_text": 2-3 words. Main Eye-Catching Hook.
+   - "row2_text": 2-3 words. Vacancy in RED (e.g. "{vac_str if vac_str else 'বিশাল শূন্যপদ'}").
+   - "sub_text": 2-3 words. Specific Qualification / District (e.g. "{qual_str if qual_str else 'SSC/HSC পাশ'}").
+   - "bot_text": 2-4 words. DYNAMIC & UNIQUE bottom bar text specifically for this job (e.g. "আবেদনের শেষ তারিখ ও নিয়ম", "({vac_str if vac_str else 'হাজারো পদে'}) মেগা সার্কুলার", "বেতন স্কেল ও সুযোগ-সুবিধা"). NEVER use the same phrase for all jobs!
 
 Return strictly valid JSON:
 {{
+  "application_type": "online" or "offline",
+  "offline_reason": "...",
   "optimized_title": "...",
   "voiceover_script": "...",
   "video_description": "...",
@@ -234,7 +246,7 @@ Return strictly valid JSON:
 
     base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
 
-    # ------------------ [১ম ধাপ: Ollama ক্লাউডের সুপার মডেল রোটেশন] ------------------
+    # ------------------ [১ম ধাপ: Ollama ক্লাউড] ------------------
     ollama_keys = get_all_ollama_keys()
     total_o_keys = len(ollama_keys)
     if total_o_keys > 0:
@@ -250,7 +262,7 @@ Return strictly valid JSON:
                 payload = {
                     "model": model_name,
                     "messages": [{"role": "user", "content": prompt, "images": base64_images}],
-                    "stream": False, "options": {"temperature": 0.5}
+                    "stream": False, "options": {"temperature": 0.4}
                 }
                 try:
                     resp = requests.post(f"{OLLAMA_API_URL}/api/chat", headers=headers, json=payload, timeout=45)
@@ -258,6 +270,14 @@ Return strictly valid JSON:
                         raw_content = resp.json().get("message", {}).get("content", "").strip()
                         data = parse_json_safely(raw_content)
                         if data and data.get("optimized_title"):
+                            app_type = data.get("application_type", "online").strip().lower()
+                            off_reason = data.get("offline_reason", "ডাকযোগে বা সরাসরি আবেদন করতে বলা হয়েছে").strip()
+
+                            # যদি অফলাইন সার্কুলার হয়
+                            if app_type == "offline":
+                                save_ollama_index(cur_k_idx, total_o_keys)
+                                return None, None, None, None, None, "offline", off_reason
+
                             opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
                             raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip()))
                             script = convert_all_numbers_in_script(raw_script)
@@ -277,16 +297,16 @@ Return strictly valid JSON:
                                 "bot_text": strip_unwanted_chars(gen_bot)
                             }
                             save_ollama_index(cur_k_idx, total_o_keys)
-                            print(f"✨ Successfully Generated via Ollama Key #{k_num} ('{model_name}')!")
-                            return opt_title, script, thumb_meta, desc, tags
+                            print(f"✨ Successfully Verified via Ollama Key #{k_num} ('{model_name}')!")
+                            return opt_title, script, thumb_meta, desc, tags, "online", ""
                     else:
                         print(f"⚠️ Ollama Key #{k_num} ('{model_name}') returned {resp.status_code}. Trying next model...")
                 except Exception as oe:
-                    print(f"⚠️ Network error on Key #{k_num} ('{model_name}'): {oe}")
+                    print(f"⚠️ Network error on Key #{k_num}: {oe}")
 
             save_ollama_index(cur_k_idx + 1, total_o_keys)
 
-    # ------------------ [২য় ধাপ: সুপারফাস্ট Groq AI ইঞ্জিন] ------------------
+    # ------------------ [২য় ধাপ: Groq AI] ------------------
     groq_keys = get_all_groq_keys()
     if groq_keys:
         for g_idx, g_key in enumerate(groq_keys, start=1):
@@ -300,7 +320,7 @@ Return strictly valid JSON:
                         {"role": "user", "content": prompt}
                     ],
                     "response_format": {"type": "json_object"},
-                    "temperature": 0.5,
+                    "temperature": 0.4,
                     "max_tokens": 2000
                 }
                 try:
@@ -309,6 +329,12 @@ Return strictly valid JSON:
                         raw_content = resp.json()['choices'][0]['message']['content']
                         data = parse_json_safely(raw_content)
                         if data and data.get("optimized_title"):
+                            app_type = data.get("application_type", "online").strip().lower()
+                            off_reason = data.get("offline_reason", "ডাকযোগে বা সরাসরি আবেদন করতে বলা হয়েছে").strip()
+
+                            if app_type == "offline":
+                                return None, None, None, None, None, "offline", off_reason
+
                             opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
                             raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip()))
                             script = convert_all_numbers_in_script(raw_script)
@@ -327,11 +353,9 @@ Return strictly valid JSON:
                                 "sub_text": strip_unwanted_chars(data.get("sub_text", qual_str if qual_str else "SSC/HSC পাশ")),
                                 "bot_text": strip_unwanted_chars(gen_bot)
                             }
-                            print(f"✨ Successfully Generated via Groq AI ({g_model})!")
-                            return opt_title, script, thumb_meta, desc, tags
-                    else:
-                        print(f"⚠️ Groq Key #{g_idx} ('{g_model}') returned {resp.status_code}: {resp.text[:120]}")
+                            print(f"✨ Successfully Verified via Groq AI ({g_model})!")
+                            return opt_title, script, thumb_meta, desc, tags, "online", ""
                 except Exception as ge:
                     print(f"⚠️ Groq exception on Key #{g_idx} ('{g_model}'): {ge}")
 
-    return None, None, None, None, None
+    return None, None, None, None, None, "error", "All AI models failed"
