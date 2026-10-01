@@ -204,13 +204,13 @@ def generate_job_content(title, img_paths):
     org_name = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else " ".join(words[:min(3, len(words))])
     vac_str, qual_str = extract_vacancy_and_qual(clean_title)
 
-    # 🌟 প্রম্পটে ইমেজ এবং টেক্সট থেকে আবেদন পদ্ধতি স্ক্যান করার কড়া নিয়ম
-    prompt = f"""You are a professional Bengali YouTube SEO specialist, scriptwriter, and circular inspector.
+    # 🌟 এআই ইমেজ ও টেক্সট দেখে অনলাইন নাকি অফলাইন যাচাই করবে
+    prompt = f"""You are a professional Bengali YouTube SEO specialist, scriptwriter, and job circular inspector.
 Context:
 - Job Circular Title: "{clean_title}"
 - Organization: "{org_name}"
 
-CRITICAL STEP 1 - APPLICATION SUBMISSION INSPECTION (CHECK BOTH IMAGES AND TEXT):
+CRITICAL STEP 1 - APPLICATION SUBMISSION INSPECTION (CHECK SCANNED IMAGES AND TEXT):
 Carefully inspect the official scanned notice images and text to see how applicants must submit their application:
 - Set "application_type": "offline" ONLY IF candidates are required to submit application papers via:
   1. Postal Mail / Post Office (ডাকযোগে / রেজিস্টার্ড ডাকে / ডাক মারফত)
@@ -221,7 +221,7 @@ Carefully inspect the official scanned notice images and text to see how applica
 CAUTION: If circular states 'অনলাইনে আবেদন করতে হবে, ডাকযোগে কোনো আবেদন গ্রহণযোগ্য নয়', that is ONLINE, not offline!
 
 CRITICAL STEP 2 - CONTENT GENERATION (ONLY IF ONLINE):
-1. SCRIPT: Exactly 3 minutes (380 to 440 words). Spoken Bengali. No year. Numbers in Bengali words. WhatsApp call to action at end (without 'ঘরে বসে').
+1. SCRIPT: Exactly 3 minutes (380 to 440 words). Continuous spoken Bengali. Do NOT mention any year. All numbers in Bengali words. WhatsApp call to action at end (without 'ঘরে বসে').
 2. THUMBNAIL TEXTS:
    - "top_text": 2-3 words. Organization name or Category.
    - "row1_text": 2-3 words. Main Eye-Catching Hook.
@@ -271,9 +271,9 @@ Return strictly valid JSON:
                         data = parse_json_safely(raw_content)
                         if data and data.get("optimized_title"):
                             app_type = data.get("application_type", "online").strip().lower()
-                            off_reason = data.get("offline_reason", "ডাকযোগে বা সরাসরি আবেদন করতে বলা হয়েছে").strip()
+                            off_reason = data.get("offline_reason", "ডাকযোগে বা সরাসরি আবেদন").strip()
 
-                            # যদি অফলাইন সার্কুলার হয়
+                            # অফলাইন হলে সাথে সাথে ফ্ল্যাগ রিটার্ন করা
                             if app_type == "offline":
                                 save_ollama_index(cur_k_idx, total_o_keys)
                                 return None, None, None, None, None, "offline", off_reason
@@ -330,7 +330,7 @@ Return strictly valid JSON:
                         data = parse_json_safely(raw_content)
                         if data and data.get("optimized_title"):
                             app_type = data.get("application_type", "online").strip().lower()
-                            off_reason = data.get("offline_reason", "ডাকযোগে বা সরাসরি আবেদন করতে বলা হয়েছে").strip()
+                            off_reason = data.get("offline_reason", "ডাকযোগে বা সরাসরি আবেদন").strip()
 
                             if app_type == "offline":
                                 return None, None, None, None, None, "offline", off_reason
