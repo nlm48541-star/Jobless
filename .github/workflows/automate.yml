@@ -5,15 +5,18 @@ on:
     types: [rss_video_check] 
   workflow_dispatch: 
 
-# 🌟 কনকারেন্সি লক: যাতে একাধিক রান একসাথে কিউ হয়ে আটকে না থাকে
 concurrency:
   group: rss-automation-jobless
   cancel-in-progress: true
 
+# 🌟 রিপোজিটরিতে JSON ফাইল অটো-সেভ করার পারমিশন
+permissions:
+  contents: write
+
 jobs:
   run-automation:
     runs-on: ubuntu-latest
-    timeout-minutes: 60 # অডিও জেনারেশন ও ভিডিও রেন্ডারিংয়ের জন্য নিরাপদ টাইমআউট
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -25,7 +28,6 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      # 🌟 বাংলা ফন্ট, টেক্সট রেন্ডারিং ইঞ্জিন, FFmpeg ও Rclone (সুপারফাস্ট ১৫ সেকেন্ডে ইনস্টল)
       - name: Install System Dependencies (Fonts, FFmpeg, Rclone)
         run: |
           sudo apt-get update
@@ -52,7 +54,6 @@ jobs:
           mkdir -p workspace
           rclone sync "gdrive:" ./workspace --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --fast-list
 
-      # 🌟 সমস্ত প্রয়োজনীয় API Secrets (Gemini, Fish Audio, Modal, ElevenLabs) পাস করা হয়েছে
       - name: Run Python Process (Movie & YouTube upload)
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
@@ -67,19 +68,24 @@ jobs:
           MODAL_ENDPOINTS: ${{ secrets.MODAL_ENDPOINTS }}
           TTS_MODEL: ${{ secrets.TTS_MODEL }}
           TTS_ENGINE: ${{ secrets.TTS_ENGINE }}
-          ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
-          ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python main.py
 
-      # 🌟 প্রসেস করা ও ড্রাইভ থেকে ডিলিট করা ফোল্ডার ক্লিনআপ
+      # 🌟 অফলাইন আর্টিকেলের JSON ফাইলটি গিটহাব রিপোজিটরিতে পার্মানেন্ট সেভ করা
+      - name: Commit & Push Skipped Articles JSON to Repository
+        if: always()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add skipped_articles.json || true
+          git commit -m "Auto-update skipped_articles.json [skip ci]" || true
+          git push origin main || true
+
       - name: Push updates back to Google Drive (Permanent Folder Cleanup)
         if: always()
         run: |
           rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --drive-use-trash=false --fast-list
           rclone rmdirs "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --leave-root || true
 
-      # পোর্ট্রেট ভিডিও জবলাইভে পাঠানো
       - name: Push JobLive videos to Google Drive
         if: always()
         run: |
@@ -87,7 +93,6 @@ jobs:
             rclone copy ./workspace_live "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --fast-list
           fi
 
-      # 🌟 'JobLive' ফোল্ডার থেকে ৩০ দিনের পুরোনো ভিডিও স্বয়ংক্রিয় ডিলিট
       - name: Cleanup old JobLive videos (Older than 30 days)
         if: always()
         run: |
