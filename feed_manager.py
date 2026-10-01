@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from PIL import Image
 
 WORKSPACE_DIR = "workspace"
-SKIPPED_JSON_FILE = os.path.join(WORKSPACE_DIR, "skipped_articles.json")
+SKIPPED_JSON_FILE = "skipped_articles.json"
 FORBIDDEN_KEYWORDS = ['এনজিও', 'ngo', 'ব্যাংক', 'bank', 'চলমান']
 
 HEADERS = {
@@ -15,26 +15,28 @@ HEADERS = {
 }
 
 # =========================================================================
-# 🌟 skipped_articles.json হেল্পার ফাংশনসমূহ
+# 🌟 skipped_articles.json ম্যানেজমেন্ট
 # =========================================================================
 
 def load_skipped_articles():
-    """পূর্বে স্কিপ করা অফলাইন আর্টিকেলের তালিকা লোড করে"""
+    """রিপোজিটরি থেকে পূর্বে স্কিপ করা অফলাইন আর্টিকেলের তালিকা লোড করে"""
     if os.path.exists(SKIPPED_JSON_FILE):
         try:
             with open(SKIPPED_JSON_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception: pass
-    # রুট ডিরেক্টরিতে থাকলে সেখান থেকেও চেক করবে
-    if os.path.exists("skipped_articles.json"):
+    
+    # workspace-এ ব্যাকআপ থাকলে সেখান থেকেও চেক করবে
+    ws_backup = os.path.join(WORKSPACE_DIR, "skipped_articles.json")
+    if os.path.exists(ws_backup):
         try:
-            with open("skipped_articles.json", "r", encoding="utf-8") as f:
+            with open(ws_backup, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception: pass
     return {}
 
 def is_article_skipped(link, title=""):
-    """চেক করে আর্টিকেলটি ইতিমধ্যে অফলাইন হিসেবে চিহ্নিত কিনা"""
+    """চেক করে আর্টিকেলটি ইতিমধ্যে অফলাইন হিসেবে স্কিপ করা কিনা"""
     skipped = load_skipped_articles()
     if link and link.strip().lower() in skipped:
         return True
@@ -42,8 +44,8 @@ def is_article_skipped(link, title=""):
         return True
     return False
 
-def save_skipped_article(link, title, reason="Offline application (ডাকযোগে/কুরিয়ার/সরাসরি)"):
-    """অফলাইন সার্কুলারের লিংক ও কারণ skipped_articles.json ফাইলে পার্মানেন্টলি সেভ করে"""
+def save_skipped_article(link, title, reason="ডাকযোগে/কুরিয়ার/সরাসরি আবেদন"):
+    """অফলাইন আর্টিকেলের লিংক রিপোজিটরির skipped_articles.json ফাইলে পার্মানেন্টলি সেভ করে"""
     skipped = load_skipped_articles()
     key = link.strip().lower() if link else title.strip().lower()
     if not key: return
@@ -55,17 +57,17 @@ def save_skipped_article(link, title, reason="Offline application (ডাকয�
         "skipped_at": datetime.now().isoformat()
     }
     try:
-        os.makedirs(WORKSPACE_DIR, exist_ok=True)
         with open(SKIPPED_JSON_FILE, "w", encoding="utf-8") as f:
             json.dump(skipped, f, ensure_ascii=False, indent=2)
-        # রুটেও একটি কপি রাখা
+        # workspace এও ব্যাকআপ রাখা
         try:
-            with open("skipped_articles.json", "w", encoding="utf-8") as rf:
-                json.dump(skipped, rf, ensure_ascii=False, indent=2)
+            os.makedirs(WORKSPACE_DIR, exist_ok=True)
+            with open(os.path.join(WORKSPACE_DIR, "skipped_articles.json"), "w", encoding="utf-8") as wf:
+                json.dump(skipped, wf, ensure_ascii=False, indent=2)
         except Exception: pass
-        print(f"📋 [OFFLINE TRACKED] Saved '{title[:45]}...' to skipped_articles.json")
+        print(f"📋 [OFFLINE RECORDED] Saved '{title[:45]}...' to {SKIPPED_JSON_FILE}")
     except Exception as e:
-        print(f"⚠️ Failed to write skipped_articles.json: {e}")
+        print(f"⚠️ Failed to write {SKIPPED_JSON_FILE}: {e}")
 
 # =========================================================================
 
@@ -173,13 +175,13 @@ def check_new_articles_and_prepare_folders():
                 if folder_title.lower() == "shorts" or not folder_title or folder_title in existing:
                     continue
 
-                # 🌟 ১. পূর্বে আপলোড হওয়া ইতিহাস চেক
+                # ১. পূর্বে আপলোড হওয়া ইতিহাস চেক
                 if link.lower() in history_logs or raw_title.lower() in history_logs or folder_title.lower() in history_logs:
                     continue
 
-                # 🌟 ২. পূর্বে অফলাইন হিসেবে চিহ্নিত হয়ে থাকলে সরাসরি স্কিপ
+                # 🌟 ২. পূর্বে অফলাইন হিসেবে চিহ্নিত হয়ে থাকলে সরাসরি স্কিপ (ডাউনলোড হবে না)
                 if is_article_skipped(link, raw_title) or is_article_skipped(link, folder_title):
-                    print(f"⏩ [OFFLINE FILTER] Skipping '{folder_title}' (Already in skipped_articles.json).")
+                    print(f"⏩ [OFFLINE SKIP] Skipping '{folder_title}' (Already in skipped_articles.json).")
                     continue
 
                 # ৩. টাইটেলে নিষিদ্ধ কিওয়ার্ড ফিল্টার
@@ -232,6 +234,7 @@ def check_new_articles_and_prepare_folders():
                     shutil.rmtree(folder_path, ignore_errors=True)
                     continue
 
+                # টাইটেল ও লিংক ফাইলে সেভ
                 with open(os.path.join(folder_path, "title.txt"), "w", encoding="utf-8") as tf:
                     tf.write(raw_title)
                 if link:
