@@ -9,14 +9,13 @@ concurrency:
   group: rss-automation-jobless
   cancel-in-progress: true
 
-# 🌟 রিপোজিটরিতে JSON ফাইল অটো-সেভ করার পারমিশন
 permissions:
   contents: write
 
 jobs:
   run-automation:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
@@ -28,6 +27,7 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
+      # বাংলা ফন্ট ও সিস্টেম টুলস
       - name: Install System Dependencies (Fonts, FFmpeg, Rclone)
         run: |
           sudo apt-get update
@@ -54,30 +54,29 @@ jobs:
           mkdir -p workspace
           rclone sync "gdrive:" ./workspace --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --fast-list
 
+      # 🌟 সমস্ত এআই ও অডিও এপিআই কি পাস করা হয়েছে
       - name: Run Python Process (Movie & YouTube upload)
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           GDRIVE_PARENT_FOLDER_ID: ${{ secrets.GDRIVE_PARENT_FOLDER_ID }}
-          GROQ_API: ${{ secrets.GROQ_API }}
-          Ollama_API_Key: ${{ secrets.Ollama_API_Key }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          FISH_API_KEYS: ${{ secrets.FISH_API_KEYS }}
-          FISH_VOICE_ID: ${{ secrets.FISH_VOICE_ID }}
-          MODAL_ENDPOINTS: ${{ secrets.MODAL_ENDPOINTS }}
-          TTS_MODEL: ${{ secrets.TTS_MODEL }}
-          TTS_ENGINE: ${{ secrets.TTS_ENGINE }}
+          OLLAMA_API_KEYS: ${{ secrets.OLLAMA_API_KEYS }}
+          OPENROUTER_API_KEYS: ${{ secrets.OPENROUTER_API_KEYS }}
+          GROQ_API_KEYS: ${{ secrets.GROQ_API_KEYS }}
+          CEREBRAS_API_KEYS: ${{ secrets.CEREBRAS_API_KEYS }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
         run: python main.py
 
-      # 🌟 অফলাইন আর্টিকেলের JSON ফাইলটি গিটহাব রিপোজিটরিতে পার্মানেন্ট সেভ করা
-      - name: Commit & Push Skipped Articles JSON to Repository
+      # 🌟 ট্র্যাকার ও স্কিপড হিস্টোরি রিপোজিটরিতে অটো-কমিট পুশ
+      - name: Commit & Push Trackers to Repository
         if: always()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add skipped_articles.json || true
-          git commit -m "Auto-update skipped_articles.json [skip ci]" || true
+          git add skipped_articles.json api_key_tracker.json || true
+          git commit -m "Auto-update trackers [skip ci]" || true
           git push origin main || true
 
       - name: Push updates back to Google Drive (Permanent Folder Cleanup)
