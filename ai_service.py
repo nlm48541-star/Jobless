@@ -3,11 +3,14 @@ import os, json, re, base64, requests
 from datetime import datetime
 from PIL import Image
 
-OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "https://api.ollama.com").rstrip("/")
-GROQ_API = os.environ.get("GROQ_API", "").strip()
+WORKSPACE_DIR = "workspace"
+TRACKER_FILE = "api_key_tracker.json"
+WORKSPACE_TRACKER = os.path.join(WORKSPACE_DIR, "api_key_tracker.json")
 
+# 🌟 Ollama মডেলের অগ্রাধিকার (Gemma সবার প্রথমে)
 OLLAMA_MODELS = [
     "gemma4:31b",
+    "gemma4",
     "gpt-oss:120b",
     "gpt-oss:20b",
     "nemotron-3-nano:30b",
@@ -15,41 +18,67 @@ OLLAMA_MODELS = [
     "nemotron-3-ultra",
     "kimi-k3",
     "minimax-m3",
-    "gemma4",
     "kimi-k2.6"
 ]
 
+OPENROUTER_MODELS = [
+    "google/gemini-2.0-flash-001",
+    "meta-llama/llama-3.3-70b-instruct",
+    "deepseek/deepseek-chat",
+    "mistralai/mistral-large-2411"
+]
+
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
-OLLAMA_TRACKER_FILE = os.path.join("workspace", "ollama_key_tracker.txt")
+CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.1-8b"]
 
-def get_all_ollama_keys():
-    raw_keys = os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", os.environ.get("OLLAMA_API_KEYS", ""))).strip()
-    if not raw_keys: return []
-    lines = re.split(r'[\r\n,;]+', raw_keys)
+# =========================================================================
+# 🌟 মেমোরি ট্র্যাকার ও মাল্টিপল কী পার্সার (Enter / Newline Support)
+# =========================================================================
+
+def parse_multiline_keys(raw_text):
+    if not raw_text: return []
+    lines = re.split(r'[\r\n,;]+', str(raw_text))
     return [k.strip() for k in lines if k.strip() and not k.strip().startswith('#')]
 
-def get_all_groq_keys():
-    raw_keys = os.environ.get("GROQ_API", os.environ.get("GROQ_API_KEYS", "")).strip()
-    if not raw_keys: return []
-    lines = re.split(r'[\r\n,;]+', raw_keys)
-    return [k.strip() for k in lines if k.strip() and not k.strip().startswith('#')]
+def mask_key(k):
+    if not k or len(k) <= 8: return "****"
+    return k[:4] + "..." + k[-4:]
 
-def get_saved_ollama_index(total_keys):
-    if total_keys == 0: return 0
-    if os.path.exists(OLLAMA_TRACKER_FILE):
-        try:
-            with open(OLLAMA_TRACKER_FILE, "r", encoding="utf-8") as f:
-                return int(f.read().strip()) % total_keys
-        except Exception: pass
-    return 0
+def load_tracker():
+    for p in [WORKSPACE_TRACKER, TRACKER_FILE]:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception: pass
+    return {}
 
-def save_ollama_index(idx, total_keys):
+def save_tracker_index(service_name, index, total_keys):
     if total_keys == 0: return
-    try:
-        os.makedirs(os.path.dirname(OLLAMA_TRACKER_FILE), exist_ok=True)
-        with open(OLLAMA_TRACKER_FILE, "w", encoding="utf-8") as f:
-            f.write(str(idx % total_keys))
-    except Exception: pass
+    data = load_tracker()
+    if service_name not in data:
+        data[service_name] = {}
+    data[service_name]["current_index"] = index % total_keys
+    data[service_name]["last_updated"] = datetime.now().isoformat()
+
+    for p in [WORKSPACE_TRACKER, TRACKER_FILE]:
+        try:
+            os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception: pass
+
+def get_keys_in_cyclic_order(service_name, raw_keys_str):
+    keys = parse_multiline_keys(raw_keys_str)
+    if not keys: return []
+    total = len(keys)
+    data = load_tracker()
+    saved_idx = data.get(service_name, {}).get("current_index", 0) % total
+    return [((saved_idx + i) % total, keys[(saved_idx + i) % total]) for i in range(total)]
+
+# =========================================================================
+# 🌟 টেক্সট ও সংখ্যা প্রসেসিং ফাংশনসমূহ
+# =========================================================================
 
 DEFAULT_BASE_TAGS = [
     'চাকরির সার্কুলার', 'চাকরির খবর', 'সরকারি চাকরি',
@@ -197,6 +226,10 @@ def parse_json_safely(raw_text):
     except Exception:
         return None
 
+# =========================================================================
+# 🌟 মাস্টার টেক্সট ও ভিশন এআই পাইপলাইন (Ollama Gemma -> OpenRouter -> Groq -> Cerebras)
+# =========================================================================
+
 def generate_job_content(title, img_paths):
     cur_en, cur_bn = get_current_years()
     clean_title = clean_title_for_display(title)
@@ -204,30 +237,29 @@ def generate_job_content(title, img_paths):
     org_name = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else " ".join(words[:min(3, len(words))])
     vac_str, qual_str = extract_vacancy_and_qual(clean_title)
 
-    # 🌟 এআই ইমেজ ও টেক্সট দেখে অনলাইন নাকি অফলাইন যাচাই করবে
     prompt = f"""You are a professional Bengali YouTube SEO specialist, scriptwriter, and job circular inspector.
 Context:
 - Job Circular Title: "{clean_title}"
 - Organization: "{org_name}"
 
-CRITICAL STEP 1 - APPLICATION SUBMISSION INSPECTION (CHECK SCANNED IMAGES AND TEXT):
-Carefully inspect the official scanned notice images and text to see how applicants must submit their application:
+CRITICAL STEP 1 - APPLICATION SUBMISSION INSPECTION:
+Carefully inspect the official scanned notice images and text:
 - Set "application_type": "offline" ONLY IF candidates are required to submit application papers via:
-  1. Postal Mail / Post Office (ডাকযোগে / রেজিস্টার্ড ডাকে / ডাক মারফত)
+  1. Postal Mail (ডাকযোগে / রেজিস্টার্ড ডাকে / ডাক মারফত)
   2. Courier Service (কুরিয়ারের মাধ্যমে)
   3. Direct Physical In-Person submission by hand (সরাসরি অফিসে গিয়ে / হাতে হাতে জমা দেওয়া)
-  And state the reason in "offline_reason" (e.g. "আবেদনপত্র ডাকযোগে পাঠাতে হবে").
+  And explain reason in "offline_reason" (e.g. "আবেদনপত্র ডাকযোগে পাঠাতে হবে").
 - Set "application_type": "online" IF candidates can apply Online (e.g. teletalk.com.bd, web portal, online link, or email).
 CAUTION: If circular states 'অনলাইনে আবেদন করতে হবে, ডাকযোগে কোনো আবেদন গ্রহণযোগ্য নয়', that is ONLINE, not offline!
 
 CRITICAL STEP 2 - CONTENT GENERATION (ONLY IF ONLINE):
-1. SCRIPT: Exactly 3 minutes (380 to 440 words). Continuous spoken Bengali. Do NOT mention any year. All numbers in Bengali words. WhatsApp call to action at end (without 'ঘরে বসে').
-2. THUMBNAIL TEXTS:
+1. SCRIPT: Exactly 3 minutes (380 to 440 words). Continuous spoken Bengali. Do NOT mention any year in the script. All numbers in Bengali words. WhatsApp call to action at end (without 'ঘরে বসে').
+2. THUMBNAIL TEXTS (MUST BE DYNAMIC & UNIQUE):
    - "top_text": 2-3 words. Organization name or Category.
    - "row1_text": 2-3 words. Main Eye-Catching Hook.
    - "row2_text": 2-3 words. Vacancy in RED (e.g. "{vac_str if vac_str else 'বিশাল শূন্যপদ'}").
    - "sub_text": 2-3 words. Specific Qualification / District (e.g. "{qual_str if qual_str else 'SSC/HSC পাশ'}").
-   - "bot_text": 2-4 words. DYNAMIC & UNIQUE bottom bar text specifically for this job (e.g. "আবেদনের শেষ তারিখ ও নিয়ম", "({vac_str if vac_str else 'হাজারো পদে'}) মেগা সার্কুলার", "বেতন স্কেল ও সুযোগ-সুবিধা"). NEVER use the same phrase for all jobs!
+   - "bot_text": 2-4 words. DYNAMIC & UNIQUE bottom bar text (e.g. "আবেদনের শেষ তারিখ ও নিয়ম", "({vac_str if vac_str else 'হাজারো পদে'}) মেগা সার্কুলার", "বেতন স্কেল ও সুযোগ-সুবিধা"). NEVER use the same phrase for all jobs!
 
 Return strictly valid JSON:
 {{
@@ -246,73 +278,143 @@ Return strictly valid JSON:
 
     base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
 
-    # ------------------ [১ম ধাপ: Ollama ক্লাউড] ------------------
-    ollama_keys = get_all_ollama_keys()
-    total_o_keys = len(ollama_keys)
-    if total_o_keys > 0:
-        start_o_idx = get_saved_ollama_index(total_o_keys)
-        for offset in range(total_o_keys):
-            cur_k_idx = (start_o_idx + offset) % total_o_keys
-            o_key = ollama_keys[cur_k_idx]
-            k_num = cur_k_idx + 1
+    def process_ai_result(data):
+        app_type = data.get("application_type", "online").strip().lower()
+        off_reason = data.get("offline_reason", "ডাকযোগে বা সরাসরি আবেদন").strip()
+
+        if app_type == "offline":
+            return None, None, None, None, None, "offline", off_reason
+
+        opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
+        raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip()))
+        script = convert_all_numbers_in_script(raw_script)
+        desc = normalize_outdated_years(data.get("video_description", "").strip())
+        raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
+        tags = sanitize_youtube_tags(raw_tags)
+
+        gen_bot = data.get("bot_text", "").strip()
+        if not gen_bot or "আবেদনের নিয়ম ও বিস্তারিত" in gen_bot:
+            gen_bot = f"({vac_str}) বিশাল সার্কুলার" if vac_str else "আবেদনের শেষ তারিখ ও নিয়ম"
+
+        thumb_meta = {
+            "top_text": strip_unwanted_chars(data.get("top_text", org_name)),
+            "row1_text": strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ")),
+            "row2_text": strip_unwanted_chars(data.get("row2_text", vac_str if vac_str else "বিশাল নিয়োগ")),
+            "sub_text": strip_unwanted_chars(data.get("sub_text", qual_str if qual_str else "SSC/HSC পাশ")),
+            "bot_text": strip_unwanted_chars(gen_bot)
+        }
+        return opt_title, script, thumb_meta, desc, tags, "online", ""
+
+    # =========================================================================
+    # 🌟 ১. প্রথম প্রায়োরিটি: Ollama Cloud API (Gemma Model First)
+    # =========================================================================
+    raw_ollama = os.environ.get("OLLAMA_API_KEYS", os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", ""))).strip()
+    ollama_order = get_keys_in_cyclic_order("ollama", raw_ollama)
+    total_ollama = len(parse_multiline_keys(raw_ollama))
+
+    if ollama_order:
+        print("\n" + "="*65)
+        print("🤖 [AI TIER 1] Priority 1: Ollama Cloud (Gemma Prioritized)")
+        print(f"🔑 Total {total_ollama} Ollama Key(s). Resuming from Key #{ollama_order[0][0] + 1}...")
+        print("="*65)
+
+        for actual_idx, o_key in ollama_order:
+            key_num = actual_idx + 1
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
-            
+
             for model_name in OLLAMA_MODELS:
-                print(f"🤖 Attempting Ollama Key #{k_num}/{total_o_keys} (Model: '{model_name}') for '{clean_title[:40]}'...")
+                print(f"  • Trying Ollama Key #{key_num}/{total_ollama} (Model: '{model_name}')...")
                 payload = {
                     "model": model_name,
                     "messages": [{"role": "user", "content": prompt, "images": base64_images}],
                     "stream": False, "options": {"temperature": 0.4}
                 }
                 try:
-                    resp = requests.post(f"{OLLAMA_API_URL}/api/chat", headers=headers, json=payload, timeout=45)
+                    resp = requests.post("https://api.ollama.com/api/chat", headers=headers, json=payload, timeout=45)
                     if resp.status_code == 200:
-                        raw_content = resp.json().get("message", {}).get("content", "").strip()
-                        data = parse_json_safely(raw_content)
+                        data = parse_json_safely(resp.json().get("message", {}).get("content", "").strip())
                         if data and data.get("optimized_title"):
-                            app_type = data.get("application_type", "online").strip().lower()
-                            off_reason = data.get("offline_reason", "ডাকযোগে বা সরাসরি আবেদন").strip()
+                            save_tracker_index("ollama", actual_idx, total_ollama)
+                            print(f"  ✨ [SUCCESS] AI Content Generated via Ollama Key #{key_num} ('{model_name}')!")
+                            return process_ai_result(data)
+                    elif resp.status_code in [401, 402, 429]:
+                        print(f"  ⚠️ Key #{key_num} quota/auth issue ({resp.status_code}).")
+                        break
+                except Exception as e:
+                    print(f"  ⚠️ Error with Ollama Key #{key_num} ('{model_name}'): {e}")
 
-                            # অফলাইন হলে সাথে সাথে ফ্ল্যাগ রিটার্ন করা
-                            if app_type == "offline":
-                                save_ollama_index(cur_k_idx, total_o_keys)
-                                return None, None, None, None, None, "offline", off_reason
+            save_tracker_index("ollama", actual_idx + 1, total_ollama)
 
-                            opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
-                            raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip()))
-                            script = convert_all_numbers_in_script(raw_script)
-                            desc = normalize_outdated_years(data.get("video_description", "").strip())
-                            raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
-                            tags = sanitize_youtube_tags(raw_tags)
-                            
-                            gen_bot = data.get("bot_text", "").strip()
-                            if not gen_bot or "আবেদনের নিয়ম ও বিস্তারিত" in gen_bot:
-                                gen_bot = f"({vac_str}) বিশাল সার্কুলার" if vac_str else "আবেদনের শেষ তারিখ ও নিয়ম"
+    # =========================================================================
+    # 🌟 ২. দ্বিতীয় প্রায়োরিটি: OpenRouter Cloud API
+    # =========================================================================
+    raw_openrouter = os.environ.get("OPENROUTER_API_KEYS", os.environ.get("OPENROUTER_API_KEY", "")).strip()
+    openrouter_order = get_keys_in_cyclic_order("openrouter", raw_openrouter)
+    total_openrouter = len(parse_multiline_keys(raw_openrouter))
 
-                            thumb_meta = {
-                                "top_text": strip_unwanted_chars(data.get("top_text", org_name)),
-                                "row1_text": strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ")),
-                                "row2_text": strip_unwanted_chars(data.get("row2_text", vac_str if vac_str else "বিশাল নিয়োগ")),
-                                "sub_text": strip_unwanted_chars(data.get("sub_text", qual_str if qual_str else "SSC/HSC পাশ")),
-                                "bot_text": strip_unwanted_chars(gen_bot)
-                            }
-                            save_ollama_index(cur_k_idx, total_o_keys)
-                            print(f"✨ Successfully Verified via Ollama Key #{k_num} ('{model_name}')!")
-                            return opt_title, script, thumb_meta, desc, tags, "online", ""
-                    else:
-                        print(f"⚠️ Ollama Key #{k_num} ('{model_name}') returned {resp.status_code}. Trying next model...")
-                except Exception as oe:
-                    print(f"⚠️ Network error on Key #{k_num}: {oe}")
+    if openrouter_order:
+        print("\n" + "="*65)
+        print("🤖 [AI TIER 2] Priority 2: OpenRouter Cloud API")
+        print(f"🔑 Total {total_openrouter} OpenRouter Key(s). Resuming from Key #{openrouter_order[0][0] + 1}...")
+        print("="*65)
 
-            save_ollama_index(cur_k_idx + 1, total_o_keys)
+        for actual_idx, or_key in openrouter_order:
+            key_num = actual_idx + 1
+            headers = {
+                "Authorization": f"Bearer {or_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com",
+                "X-Title": "YouTube Job Automation"
+            }
 
-    # ------------------ [২য় ধাপ: Groq AI] ------------------
-    groq_keys = get_all_groq_keys()
-    if groq_keys:
-        for g_idx, g_key in enumerate(groq_keys, start=1):
+            # OpenRouter মাল্টিমোডাল পে-লোড গঠন
+            content_list = [{"type": "text", "text": prompt}]
+            for b64 in base64_images[:2]:
+                content_list.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+
+            for model_name in OPENROUTER_MODELS:
+                print(f"  • Trying OpenRouter Key #{key_num}/{total_openrouter} (Model: '{model_name}')...")
+                payload = {
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": content_list}],
+                    "temperature": 0.4
+                }
+                try:
+                    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=40)
+                    if resp.status_code == 200:
+                        content_txt = resp.json()['choices'][0]['message']['content']
+                        data = parse_json_safely(content_txt)
+                        if data and data.get("optimized_title"):
+                            save_tracker_index("openrouter", actual_idx, total_openrouter)
+                            print(f"  ✨ [SUCCESS] AI Content Generated via OpenRouter Key #{key_num} ('{model_name}')!")
+                            return process_ai_result(data)
+                    elif resp.status_code in [401, 402, 429]:
+                        print(f"  ⚠️ OpenRouter Key #{key_num} limit reached ({resp.status_code}).")
+                        break
+                except Exception as e:
+                    print(f"  ⚠️ Error with OpenRouter Key #{key_num}: {e}")
+
+            save_tracker_index("openrouter", actual_idx + 1, total_openrouter)
+
+    # =========================================================================
+    # 🌟 ৩. তৃতীয় প্রায়োরিটি: Groq Cloud API
+    # =========================================================================
+    raw_groq = os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API", "")).strip()
+    groq_order = get_keys_in_cyclic_order("groq", raw_groq)
+    total_groq = len(parse_multiline_keys(raw_groq))
+
+    if groq_order:
+        print("\n" + "="*65)
+        print("🤖 [AI TIER 3] Priority 3: Groq Cloud API")
+        print(f"🔑 Total {total_groq} Groq Key(s). Resuming from Key #{groq_order[0][0] + 1}...")
+        print("="*65)
+
+        for actual_idx, g_key in groq_order:
+            key_num = actual_idx + 1
             headers = {"Authorization": f"Bearer {g_key}", "Content-Type": "application/json"}
+
             for g_model in GROQ_MODELS:
-                print(f"🤖 Attempting Groq Key #{g_idx} (Model: '{g_model}')...")
+                print(f"  • Trying Groq Key #{key_num}/{total_groq} (Model: '{g_model}')...")
                 payload = {
                     "model": g_model,
                     "messages": [
@@ -326,36 +428,64 @@ Return strictly valid JSON:
                 try:
                     resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=30)
                     if resp.status_code == 200:
-                        raw_content = resp.json()['choices'][0]['message']['content']
-                        data = parse_json_safely(raw_content)
+                        content_txt = resp.json()['choices'][0]['message']['content']
+                        data = parse_json_safely(content_txt)
                         if data and data.get("optimized_title"):
-                            app_type = data.get("application_type", "online").strip().lower()
-                            off_reason = data.get("offline_reason", "ডাকযোগে বা সরাসরি আবেদন").strip()
+                            save_tracker_index("groq", actual_idx, total_groq)
+                            print(f"  ✨ [SUCCESS] AI Content Generated via Groq Key #{key_num} ('{g_model}')!")
+                            return process_ai_result(data)
+                    elif resp.status_code in [401, 402, 429]:
+                        print(f"  ⚠️ Groq Key #{key_num} exhausted ({resp.status_code}).")
+                        break
+                except Exception as e:
+                    print(f"  ⚠️ Error with Groq Key #{key_num}: {e}")
 
-                            if app_type == "offline":
-                                return None, None, None, None, None, "offline", off_reason
+            save_tracker_index("groq", actual_idx + 1, total_groq)
 
-                            opt_title = normalize_outdated_years(data.get("optimized_title").strip()[:100])
-                            raw_script = normalize_outdated_years(re.sub(r'[\r\n]+', ' ', data.get("voiceover_script", "").strip()))
-                            script = convert_all_numbers_in_script(raw_script)
-                            desc = normalize_outdated_years(data.get("video_description", "").strip())
-                            raw_tags = data.get("specific_tags", []) + DEFAULT_BASE_TAGS
-                            tags = sanitize_youtube_tags(raw_tags)
+    # =========================================================================
+    # 🌟 ৪. চতুর্থ প্রায়োরিটি: Cerebras Cloud API
+    # =========================================================================
+    raw_cerebras = os.environ.get("CEREBRAS_API_KEYS", os.environ.get("CEREBRAS_API_KEY", "")).strip()
+    cerebras_order = get_keys_in_cyclic_order("cerebras", raw_cerebras)
+    total_cerebras = len(parse_multiline_keys(raw_cerebras))
 
-                            gen_bot = data.get("bot_text", "").strip()
-                            if not gen_bot or "আবেদনের নিয়ম ও বিস্তারিত" in gen_bot:
-                                gen_bot = f"({vac_str}) বিশাল সার্কুলার" if vac_str else "আবেদনের শেষ তারিখ ও নিয়ম"
+    if cerebras_order:
+        print("\n" + "="*65)
+        print("🤖 [AI TIER 4] Priority 4: Cerebras Cloud API")
+        print(f"🔑 Total {total_cerebras} Cerebras Key(s). Resuming from Key #{cerebras_order[0][0] + 1}...")
+        print("="*65)
 
-                            thumb_meta = {
-                                "top_text": strip_unwanted_chars(data.get("top_text", org_name)),
-                                "row1_text": strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ")),
-                                "row2_text": strip_unwanted_chars(data.get("row2_text", vac_str if vac_str else "বিশাল নিয়োগ")),
-                                "sub_text": strip_unwanted_chars(data.get("sub_text", qual_str if qual_str else "SSC/HSC পাশ")),
-                                "bot_text": strip_unwanted_chars(gen_bot)
-                            }
-                            print(f"✨ Successfully Verified via Groq AI ({g_model})!")
-                            return opt_title, script, thumb_meta, desc, tags, "online", ""
-                except Exception as ge:
-                    print(f"⚠️ Groq exception on Key #{g_idx} ('{g_model}'): {ge}")
+        for actual_idx, c_key in cerebras_order:
+            key_num = actual_idx + 1
+            headers = {"Authorization": f"Bearer {c_key}", "Content-Type": "application/json"}
 
-    return None, None, None, None, None, "error", "All AI models failed"
+            for c_model in CEREBRAS_MODELS:
+                print(f"  • Trying Cerebras Key #{key_num}/{total_cerebras} (Model: '{c_model}')...")
+                payload = {
+                    "model": c_model,
+                    "messages": [
+                        {"role": "system", "content": "You are a professional Bengali YouTube SEO and scriptwriter. Output strictly valid JSON only."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.4,
+                    "max_tokens": 2000
+                }
+                try:
+                    resp = requests.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload, timeout=30)
+                    if resp.status_code == 200:
+                        content_txt = resp.json()['choices'][0]['message']['content']
+                        data = parse_json_safely(content_txt)
+                        if data and data.get("optimized_title"):
+                            save_tracker_index("cerebras", actual_idx, total_cerebras)
+                            print(f"  ✨ [SUCCESS] AI Content Generated via Cerebras Key #{key_num} ('{c_model}')!")
+                            return process_ai_result(data)
+                    elif resp.status_code in [401, 402, 429]:
+                        print(f"  ⚠️ Cerebras Key #{key_num} limit reached ({resp.status_code}).")
+                        break
+                except Exception as e:
+                    print(f"  ⚠️ Error with Cerebras Key #{key_num}: {e}")
+
+            save_tracker_index("cerebras", actual_idx + 1, total_cerebras)
+
+    return None, None, None, None, None, "error", "All AI providers failed"
