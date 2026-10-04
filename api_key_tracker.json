@@ -1,12 +1,20 @@
 {
   "ollama": {
     "current_index": 0,
-    "last_updated": "2026-10-04T13:03:10.201152"
+    "last_updated": "2026-10-04T14:05:02.524872"
   },
   "gemini_tts": {
     "current_index": 0
   },
   "elevenlabs": {
     "current_index": 120
+  },
+  "openrouter": {
+    "current_index": 0,
+    "last_updated": "2026-10-04T14:05:04.322050"
+  },
+  "groq": {
+    "current_index": 0,
+    "last_updated": "2026-10-04T14:05:05.031663"
   }
 }
