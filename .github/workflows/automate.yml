@@ -15,7 +15,7 @@ permissions:
 jobs:
   run-automation:
     runs-on: ubuntu-latest
-    timeout-minutes: 90 # 🌟 ১০ মিনিটের বড় ভিডিও রেন্ডারিংয়ের জন্য নিরাপদ ৯০ মিনিট টাইমআউট
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -27,7 +27,6 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      # বাংলা ফন্ট ও সিস্টেম টুলস (১৫ সেকেন্ডে সুপারফাস্ট ইনস্টল)
       - name: Install System Dependencies (Fonts, FFmpeg, Rclone)
         run: |
           sudo apt-get update
@@ -54,13 +53,15 @@ jobs:
           mkdir -p workspace
           rclone sync "gdrive:" ./workspace --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --fast-list
 
-      # 🌟 সমস্ত এআই ও অডিও এপিআই কি পাস করা হয়েছে
+      # 🌟 সমস্ত প্রয়োজনীয় API Secrets পাস করা হয়েছে
       - name: Run Python Process (Movie & YouTube upload)
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           GDRIVE_PARENT_FOLDER_ID: ${{ secrets.GDRIVE_PARENT_FOLDER_ID }}
+          ENABLE_MANUAL_FOLDER: ${{ secrets.ENABLE_MANUAL_FOLDER }}
+          MANUAL_DRIVE_FOLDER_ID: ${{ secrets.MANUAL_DRIVE_FOLDER_ID }}
           OPENROUTER_API_KEYS: ${{ secrets.OPENROUTER_API_KEYS }}
           GROQ_API_KEYS: ${{ secrets.GROQ_API_KEYS }}
           CEREBRAS_API_KEYS: ${{ secrets.CEREBRAS_API_KEYS }}
@@ -69,7 +70,6 @@ jobs:
           ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
         run: python main.py
 
-      # 🌟 এআই ট্র্যাকার হিস্টোরি রিপোজিটরিতে অটো-কমিট পুশ
       - name: Commit & Push Trackers to Repository
         if: always()
         run: |
@@ -85,7 +85,6 @@ jobs:
           rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --drive-use-trash=false --fast-list
           rclone rmdirs "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --leave-root || true
 
-      # পোর্ট্রেট ভিডিও জবলাইভে পাঠানো
       - name: Push JobLive videos to Google Drive
         if: always()
         run: |
@@ -93,7 +92,6 @@ jobs:
             rclone copy ./workspace_live "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --fast-list
           fi
 
-      # ৩০ দিনের পুরোনো ভিডিও ডিলিট
       - name: Cleanup old JobLive videos (Older than 30 days)
         if: always()
         run: |
