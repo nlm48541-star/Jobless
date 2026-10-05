@@ -28,7 +28,6 @@ def is_manual_mode_enabled():
     return val in ["true", "1", "yes", "on"] and bool(folder_id)
 
 def sync_manual_folder_from_drive(folder_id):
-    """গুগল ড্রাইভের নির্দিষ্ট ফোল্ডার থেকে ফাইলগুলো লোকাল ফোল্ডারে ডাউনলোড করে"""
     os.makedirs(MANUAL_DIR, exist_ok=True)
     cmd = [
         "rclone", "sync", "gdrive:", MANUAL_DIR,
@@ -43,7 +42,6 @@ def sync_manual_folder_from_drive(folder_id):
         return False
 
 def clean_manual_folder_on_drive(folder_id):
-    """ভিডিও আপলোড শেষে গুগল ড্রাইভের ফোল্ডারের ভেতরের সব ফাইল পার্মানেন্ট ডিলিট করে"""
     print("🧹 [CLEANUP] Emptying Google Drive manual folder...")
     cmd_delete = [
         "rclone", "delete", "gdrive:",
@@ -64,7 +62,6 @@ def clean_manual_folder_on_drive(folder_id):
         print(f"⚠️ Failed to empty manual folder on drive: {e}")
 
 def scrape_article_data(link_url):
-    """link.txt থাকলে সেই লিংক থেকে টাইটেল ও ছবি সংগ্রহ করে"""
     print(f"🌐 Fetching article details from URL: {link_url[:60]}...")
     title = ""
     try:
@@ -81,9 +78,6 @@ def scrape_article_data(link_url):
     return title
 
 def process_manual_drive_folder(yt):
-    """
-    🌟 জরুরি/ম্যানুয়াল ড্রাইভ ফোল্ডার প্রসেসিং মেকানিজম
-    """
     if not is_manual_mode_enabled():
         return
 
@@ -100,7 +94,6 @@ def process_manual_drive_folder(yt):
     if not os.path.exists(MANUAL_DIR):
         return
 
-    # ১. ফোল্ডারের ফাইল স্ক্যান করা
     all_files = os.listdir(MANUAL_DIR)
     if not all_files or all(f.startswith('.') for f in all_files):
         print("ℹ️ Manual Google Drive folder is empty. Resuming normal automation.")
@@ -110,6 +103,7 @@ def process_manual_drive_folder(yt):
 
     img_files = []
     custom_audio_file = None
+    custom_thumb_path = None
     script_txt_path = None
     link_txt_path = None
     title_txt_path = None
@@ -117,20 +111,24 @@ def process_manual_drive_folder(yt):
     for f in sorted(all_files):
         f_path = os.path.join(MANUAL_DIR, f)
         if os.path.isdir(f_path): continue
-        ext = f.lower().split('.')[-1]
+        f_lower = f.lower()
+        ext = f_lower.split('.')[-1]
 
-        if ext in ['jpg', 'jpeg', 'png', 'webp']:
+        # 🌟 ম্যানুয়াল ফোল্ডারেও থাম্বনেইল ফাইল আলাদা চেনা
+        if f_lower in ["thumbnail.png", "thumbnail.jpg", "thumbnail.jpeg"]:
+            custom_thumb_path = f_path
+        elif ext in ['jpg', 'jpeg', 'png', 'webp']:
             img_files.append(f_path)
         elif ext in ['mp3', 'wav', 'm4a', 'aac']:
             custom_audio_file = f_path
-        elif f.lower() == "script.txt":
+        elif f_lower == "script.txt":
             script_txt_path = f_path
-        elif f.lower() == "link.txt":
+        elif f_lower == "link.txt":
             link_txt_path = f_path
-        elif f.lower() == "title.txt":
+        elif f_lower == "title.txt":
             title_txt_path = f_path
 
-    # ২. link.txt হ্যান্ডলিং (যদি ছবি না থাকে বা লিংক থেকে আনতে হয়)
+    # link.txt হ্যান্ডলিং
     article_link = ""
     scraped_title = ""
     if link_txt_path and os.path.exists(link_txt_path):
@@ -139,7 +137,6 @@ def process_manual_drive_folder(yt):
                 article_link = lf.read().strip()
             if article_link:
                 scraped_title = scrape_article_data(article_link)
-                # যদি ফোল্ডারে ছবি কম থাকে, লিংক থেকে ছবি ডাউনলোড করা
                 if len(img_files) < 2:
                     scraped_imgs = scrape_images_from_webpage(article_link)
                     for idx, s_url in enumerate(scraped_imgs[:4], start=len(img_files)+1):
@@ -149,7 +146,7 @@ def process_manual_drive_folder(yt):
         except Exception as e:
             print(f"⚠️ Notice on link processing: {e}")
 
-    # ৩. টাইটেল নির্ধারণ
+    # টাইটেল নির্ধারণ
     video_title = "নিয়োগ বিজ্ঞপ্তি"
     if title_txt_path and os.path.exists(title_txt_path):
         try:
@@ -165,7 +162,7 @@ def process_manual_drive_folder(yt):
         print("❌ No images available for video creation. Aborting manual job.")
         return
 
-    # ৪. স্ক্রিপ্ট এবং মেটাডাটা হ্যান্ডলিং
+    # স্ক্রিপ্ট এবং মেটাডাটা হ্যান্ডলিং
     user_provided_script = ""
     if script_txt_path and os.path.exists(script_txt_path):
         print("📄 [FOUND script.txt] Using user's custom script! Skipping AI script generation.")
@@ -180,11 +177,9 @@ def process_manual_drive_folder(yt):
     video_tags = DEFAULT_BASE_TAGS
 
     if user_provided_script:
-        # ব্যবহারকারীর দেওয়া স্ক্রিপ্ট থাকলে নতুন স্ক্রিপ্ট জেনারেট হবে না
         cleaned_user_script = clean_script_for_speech(user_provided_script)
         voiceover_script = convert_all_numbers_in_script(cleaned_user_script)
 
-        # শুধু থাম্বনেইল ও এসইও মেটাডাটার জন্য দ্রুত কল করা
         try:
             verified_stub = {"organization": video_title[:30], "total_vacancies": "", "posts": [{"post_name": "নিয়োগ", "educational_qualification": "বিস্তারিত"}]}
             seo = generate_seo_metadata(verified_stub, video_title)
@@ -197,7 +192,6 @@ def process_manual_drive_folder(yt):
                 thumb_meta = thumb
         except Exception: pass
     else:
-        # স্ক্রিপ্ট দেওয়া না থাকলে সম্পূর্ণ এআই পাইপলাইন চলবে
         print("🤖 [NO SCRIPT FILE] Generating 10+ minute script & segments via AI...")
         ai_res = generate_job_content(video_title, img_files)
         opt_title, voiceover_script, segments, thumb_meta, video_desc, video_tags = ai_res
@@ -208,7 +202,7 @@ def process_manual_drive_folder(yt):
         print("❌ Failed to obtain voiceover audio. Aborting manual job.")
         return
 
-    # ৫. অডিও প্রস্তুত করা
+    # অডিও প্রস্তুত করা
     if custom_audio_file:
         audio_path = custom_audio_file
         print(f"🎵 Using folder custom audio: {os.path.basename(custom_audio_file)}")
@@ -222,13 +216,24 @@ def process_manual_drive_folder(yt):
             return
         audio_path = gen_audio_path
 
-    # ৬. থাম্বনেইল তৈরি
+    # 🌟 থাম্বনেইল তৈরি (কাস্টম থাম্বনেইল থাকলে সেটি সরাসরি ব্যবহার, নতুবা জেনারেট)
     os.makedirs(TMP_DIR, exist_ok=True)
     thumbnail_path = os.path.join(TMP_DIR, "manual_thumbnail.jpg")
     if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
-    generate_dynamic_thumbnail(video_title, thumbnail_path, thumb_meta=thumb_meta)
 
-    # ৭. ভিডিও রেন্ডারিং
+    if custom_thumb_path and os.path.exists(custom_thumb_path):
+        print(f"🖼️ [CUSTOM THUMBNAIL] Using '{os.path.basename(custom_thumb_path)}' directly (Bypassing dynamic generator).")
+        with Image.open(custom_thumb_path) as c_thumb:
+            if c_thumb.mode in ("RGBA", "LA") or (c_thumb.mode == "P" and "transparency" in c_thumb.info):
+                bg = Image.new("RGB", c_thumb.size, (255, 255, 255))
+                bg.paste(c_thumb.convert("RGBA"), mask=c_thumb.convert("RGBA"))
+                bg.save(thumbnail_path, "JPEG", quality=100, subsampling=0)
+            else:
+                c_thumb.convert("RGB").save(thumbnail_path, "JPEG", quality=100, subsampling=0)
+    else:
+        generate_dynamic_thumbnail(video_title, thumbnail_path, thumb_meta=thumb_meta)
+
+    # ভিডিও রেন্ডারিং
     out_video_file = os.path.join(TMP_DIR, "manual_out.mp4")
     if os.path.exists(out_video_file): os.remove(out_video_file)
 
@@ -238,7 +243,6 @@ def process_manual_drive_folder(yt):
     else:
         render_video_slideshow(audio_path, img_files, out_video_file, is_vertical=False)
 
-    # ৮. ইউটিউব আপলোড
     print(f"📤 Uploading Manual Video: '{video_title}'")
     upload_success = upload_to_youtube(
         yt, out_video_file, video_title,
@@ -248,7 +252,6 @@ def process_manual_drive_folder(yt):
         schedule_upload=True
     )
 
-    # ৯. সফল হলে JobLive ভিডিও রেন্ডার এবং ড্রাইভের ফোল্ডার সম্পূর্ণ খালি করা
     if upload_success:
         try:
             os.makedirs(LIVESTREAM_DIR, exist_ok=True)
@@ -262,7 +265,6 @@ def process_manual_drive_folder(yt):
         except Exception as e:
             print(f"⚠️ JobLive notice: {e}")
 
-        # 🌟 গুগল ড্রাইভের ফোল্ডারের সব ফাইল সম্পূর্ণ ডিলিট করা
         clean_manual_folder_on_drive(folder_id)
         shutil.rmtree(MANUAL_DIR, ignore_errors=True)
         print("🎉 [SUCCESS] Emergency Manual Video Processed, Uploaded & Drive Emptied!\n")
