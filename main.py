@@ -9,6 +9,7 @@ from audio_engine import generate_voiceover_audio_pipeline
 from thumbnail import generate_dynamic_thumbnail
 from video_editor import render_synchronized_video
 from youtube_uploader import get_youtube_service, upload_to_youtube
+from manual_processor import process_manual_drive_folder
 
 TMP_DIR = "temp_assets"
 LIVESTREAM_DIR = "workspace_live"
@@ -85,7 +86,7 @@ def process_ready_videos(yt):
 
             print(f"\n========== Process started: {folder_name} ==========")
 
-            # 🌟 এআই দিয়ে ১০+ মিনিটের সেগমেন্টেড স্ক্রিপ্ট তৈরি
+            # এআই দিয়ে ১০+ মিনিটের সেগমেন্টেড স্ক্রিপ্ট তৈরি
             ai_res = generate_job_content(raw_title, img_files)
             opt_title, voiceover_script, segments, thumb_meta, video_desc, video_tags = ai_res
 
@@ -95,7 +96,7 @@ def process_ready_videos(yt):
 
             video_title = opt_title
 
-            # অডিও তৈরি (Gemini -> ElevenLabs -> Edge-TTS)
+            # অডিও তৈরি
             if existing_audio_file:
                 audio_path = os.path.join(folder_path, existing_audio_file)
                 print(f"🎵 [PRE-EXISTING AUDIO] Using '{existing_audio_file}' directly.")
@@ -115,7 +116,7 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # 🌟 অডিও-ভিজ্যুয়াল সিঙ্ক্রোনাইজড ভিডিও রেন্ডার
+            # অডিও-ভিজ্যুয়াল সিঙ্ক্রোনাইজড ভিডিও রেন্ডার
             print("Rendering 16:9 Synchronized Video for YouTube...")
             render_synchronized_video(audio_path, img_files, segments, out_video_file, is_vertical=False)
             
@@ -174,6 +175,14 @@ if __name__ == "__main__":
     print("\n====== [ Google Drive Bot Active | Synchronized 10-Min Engine ] ======\n")
     try:
         yt_service = get_youtube_service()
+
+        # 🌟 ১. যদি সিক্রেট 'ENABLE_MANUAL_FOLDER' true থাকে, আগে জরুরি ফোল্ডারটি প্রসেস হবে
+        try: 
+            process_manual_drive_folder(yt_service)
+        except Exception: 
+            traceback.print_exc()
+
+        # 🌟 ২. নিয়মিত স্বয়ংক্রিয় প্রসেস
         try: check_new_articles_and_prepare_folders()
         except Exception: traceback.print_exc()
 
@@ -182,6 +191,7 @@ if __name__ == "__main__":
 
         try: process_shorts_folder(yt_service)
         except Exception: traceback.print_exc()
+
     except Exception:
         traceback.print_exc()
     finally:
