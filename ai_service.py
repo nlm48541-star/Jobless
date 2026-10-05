@@ -7,7 +7,7 @@ WORKSPACE_DIR = "workspace"
 TRACKER_FILE = "api_key_tracker.json"
 WORKSPACE_TRACKER = os.path.join(WORKSPACE_DIR, "api_key_tracker.json")
 
-# 🌟 নতুন মডেল তালিকা
+# 🌟 এআই অগ্রাধিকার ক্রম: OpenRouter -> Groq -> Cerebras -> Ollama
 OPENROUTER_MODELS = [
     "google/gemini-2.0-flash-001",
     "meta-llama/llama-3.3-70b-instruct",
@@ -60,7 +60,7 @@ def get_keys_in_cyclic_order(service_name, raw_keys_str):
     return [((saved_idx + i) % total, keys[(saved_idx + i) % total]) for i in range(total)]
 
 # =========================================================================
-# 🌟 বাংলা সংখ্যা ও ফরম্যাটিং ইঞ্জিন
+# 🌟 বাংলা সংখ্যা ও বানান নরম্যালাইজার
 # =========================================================================
 
 DEFAULT_BASE_TAGS = [
@@ -120,17 +120,22 @@ def convert_all_numbers_in_script(text):
     if not text: return ""
     text = re.sub(r'(\d+),(\d+)', r'\1\2', text)
     text = re.sub(r'([০-৯]+),([০-৯]+)', r'\1\2', text)
+
     def phone_repl(m):
         raw_phone = m.group(0)
         digits = re.findall(r'[0-9০-৯]', raw_phone)
         return ' '.join(DIGIT_TO_ENG_BN.get(d, d) for d in digits)
+
     text = re.sub(r'(\+?(?:88|৮৮)?\s*0?1[0-9০-৯]{8,10})', phone_repl, text)
+
     def num_repl(m):
         num_str = m.group(0)
         try:
             val = en_bn_to_int(num_str)
             return number_to_bangla_words(val)
-        except Exception: return num_str
+        except Exception:
+            return num_str
+
     text = re.sub(r'[0-9০-৯]+', num_repl, text)
     text = re.sub(r'ঘরে\s*বসে\s*', '', text)
     return text
@@ -160,16 +165,6 @@ def strip_unwanted_chars(text):
     cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆', '', str(text))
     return cleaned.strip()
 
-def extract_vacancy_and_qual(title):
-    vac_match = re.search(r'(\d+|[০-৯]+)\s*(টি\s*)?পদে', title)
-    vac_str = vac_match.group(0) if vac_match else ""
-    qual = ""
-    if any(k in title.upper() for k in ["SSC", "এসএসসি"]): qual = "SSC পাশ যোগ্যতা"
-    elif any(k in title.upper() for k in ["HSC", "এইচএসসি"]): qual = "HSC পাশ যোগ্যতা"
-    elif any(k in title for k in ["৮ম", "অষ্টম"]): qual = "৮ম শ্রেণি পাশ"
-    elif any(k in title for k in ["স্নাতক", "ডিগ্রী", "অনার্স", "Degree", "Honours"]): qual = "স্নাতক পাশ যোগ্যতা"
-    return vac_str, qual
-
 def encode_image_base64(image_path, max_dim=1024):
     try:
         with Image.open(image_path) as img:
@@ -189,241 +184,308 @@ def parse_json_safely(raw_text):
     except Exception: return None
 
 # =========================================================================
-# 🌟 মাস্টার প্রম্পট ও এআই এক্সিকিউশন ইঞ্জিন (১০+ মিনিটের সেগমেন্টেড স্ক্রিপ্ট)
+# 🌟 সেন্ট্রাল এআই কল মেকানিজম (OpenRouter -> Groq -> Cerebras -> Ollama)
 # =========================================================================
 
-def generate_job_content(title, img_paths):
-    clean_title = clean_title_for_display(title)
-    words = clean_title.split()
-    org_name = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else " ".join(words[:min(3, len(words))])
-    vac_str, qual_str = extract_vacancy_and_qual(clean_title)
-
-    prompt = f"""You are a senior job analyst and YouTube documentary scriptwriter.
-Job Circular: "{clean_title}"
-Organization: "{org_name}"
-
-CRITICAL SCRIPT REQUIREMENTS (MUST PRODUCE A 10+ MINUTE VIDEO):
-1. LENGTH: 1350 to 1500 Bengali words total across all segments.
-2. CONTENT FOCUS:
-   - For every single position/post in this circular, thoroughly explain:
-     * Exact name of the post and how many people will be hired.
-     * Job responsibilities: what kind of work and duties the employee will perform day-to-day.
-     * Educational qualifications, required GPA/division, and technical skills needed.
-     * Salary scale, pay grade, and government/institutional benefits.
-   - Outline age limit requirements and eligible district criteria.
-3. FORBIDDEN CONTENT:
-   - Do NOT explain application submission procedures (do not mention website links, application portal forms, or SMS fee submission rules).
-4. OUTRO & CALL TO ACTION (CTA):
-   - At the end, state:
-     "এই নিয়োগে আবেদন করার জন্য যদি আবেদন ফরম পূরণ করতে হয় অথবা ফরমাল আবেদনপত্র ও জীবনবৃত্তান্ত প্রস্তুত করতে হয়, তবে স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের অভিজ্ঞ টিম অত্যন্ত সতর্কতার সাথে আপনার হয়ে আবেদনের যাবতীয় কাজ সম্পন্ন করে দেবে।"
-5. SCRIPT STRUCTURE (For Video Synchronizer):
-   Return the script in "script_segments" list (8 to 12 detailed segments). Each segment must specify its visual target on the circular:
-   - "focus_region": One of ["header", "post_1", "post_2", "post_3", "post_4", "terms", "footer"]
-   - "image_index": 1, 2, or 3 (indicating which circular image page this corresponds to)
-   - "text": Spoken Bengali text (120 to 160 words per segment).
-6. NUMBERS IN WORDS: Every single number in the spoken text MUST be written in full Bengali words (কথায় লেখা, যেমন 'দুইশত একুশ', 'একশত পঞ্চাশ', 'পঁচিশ আগস্ট').
-
-Return strictly valid JSON:
-{{
-  "optimized_title": "Unique high-CTR title under 95 chars",
-  "video_description": "Tailored description with post highlights and WhatsApp contact wa.me/8801540503092",
-  "specific_tags": ["..."],
-  "top_text": "2-3 words for thumbnail top bar",
-  "row1_text": "2-3 words for thumbnail red hook",
-  "row2_text": "2-3 words for thumbnail vacancy hook",
-  "sub_text": "2-3 words for thumbnail qualification",
-  "bot_text": "Unique dynamic 2-4 words for thumbnail bottom bar",
-  "script_segments": [
-    {{"segment_id": 1, "focus_region": "header", "image_index": 1, "text": "..."}},
-    {{"segment_id": 2, "focus_region": "post_1", "image_index": 1, "text": "..."}}
-  ]
-}}"""
-
-    base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
-
-    def format_output(data):
-        opt_title = data.get("optimized_title", clean_title)[:100]
-        desc = data.get("video_description", "")
-        tags = sanitize_youtube_tags(data.get("specific_tags", []) + DEFAULT_BASE_TAGS)
-
-        segments = data.get("script_segments", [])
-        if not segments:
-            # ফলব্যাক সেগমেন্ট
-            segments = [{"segment_id": 1, "focus_region": "header", "image_index": 1, "text": "আসসালামু আলাইকুম। আজকের ভিডিওতে আপনাদের স্বাগতম।"}]
-
-        # প্রতিটি সেগমেন্টের টেক্সটের সংখ্যাকে কথায় রূপান্তর
-        full_text_list = []
-        for seg in segments:
-            clean_t = convert_all_numbers_in_script(seg.get("text", ""))
-            seg["text"] = clean_t
-            full_text_list.append(clean_t)
-
-        voiceover_script = " ".join(full_text_list)
-
-        gen_bot = data.get("bot_text", "").strip()
-        if not gen_bot or "আবেদনের নিয়ম ও বিস্তারিত" in gen_bot:
-            gen_bot = f"({vac_str}) মেগা সার্কুলার" if vac_str else "আবেদনের শেষ তারিখ ও নিয়ম"
-
-        thumb_meta = {
-            "top_text": strip_unwanted_chars(data.get("top_text", org_name)),
-            "row1_text": strip_unwanted_chars(data.get("row1_text", "জরুরি নিয়োগ")),
-            "row2_text": strip_unwanted_chars(data.get("row2_text", vac_str if vac_str else "বিশাল নিয়োগ")),
-            "sub_text": strip_unwanted_chars(data.get("sub_text", qual_str if qual_str else "যোগ্যতা ও বিস্তারিত")),
-            "bot_text": strip_unwanted_chars(gen_bot)
-        }
-        return opt_title, voiceover_script, segments, thumb_meta, desc, tags
-
-    # =========================================================================
-    # 🌟 ১. প্রথম প্রায়োরিটি: OpenRouter Cloud API (Priority 1)
-    # =========================================================================
+def execute_ai_query(prompt, base64_images=None, json_mode=True):
+    """
+    নির্ধারিত ৪টি প্ল্যাটফর্মের অগ্রাধিকার অনুযায়ী এআই রিকোয়েস্ট চালায়
+    """
+    # ১. OpenRouter (১ম প্রায়োরিটি)
     raw_openrouter = os.environ.get("OPENROUTER_API_KEYS", os.environ.get("OPENROUTER_API_KEY", "")).strip()
-    openrouter_order = get_keys_in_cyclic_order("openrouter", raw_openrouter)
-    total_openrouter = len(parse_multiline_keys(raw_openrouter))
+    or_order = get_keys_in_cyclic_order("openrouter", raw_openrouter)
+    total_or = len(parse_multiline_keys(raw_openrouter))
 
-    if openrouter_order:
-        print("\n" + "="*65)
-        print("🤖 [AI PRIORITY 1] OpenRouter Cloud API (10-Min In-Depth Script)")
-        print(f"🔑 Total {total_openrouter} Key(s). Resuming from Key #{openrouter_order[0][0] + 1}...")
-        print("="*65)
-
-        for actual_idx, or_key in openrouter_order:
-            key_num = actual_idx + 1
-            headers = {
-                "Authorization": f"Bearer {or_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com",
-                "X-Title": "YouTube Job Automation"
-            }
-            content_list = [{"type": "text", "text": prompt}]
+    if or_order:
+        content_list = [{"type": "text", "text": prompt}]
+        if base64_images:
             for b64 in base64_images[:2]:
                 content_list.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
 
+        for actual_idx, or_key in or_order:
+            headers = {"Authorization": f"Bearer {or_key}", "Content-Type": "application/json", "HTTP-Referer": "https://github.com", "X-Title": "YouTube Automation"}
             for model_name in OPENROUTER_MODELS:
-                print(f"  • Trying OpenRouter Key #{key_num}/{total_openrouter} (Model: '{model_name}')...")
-                payload = {"model": model_name, "messages": [{"role": "user", "content": content_list}], "temperature": 0.4}
+                payload = {"model": model_name, "messages": [{"role": "user", "content": content_list}], "temperature": 0.3}
                 try:
                     resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60)
                     if resp.status_code == 200:
                         content_txt = resp.json()['choices'][0]['message']['content']
-                        data = parse_json_safely(content_txt)
-                        if data and data.get("optimized_title"):
-                            save_tracker_index("openrouter", actual_idx, total_openrouter)
-                            print(f"  ✨ [SUCCESS] Generated via OpenRouter Key #{key_num} ('{model_name}')!")
-                            return format_output(data)
-                    elif resp.status_code in [401, 402, 429]:
-                        break
-                except Exception as e:
-                    print(f"  ⚠️ Error with OpenRouter Key #{key_num}: {e}")
+                        save_tracker_index("openrouter", actual_idx, total_or)
+                        return parse_json_safely(content_txt) if json_mode else content_txt
+                    elif resp.status_code in [401, 402, 429]: break
+                except Exception: pass
+            save_tracker_index("openrouter", actual_idx + 1, total_or)
 
-            save_tracker_index("openrouter", actual_idx + 1, total_openrouter)
-
-    # =========================================================================
-    # 🌟 ২. দ্বিতীয় প্রায়োরিটি: Groq Cloud API (Priority 2)
-    # =========================================================================
+    # ২. Groq (২য় প্রায়োরিটি)
     raw_groq = os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API", "")).strip()
     groq_order = get_keys_in_cyclic_order("groq", raw_groq)
     total_groq = len(parse_multiline_keys(raw_groq))
 
     if groq_order:
-        print("\n" + "="*65)
-        print("🤖 [AI PRIORITY 2] Groq Cloud API")
-        print("="*65)
         for actual_idx, g_key in groq_order:
-            key_num = actual_idx + 1
             headers = {"Authorization": f"Bearer {g_key}", "Content-Type": "application/json"}
             for g_model in GROQ_MODELS:
-                print(f"  • Trying Groq Key #{key_num}/{total_groq} (Model: '{g_model}')...")
                 payload = {
                     "model": g_model,
-                    "messages": [{"role": "system", "content": "You are an expert Bengali job scriptwriter. Output valid JSON only."}, {"role": "user", "content": prompt}],
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0.4,
-                    "max_tokens": 4000
+                    "messages": [{"role": "system", "content": "You are a professional Bengali job circular specialist. Output valid JSON only." if json_mode else "Be accurate."}, {"role": "user", "content": prompt}],
+                    "temperature": 0.3, "max_tokens": 4000
                 }
+                if json_mode: payload["response_format"] = {"type": "json_object"}
                 try:
                     resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=40)
                     if resp.status_code == 200:
-                        data = parse_json_safely(resp.json()['choices'][0]['message']['content'])
-                        if data and data.get("optimized_title"):
-                            save_tracker_index("groq", actual_idx, total_groq)
-                            print(f"  ✨ [SUCCESS] Generated via Groq Key #{key_num} ('{g_model}')!")
-                            return format_output(data)
-                    elif resp.status_code in [401, 402, 429]:
-                        break
-                except Exception as e:
-                    print(f"  ⚠️ Error with Groq: {e}")
+                        content_txt = resp.json()['choices'][0]['message']['content']
+                        save_tracker_index("groq", actual_idx, total_groq)
+                        return parse_json_safely(content_txt) if json_mode else content_txt
+                    elif resp.status_code in [401, 402, 429]: break
+                except Exception: pass
             save_tracker_index("groq", actual_idx + 1, total_groq)
 
-    # =========================================================================
-    # 🌟 ৩. তৃতীয় প্রায়োরিটি: Cerebras Cloud API (Priority 3)
-    # =========================================================================
+    # ৩. Cerebras (৩য় প্রায়োরিটি)
     raw_cerebras = os.environ.get("CEREBRAS_API_KEYS", os.environ.get("CEREBRAS_API_KEY", "")).strip()
     cerebras_order = get_keys_in_cyclic_order("cerebras", raw_cerebras)
     total_cerebras = len(parse_multiline_keys(raw_cerebras))
 
     if cerebras_order:
-        print("\n" + "="*65)
-        print("🤖 [AI PRIORITY 3] Cerebras Cloud API")
-        print("="*65)
         for actual_idx, c_key in cerebras_order:
-            key_num = actual_idx + 1
             headers = {"Authorization": f"Bearer {c_key}", "Content-Type": "application/json"}
             for c_model in CEREBRAS_MODELS:
-                print(f"  • Trying Cerebras Key #{key_num}/{total_cerebras} (Model: '{c_model}')...")
                 payload = {
                     "model": c_model,
-                    "messages": [{"role": "system", "content": "Output valid JSON only."}, {"role": "user", "content": prompt}],
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0.4,
-                    "max_tokens": 4000
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3, "max_tokens": 4000
                 }
                 try:
                     resp = requests.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload, timeout=40)
                     if resp.status_code == 200:
-                        data = parse_json_safely(resp.json()['choices'][0]['message']['content'])
-                        if data and data.get("optimized_title"):
-                            save_tracker_index("cerebras", actual_idx, total_cerebras)
-                            print(f"  ✨ [SUCCESS] Generated via Cerebras Key #{key_num} ('{c_model}')!")
-                            return format_output(data)
-                    elif resp.status_code in [401, 402, 429]:
-                        break
-                except Exception as e:
-                    print(f"  ⚠️ Error with Cerebras: {e}")
+                        content_txt = resp.json()['choices'][0]['message']['content']
+                        save_tracker_index("cerebras", actual_idx, total_cerebras)
+                        return parse_json_safely(content_txt) if json_mode else content_txt
+                    elif resp.status_code in [401, 402, 429]: break
+                except Exception: pass
             save_tracker_index("cerebras", actual_idx + 1, total_cerebras)
 
-    # =========================================================================
-    # 🌟 ৪. চতুর্থ (সর্বশেষ) প্রায়োরিটি: Ollama Cloud API (Gemma First)
-    # =========================================================================
+    # ৪. Ollama (৪র্থ ও সর্বশেষ প্রায়োরিটি - Gemma First)
     raw_ollama = os.environ.get("OLLAMA_API_KEYS", os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", ""))).strip()
     ollama_order = get_keys_in_cyclic_order("ollama", raw_ollama)
     total_ollama = len(parse_multiline_keys(raw_ollama))
 
     if ollama_order:
-        print("\n" + "="*65)
-        print("🤖 [AI PRIORITY 4 - LAST] Ollama Cloud (Gemma Prioritized)")
-        print("="*65)
         for actual_idx, o_key in ollama_order:
-            key_num = actual_idx + 1
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
             for model_name in OLLAMA_MODELS:
-                print(f"  • Trying Ollama Key #{key_num}/{total_ollama} (Model: '{model_name}')...")
                 payload = {
                     "model": model_name,
-                    "messages": [{"role": "user", "content": prompt, "images": base64_images}],
-                    "stream": False, "options": {"temperature": 0.4}
+                    "messages": [{"role": "user", "content": prompt, "images": base64_images if base64_images else []}],
+                    "stream": False, "options": {"temperature": 0.3}
                 }
                 try:
                     resp = requests.post("https://api.ollama.com/api/chat", headers=headers, json=payload, timeout=50)
                     if resp.status_code == 200:
-                        data = parse_json_safely(resp.json().get("message", {}).get("content", "").strip())
-                        if data and data.get("optimized_title"):
-                            save_tracker_index("ollama", actual_idx, total_ollama)
-                            print(f"  ✨ [SUCCESS] Generated via Ollama Key #{key_num} ('{model_name}')!")
-                            return format_output(data)
-                    elif resp.status_code in [401, 402, 429]:
-                        break
-                except Exception as e:
-                    print(f"  ⚠️ Error with Ollama: {e}")
+                        content_txt = resp.json().get("message", {}).get("content", "").strip()
+                        save_tracker_index("ollama", actual_idx, total_ollama)
+                        return parse_json_safely(content_txt) if json_mode else content_txt
+                    elif resp.status_code in [401, 402, 429]: break
+                except Exception: pass
             save_tracker_index("ollama", actual_idx + 1, total_ollama)
 
-    return None, None, None, None, None, None
+    return None
+
+# =========================================================================
+# 🌟 ৪টি আলাদা ফোকাসড মডুলার কল (Multi-Step Pipeline)
+# =========================================================================
+
+def extract_verified_job_data(title, base64_images):
+    """
+    【কল ১】ছবি দেখে ১০০% নির্ভুলভাবে পদের নাম, পদ সংখ্যা, বেতন স্কেল ও আবেদন পদ্ধতি রিড করা
+    """
+    print("\n🔍 [AI STEP 1] Scanning circular images for 100% accurate post details...")
+    prompt = f"""You are a strict forensic document data extractor for Bangladeshi Job Circulars.
+Title: "{title}"
+
+CRITICAL INSTRUCTION:
+Look ONLY at the table of posts/vacancies in the circular images.
+Do NOT guess. Transcribe EXACT facts:
+1. "organization": Exact official Bengali name of the organization.
+2. "posts": Array of each job position listed:
+   - "post_name": Exact position name in Bengali.
+   - "vacancy_count": Exact number of vacancies (e.g. "১টি", "০৫টি", "১২টি"). If 1 person, write exactly "১টি". Do NOT inflate or guess.
+   - "salary_scale": Exact pay scale and grade (e.g. "৯,৩০০ - ২২,৪৯০/- (গ্রেড-১৬)").
+   - "educational_qualification": Exact minimum degree and division required.
+   - "work_nature": Brief description of what kind of work this role does (দাপ্তরিক কাজ/ড্রাইভিং/হিসাবরক্ষণ/ফিল্ড ওয়ার্ক).
+3. "total_vacancies": Sum total of vacancies or as stated.
+4. "application_method": Exactly how candidates must apply:
+   - "online": If application is submitted online via website portal, teletalk, or web link.
+   - "prescribed_form": If candidates must fill out a specific job application form (নির্ধারিত চাকরির আবেদন ফরম).
+   - "formal_letter": If candidates must draft a formal application letter / CV on plain paper (সাদা কাগজে আবেদনপত্র বা জীবনবৃত্তান্ত).
+
+Return strictly valid JSON:
+{{
+  "organization": "...",
+  "total_vacancies": "...",
+  "application_method": "online" | "prescribed_form" | "formal_letter",
+  "posts": [
+    {{"post_name": "...", "vacancy_count": "...", "salary_scale": "...", "educational_qualification": "...", "work_nature": "..."}}
+  ]
+}}"""
+    return execute_ai_query(prompt, base64_images=base64_images, json_mode=True)
+
+def generate_script_from_verified_data(verified_data, title):
+    """
+    【কল ২】যাচাইকৃত তথ্যের ওপর ভিত্তি করে ১০+ মিনিটের ইন-ডেপথ চিত্রনাট্য ও নিশ্চিত CTA তৈরি
+    """
+    print("🎙️ [AI STEP 2] Generating in-depth 10+ minute script with confirmed CTA...")
+    data_str = json.dumps(verified_data, ensure_ascii=False, indent=2)
+
+    app_method = verified_data.get("application_method", "online")
+    
+    # 🌟 নিশ্চিত আবেদন কল-টু-অ্যাকশন (CTA) নির্ধারণ
+    if app_method == "prescribed_form":
+        cta_instruction = 'Tell viewers: "এই নিয়োগে আবেদনের জন্য নির্ধারিত আবেদন ফরমটি সঠিক নিয়মে পূরণ করতে এবং প্রয়োজনীয় কাগজপত্র প্রস্তুত করতে স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের অভিজ্ঞ টিম আপনার আবেদন ফরমটি নির্ভুলভাবে পূরণ করে দেবে।"'
+    elif app_method == "formal_letter":
+        cta_instruction = 'Tell viewers: "এই নিয়োগের জন্য সঠিক ফরম্যাটে আনুষ্ঠানিক আবেদনপত্র ও জীবনবৃত্তান্ত (CV) তৈরি করতে স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের টিম আপনার হয়ে সঠিক আবেদনপত্র প্রস্তুত করে দেবে।"'
+    else:
+        cta_instruction = 'Tell viewers: "এই নিয়োগে অনলাইনে শতভাগ নির্ভুলভাবে ঘরে বসে আবেদন সম্পন্ন করতে স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের অভিজ্ঞ টিম অত্যন্ত সতর্কতার সাথে আপনার আবেদন সফলভাবে সম্পন্ন করে দেবে।"'
+
+    prompt = f"""You are a senior job analyst and documentary scriptwriter.
+Title: "{title}"
+VERIFIED CIRCULAR DATA (FACTUAL TRUTH - DO NOT ALTER):
+{data_str}
+
+SCRIPT GUIDELINES (10+ MINUTE VIDEO DURATION):
+1. LENGTH: 1350 to 1500 Bengali words total across 8 to 12 detailed segments.
+2. IN-DEPTH EXPLANATION:
+   - For every single post in the verified data:
+     * Explain what the job is and what kind of work the employee will do daily (কোন পদের কি কাজ ও দায়িত্ব).
+     * Exact number of vacancies (use verified numbers only).
+     * Exact salary scale, pay grade, house rent and festival allowances.
+     * Educational requirements, required GPA/division, and technical skills needed.
+3. FORBIDDEN:
+   - Do NOT explain application submission rules (do not mention website portal steps, photo pixel sizes, or SMS fee submission codes).
+4. OUTRO & CONFIRMED CTA:
+   {cta_instruction}
+5. VISUAL TARGETS (For Video Synchronizer):
+   Return as "script_segments" list:
+   - "focus_region": One of ["header", "post_1", "post_2", "post_3", "post_4", "terms", "footer"]
+   - "image_index": 1, 2, or 3
+   - "text": Spoken Bengali text (120 to 160 words per segment). All numbers in Bengali words!
+
+Return strictly valid JSON:
+{{
+  "script_segments": [
+    {{"segment_id": 1, "focus_region": "header", "image_index": 1, "text": "..."}},
+    {{"segment_id": 2, "focus_region": "post_1", "image_index": 1, "text": "..."}}
+  ]
+}}"""
+    return execute_ai_query(prompt, base64_images=None, json_mode=True)
+
+def generate_seo_metadata(verified_data, title):
+    """
+    【কল ৩】এসইও ফ্রেন্ডলি টাইটেল, ডেসক্রিপশন ও ট্যাগসের জন্য আলাদা কল
+    """
+    print("📈 [AI STEP 3] Generating SEO Title, Description & Tags...")
+    posts_summary = ", ".join([p.get("post_name", "") for p in verified_data.get("posts", [])[:4]])
+    total_vac = verified_data.get("total_vacancies", "")
+    org = verified_data.get("organization", title)
+
+    prompt = f"""Generate YouTube SEO metadata for this job circular:
+Organization: "{org}"
+Title: "{title}"
+Key Posts: "{posts_summary}"
+Total Vacancies: "{total_vac}"
+
+Return strictly valid JSON:
+{{
+  "optimized_title": "High CTR click-worthy Bengali YouTube Title under 95 chars (Use symbols like 🔥, 🚨, |)",
+  "video_description": "Comprehensive description with post highlights, vacancy details, and WhatsApp contact: wa.me/8801540503092",
+  "specific_tags": ["6 to 10 specific Bengali & English SEO tags without commas"]
+}}"""
+    return execute_ai_query(prompt, base64_images=None, json_mode=True)
+
+def generate_thumbnail_metadata(verified_data, title):
+    """
+    【কল ৪】থাম্বনেইলের আকর্ষণীয় টেক্সটের জন্য আলাদা কল
+    """
+    print("🎨 [AI STEP 4] Generating High-CTR Thumbnail Texts...")
+    first_post = verified_data.get("posts", [{}])[0]
+    post_name = first_post.get("post_name", "জরুরি নিয়োগ")
+    total_vac = verified_data.get("total_vacancies", "")
+    org = verified_data.get("organization", "সরকারি চাকরি")
+    qual = first_post.get("educational_qualification", "যোগ্যতা ও নিয়ম")
+
+    prompt = f"""Generate 4 dynamic, distinct thumbnail texts for this job:
+Organization: "{org}"
+Main Post: "{post_name}"
+Vacancies: "{total_vac}"
+Qualification: "{qual}"
+
+Rules:
+- "top_text": 2-3 words. Organization name or category.
+- "row1_text": 2-3 words. Main eye-catching hook (e.g. "{post_name}").
+- "row2_text": 2-3 words. Vacancy count in RED (e.g. "{total_vac if total_vac else 'বিশাল নিয়োগ'}").
+- "sub_text": 2-3 words. Qualification/District (e.g. "SSC/HSC পাশ", "স্নাতক যোগ্যতা").
+- "bot_text": 2-4 words. Unique bottom bar text (e.g. "({total_vac}) সার্কুলার", "বেতন স্কেল ও সুযোগ-সুবিধা", "আবেদনের শেষ তারিখ ও নিয়ম").
+
+Return strictly valid JSON:
+{{
+  "top_text": "...",
+  "row1_text": "...",
+  "row2_text": "...",
+  "sub_text": "...",
+  "bot_text": "..."
+}}"""
+    return execute_ai_query(prompt, base64_images=None, json_mode=True)
+
+# =========================================================================
+# 🌟 মূল মাস্টার ফাংশন (Main Pipeline Orchestrator)
+# =========================================================================
+
+def generate_job_content(title, img_paths):
+    clean_title = clean_title_for_display(title)
+    base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
+
+    # ১. কল ১: ছবি দেখে সঠিক তথ্য এক্সট্রাকশন
+    verified_data = extract_verified_job_data(clean_title, base64_images)
+    if not verified_data or not verified_data.get("posts"):
+        print("⚠️ Direct vision OCR partial. Fallback to basic schema...")
+        verified_data = {
+            "organization": clean_title.split("নিয়োগ")[0].strip(),
+            "total_vacancies": "",
+            "application_method": "online",
+            "posts": [{"post_name": "বিভিন্ন পদে নিয়োগ", "vacancy_count": "", "salary_scale": "সরকারি স্কেল", "educational_qualification": "বিজ্ঞপ্তি অনুযায়ী", "work_nature": "দাপ্তরিক দায়িত্ব"}]
+        }
+
+    # ২. কল ২: ১০+ মিনিটের গভীর স্ক্রিপ্ট তৈরি
+    script_res = generate_script_from_verified_data(verified_data, clean_title)
+    segments = script_res.get("script_segments", []) if script_res else []
+    if not segments:
+        segments = [{"segment_id": 1, "focus_region": "header", "image_index": 1, "text": "আসসালামু আলাইকুম। আজকের ভিডিওতে আপনাদের স্বাগতম।"}]
+
+    full_text_list = []
+    for seg in segments:
+        clean_t = convert_all_numbers_in_script(seg.get("text", ""))
+        seg["text"] = clean_t
+        full_text_list.append(clean_t)
+    voiceover_script = " ".join(full_text_list)
+
+    # ৩. কল ৩: এসইও মেটাডাটা
+    seo_res = generate_seo_metadata(verified_data, clean_title)
+    opt_title = seo_res.get("optimized_title", clean_title)[:100] if seo_res else clean_title[:100]
+    video_desc = seo_res.get("video_description", clean_title) if seo_res else clean_title
+    raw_tags = seo_res.get("specific_tags", []) if seo_res else []
+    video_tags = sanitize_youtube_tags(raw_tags + DEFAULT_BASE_TAGS)
+
+    # ৪. কল ৪: থাম্বনেইল মেটাডাটা
+    thumb_res = generate_thumbnail_metadata(verified_data, clean_title)
+    if not thumb_res: thumb_res = {}
+    
+    thumb_meta = {
+        "top_text": strip_unwanted_chars(thumb_res.get("top_text", verified_data.get("organization", "সরকারি চাকরি"))),
+        "row1_text": strip_unwanted_chars(thumb_res.get("row1_text", "জরুরি নিয়োগ")),
+        "row2_text": strip_unwanted_chars(thumb_res.get("row2_text", verified_data.get("total_vacancies", "বিশাল নিয়োগ"))),
+        "sub_text": strip_unwanted_chars(thumb_res.get("sub_text", "যোগ্যতা ও নিয়ম")),
+        "bot_text": strip_unwanted_chars(thumb_res.get("bot_text", "আবেদনের শেষ তারিখ ও নিয়ম"))
+    }
+
+    print(f"✨ [PIPELINE SUCCESS] 10+ Min Script & Verified Data Generated Successfully for '{clean_title[:35]}...'!")
+    return opt_title, voiceover_script, segments, thumb_meta, video_desc, video_tags
