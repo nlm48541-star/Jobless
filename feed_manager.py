@@ -6,70 +6,12 @@ from bs4 import BeautifulSoup
 from PIL import Image
 
 WORKSPACE_DIR = "workspace"
-SKIPPED_JSON_FILE = "skipped_articles.json"
 FORBIDDEN_KEYWORDS = ['এনজিও', 'ngo', 'ব্যাংক', 'bank', 'চলমান']
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
 }
-
-# =========================================================================
-# 🌟 skipped_articles.json ম্যানেজমেন্ট
-# =========================================================================
-
-def load_skipped_articles():
-    """রিপোজিটরি থেকে পূর্বে স্কিপ করা অফলাইন আর্টিকেলের তালিকা লোড করে"""
-    if os.path.exists(SKIPPED_JSON_FILE):
-        try:
-            with open(SKIPPED_JSON_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception: pass
-    
-    # workspace-এ ব্যাকআপ থাকলে সেখান থেকেও চেক করবে
-    ws_backup = os.path.join(WORKSPACE_DIR, "skipped_articles.json")
-    if os.path.exists(ws_backup):
-        try:
-            with open(ws_backup, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception: pass
-    return {}
-
-def is_article_skipped(link, title=""):
-    """চেক করে আর্টিকেলটি ইতিমধ্যে অফলাইন হিসেবে স্কিপ করা কিনা"""
-    skipped = load_skipped_articles()
-    if link and link.strip().lower() in skipped:
-        return True
-    if title and title.strip().lower() in skipped:
-        return True
-    return False
-
-def save_skipped_article(link, title, reason="ডাকযোগে/কুরিয়ার/সরাসরি আবেদন"):
-    """অফলাইন আর্টিকেলের লিংক রিপোজিটরির skipped_articles.json ফাইলে পার্মানেন্টলি সেভ করে"""
-    skipped = load_skipped_articles()
-    key = link.strip().lower() if link else title.strip().lower()
-    if not key: return
-
-    skipped[key] = {
-        "title": title.strip(),
-        "link": link.strip() if link else "",
-        "reason": reason,
-        "skipped_at": datetime.now().isoformat()
-    }
-    try:
-        with open(SKIPPED_JSON_FILE, "w", encoding="utf-8") as f:
-            json.dump(skipped, f, ensure_ascii=False, indent=2)
-        # workspace এও ব্যাকআপ রাখা
-        try:
-            os.makedirs(WORKSPACE_DIR, exist_ok=True)
-            with open(os.path.join(WORKSPACE_DIR, "skipped_articles.json"), "w", encoding="utf-8") as wf:
-                json.dump(skipped, wf, ensure_ascii=False, indent=2)
-        except Exception: pass
-        print(f"📋 [OFFLINE RECORDED] Saved '{title[:45]}...' to {SKIPPED_JSON_FILE}")
-    except Exception as e:
-        print(f"⚠️ Failed to write {SKIPPED_JSON_FILE}: {e}")
-
-# =========================================================================
 
 def is_forbidden_article(text):
     if not text: return False
@@ -175,16 +117,11 @@ def check_new_articles_and_prepare_folders():
                 if folder_title.lower() == "shorts" or not folder_title or folder_title in existing:
                     continue
 
-                # ১. পূর্বে আপলোড হওয়া ইতিহাস চেক
+                # ১. পূর্বে তৈরি হওয়া ইতিহাস চেক (ডুপ্লিকেট প্রতিরোধ)
                 if link.lower() in history_logs or raw_title.lower() in history_logs or folder_title.lower() in history_logs:
                     continue
 
-                # 🌟 ২. পূর্বে অফলাইন হিসেবে চিহ্নিত হয়ে থাকলে সরাসরি স্কিপ (ডাউনলোড হবে না)
-                if is_article_skipped(link, raw_title) or is_article_skipped(link, folder_title):
-                    print(f"⏩ [OFFLINE SKIP] Skipping '{folder_title}' (Already in skipped_articles.json).")
-                    continue
-
-                # ৩. টাইটেলে নিষিদ্ধ কিওয়ার্ড ফিল্টার
+                # ২. টাইটেলে নিষিদ্ধ কিওয়ার্ড ফিল্টার (এনজিও/ব্যাংক/চলমান)
                 if is_forbidden_article(raw_title) or is_forbidden_article(folder_title):
                     print(f"🚫 [FILTERED] Skipping '{folder_title}' (Title contains forbidden keywords).")
                     continue
@@ -211,7 +148,7 @@ def check_new_articles_and_prepare_folders():
                     shutil.rmtree(folder_path, ignore_errors=True)
                     continue
 
-                # ব্যানার রিমুভ লজিক
+                # একাধিক ছবি থাকলে ১ম ১৬:৯ ব্যানার রিমুভ
                 if len(downloaded_temp_files) > 1:
                     try:
                         with Image.open(downloaded_temp_files[0]) as first_img:
@@ -234,12 +171,12 @@ def check_new_articles_and_prepare_folders():
                     shutil.rmtree(folder_path, ignore_errors=True)
                     continue
 
-                # টাইটেল ও লিংক ফাইলে সেভ
+                # টাইটেল ও লিংক সেভ
                 with open(os.path.join(folder_path, "title.txt"), "w", encoding="utf-8") as tf:
                     tf.write(raw_title)
                 if link:
                     with open(os.path.join(folder_path, "link.txt"), "w", encoding="utf-8") as lf:
                         lf.write(link)
 
-                print(f"✅ Prepared New Article: {folder_title} ({final_img_count} Images)")
+                print(f"✅ Prepared Article: {folder_title} ({final_img_count} Images)")
                 existing.append(folder_title)
