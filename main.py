@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import os, json, shutil, traceback
+from PIL import Image
+
 from feed_manager import (
     check_new_articles_and_prepare_folders, clean_filename, is_forbidden_article, 
     WORKSPACE_DIR
@@ -49,16 +51,22 @@ def process_ready_videos(yt):
                 continue
 
             existing_audio_file, txt_path, link_path = None, None, None
+            custom_thumb_path = None
             img_files = []
             
             for file in sorted(os.listdir(folder_path)):
-                ext = file.lower().split('.')[-1]
+                f_lower = file.lower()
+                ext = f_lower.split('.')[-1]
+
                 if ext in ['mp3', 'wav', 'm4a', 'aac']:
                     existing_audio_file = file
-                elif file.lower() == "title.txt":
+                elif f_lower == "title.txt":
                     txt_path = os.path.join(folder_path, file)
-                elif file.lower() == "link.txt":
+                elif f_lower == "link.txt":
                     link_path = os.path.join(folder_path, file)
+                # 🌟 থাম্বনেইল ফাইল আলাদা শনাক্ত করা (ভিডিওর স্লাইড থেকে আলাদা থাকবে)
+                elif f_lower in ["thumbnail.png", "thumbnail.jpg", "thumbnail.jpeg"]:
+                    custom_thumb_path = os.path.join(folder_path, file)
                 elif ext in ['jpg', 'jpeg', 'png', 'webp']: 
                     img_files.append(os.path.join(folder_path, file))
                     
@@ -108,10 +116,21 @@ def process_ready_videos(yt):
                     continue
                 audio_path = gen_audio_path
 
-            # থাম্বনেইল তৈরি
+            # 🌟 থাম্বনেইল তৈরি (কাস্টম থাম্বনেইল থাকলে সেটি সরাসরি ব্যবহার, নতুবা ডায়নামিক জেনারেট)
             thumbnail_path = os.path.join(TMP_DIR, "thumbnail.jpg")
             if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
-            generate_dynamic_thumbnail(raw_title, thumbnail_path, thumb_meta=thumb_meta)
+
+            if custom_thumb_path and os.path.exists(custom_thumb_path):
+                print(f"🖼️ [CUSTOM THUMBNAIL] Using '{os.path.basename(custom_thumb_path)}' directly (Bypassing dynamic generator).")
+                with Image.open(custom_thumb_path) as c_thumb:
+                    if c_thumb.mode in ("RGBA", "LA") or (c_thumb.mode == "P" and "transparency" in c_thumb.info):
+                        bg = Image.new("RGB", c_thumb.size, (255, 255, 255))
+                        bg.paste(c_thumb.convert("RGBA"), mask=c_thumb.convert("RGBA"))
+                        bg.save(thumbnail_path, "JPEG", quality=100, subsampling=0)
+                    else:
+                        c_thumb.convert("RGB").save(thumbnail_path, "JPEG", quality=100, subsampling=0)
+            else:
+                generate_dynamic_thumbnail(raw_title, thumbnail_path, thumb_meta=thumb_meta)
 
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
@@ -176,13 +195,9 @@ if __name__ == "__main__":
     try:
         yt_service = get_youtube_service()
 
-        # 🌟 ১. যদি সিক্রেট 'ENABLE_MANUAL_FOLDER' true থাকে, আগে জরুরি ফোল্ডারটি প্রসেস হবে
-        try: 
-            process_manual_drive_folder(yt_service)
-        except Exception: 
-            traceback.print_exc()
+        try: process_manual_drive_folder(yt_service)
+        except Exception: traceback.print_exc()
 
-        # 🌟 ২. নিয়মিত স্বয়ংক্রিয় প্রসেস
         try: check_new_articles_and_prepare_folders()
         except Exception: traceback.print_exc()
 
