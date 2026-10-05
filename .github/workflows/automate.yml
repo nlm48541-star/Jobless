@@ -15,7 +15,7 @@ permissions:
 jobs:
   run-automation:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90 # 🌟 ১০ মিনিটের বড় ভিডিও রেন্ডারিংয়ের জন্য নিরাপদ ৯০ মিনিট টাইমআউট
 
     steps:
       - name: Checkout repository
@@ -27,7 +27,7 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      # বাংলা ফন্ট ও সিস্টেম টুলস
+      # বাংলা ফন্ট ও সিস্টেম টুলস (১৫ সেকেন্ডে সুপারফাস্ট ইনস্টল)
       - name: Install System Dependencies (Fonts, FFmpeg, Rclone)
         run: |
           sudo apt-get update
@@ -61,22 +61,22 @@ jobs:
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           GDRIVE_PARENT_FOLDER_ID: ${{ secrets.GDRIVE_PARENT_FOLDER_ID }}
-          OLLAMA_API_KEYS: ${{ secrets.OLLAMA_API_KEYS }}
           OPENROUTER_API_KEYS: ${{ secrets.OPENROUTER_API_KEYS }}
           GROQ_API_KEYS: ${{ secrets.GROQ_API_KEYS }}
           CEREBRAS_API_KEYS: ${{ secrets.CEREBRAS_API_KEYS }}
+          OLLAMA_API_KEYS: ${{ secrets.OLLAMA_API_KEYS }}
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
           ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
         run: python main.py
 
-      # 🌟 ট্র্যাকার ও স্কিপড হিস্টোরি রিপোজিটরিতে অটো-কমিট পুশ
+      # 🌟 এআই ট্র্যাকার হিস্টোরি রিপোজিটরিতে অটো-কমিট পুশ
       - name: Commit & Push Trackers to Repository
         if: always()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add skipped_articles.json api_key_tracker.json || true
-          git commit -m "Auto-update trackers [skip ci]" || true
+          git add api_key_tracker.json || true
+          git commit -m "Auto-update key tracker [skip ci]" || true
           git push origin main || true
 
       - name: Push updates back to Google Drive (Permanent Folder Cleanup)
@@ -85,6 +85,7 @@ jobs:
           rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --drive-use-trash=false --fast-list
           rclone rmdirs "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --leave-root || true
 
+      # পোর্ট্রেট ভিডিও জবলাইভে পাঠানো
       - name: Push JobLive videos to Google Drive
         if: always()
         run: |
@@ -92,6 +93,7 @@ jobs:
             rclone copy ./workspace_live "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --fast-list
           fi
 
+      # ৩০ দিনের পুরোনো ভিডিও ডিলিট
       - name: Cleanup old JobLive videos (Older than 30 days)
         if: always()
         run: |
