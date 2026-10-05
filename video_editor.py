@@ -6,47 +6,39 @@ from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips, Ima
 
 def crop_circular_region(pil_img, focus_region):
     """
-    সার্কুলারের নির্দিষ্ট অংশ (Header, Post 1, Terms ইত্যাদি) নিখুঁতভাবে ক্রপ করে
+    সার্কুলারের আবেদন সংক্রান্ত জটিল নিয়ম বাদ দিয়ে শুধুমাত্র পদের তালিকা ও হেডারে ফোকাস করে
     """
     w, h = pil_img.size
     region = str(focus_region).lower()
 
     if "header" in region:
-        # সার্কুলারের উপরের ৩০% অংশ (প্রতিষ্ঠানের নাম ও স্মারক)
-        return pil_img.crop((0, 0, w, int(h * 0.35)))
+        # প্রতিষ্ঠানের নাম ও বিজ্ঞপ্তির শিরোনাম
+        return pil_img.crop((0, 0, w, int(h * 0.32)))
     elif "post_1" in region:
-        # ১ম পদের বিবরণ (২০% থেকে ৫০%)
-        return pil_img.crop((0, int(h * 0.18), w, int(h * 0.50)))
+        # ১ম পদের বিবরণ (পদের নাম, সংখ্যা, বেতন ও যোগ্যতা)
+        return pil_img.crop((0, int(h * 0.18), w, int(h * 0.48)))
     elif "post_2" in region:
-        # ২য় পদের বিবরণ (৩৫% থেকে ৬৫%)
-        return pil_img.crop((0, int(h * 0.35), w, int(h * 0.65)))
+        # ২য় পদের বিবরণ
+        return pil_img.crop((0, int(h * 0.34), w, int(h * 0.64)))
     elif "post_3" in region:
-        # ৩য় পদের বিবরণ (৫০% থেকে ৮০%)
-        return pil_img.crop((0, int(h * 0.50), w, int(h * 0.80)))
+        # ৩য় পদের বিবরণ
+        return pil_img.crop((0, int(h * 0.48), w, int(h * 0.78)))
     elif "terms" in region or "age" in region:
-        # বয়স ও সাধারণ শর্তাবলী (৫৫% থেকে ৮৮%)
-        return pil_img.crop((0, int(h * 0.55), w, int(h * 0.88)))
-    elif "footer" in region:
-        # সার্কুলারের নিচের অংশ (স্বাক্ষর ও আবেদনের শেষ তারিখ)
-        return pil_img.crop((0, int(h * 0.68), w, h))
+        # বয়সসীমা ও শিক্ষাগত যোগ্যতার শর্ত
+        return pil_img.crop((0, int(h * 0.58), w, int(h * 0.85)))
     else:
-        # পুরো ইমেজ
-        return pil_img
+        # পুরো পদের টেবিল
+        return pil_img.crop((0, int(h * 0.15), w, int(h * 0.75)))
 
 def make_synchronized_frame(img_path, focus_region, duration, target_w=1920, target_h=1080):
-    """
-    অডিওর ওই নির্দিষ্ট অংশ চলাকালীন সার্কুলারের সেই অংশে জুম ও মসৃণ প্যান তৈরি করে
-    """
     with Image.open(img_path) as full_img:
         cropped_section = crop_circular_region(full_img.convert("RGB"), focus_region)
 
     w, h = cropped_section.size
-    ratio = w / h
     target_ratio = target_w / target_h
-
-    # ফ্রেম ফিট এবং সামান্য জুম ইন স্কেলিং
     zoom_factor = 1.08
-    if ratio >= target_ratio:
+
+    if (w / h) >= target_ratio:
         new_h = int(target_h * zoom_factor)
         new_w = int((new_h / h) * w)
     else:
@@ -62,7 +54,6 @@ def make_synchronized_frame(img_path, focus_region, duration, target_w=1920, tar
 
     def frame_getter(t):
         prog = min(1.0, max(0.0, t / duration if duration > 0 else 0))
-        # ধীরে ধীরে ওপর থেকে নিচে মসৃণভাবে প্যান
         y_start = int(prog * max_y_offset)
         x_start = int(prog * max_x_offset)
         return img_np[y_start : y_start + target_h, x_start : x_start + target_w]
@@ -85,7 +76,6 @@ def apply_front_overlay(main_clip, target_w, target_h):
             scaled_w = int(target_w * scale_ratio)
             scaled_h = int((scaled_w / pil_front.width) * pil_front.height)
             pil_front_resized = pil_front.resize((scaled_w, scaled_h), Image.LANCZOS)
-            
             front_np = np.array(pil_front_resized)
             pil_front.close()
 
@@ -117,9 +107,6 @@ def apply_front_overlay(main_clip, target_w, target_h):
     return main_clip
 
 def render_synchronized_video(audio_path, img_files, segments, out_file, is_vertical=False):
-    """
-    🌟 প্রতিটি পদের আলোচনার সাথে সার্কুলারের সংশ্লিষ্ট অংশ হুবহু সিঙ্ক করে ভিডিও বানায়
-    """
     if not img_files: raise ValueError("No images provided.")
     target_w, target_h = (1080, 1920) if is_vertical else (1920, 1080)
     full_audio = AudioFileClip(audio_path)
@@ -134,7 +121,6 @@ def render_synchronized_video(audio_path, img_files, segments, out_file, is_vert
     for idx, seg in enumerate(segments):
         focus = seg.get("focus_region", "header")
         img_idx = seg.get("image_index", 1) - 1
-        # ইমেজ ইন্ডেক্স সীমার মধ্যে রাখা
         actual_img_path = img_files[img_idx % num_images]
 
         clip = make_synchronized_frame(actual_img_path, focus, duration_per_segment, target_w, target_h)
