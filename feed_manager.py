@@ -15,8 +15,7 @@ HEADERS = {
 
 def is_forbidden_article(text):
     if not text: return False
-    t_lower = text.lower()
-    return any(k in t_lower for k in FORBIDDEN_KEYWORDS)
+    return any(k in str(text).lower() for k in FORBIDDEN_KEYWORDS)
 
 def clean_filename(text):
     text = re.sub(r'[\\/*?:"<>|]', "", str(text))
@@ -34,16 +33,12 @@ def extract_image_urls_from_html(html_content, base_url=""):
     for container in elements:
         for img in container.find_all('img'):
             src = (
-                img.get('data-original') or 
-                img.get('data-src') or 
-                img.get('data-lazy-src') or 
-                img.get('data-orig-file') or 
-                img.get('src')
+                img.get('data-original') or img.get('data-src') or 
+                img.get('data-lazy-src') or img.get('data-orig-file') or img.get('src')
             )
             if not src:
                 srcset = img.get('srcset')
-                if srcset:
-                    src = srcset.split(',')[0].split()[0]
+                if srcset: src = srcset.split(',')[0].split()[0]
 
             if src:
                 src = src.strip()
@@ -55,15 +50,33 @@ def extract_image_urls_from_html(html_content, base_url=""):
                             img_urls.append(src)
     return img_urls
 
-def scrape_images_from_webpage(page_url):
+def scrape_article_content_and_images(page_url):
+    """
+    🌟 ওয়েবসাইট থেকে সম্পূর্ণ আর্টিকেলের পরিষ্কার টেক্সট এবং ছবি সংগ্রহ করে
+    """
+    title = ""
+    clean_text = ""
+    img_urls = []
     try:
-        req_headers = HEADERS.copy()
-        req_headers["Referer"] = page_url
-        resp = requests.get(page_url, headers=req_headers, timeout=15)
+        resp = requests.get(page_url, headers=HEADERS, timeout=15)
         if resp.status_code == 200:
-            return extract_image_urls_from_html(resp.text, base_url=page_url)
-    except Exception: pass
-    return []
+            soup = BeautifulSoup(resp.text, 'html.parser')
+
+            h1 = soup.find('h1')
+            if h1: title = h1.get_text(strip=True)
+            elif soup.title: title = soup.title.get_text(strip=True).split('-')[0].split('|')[0].strip()
+
+            target = soup.find(['div', 'article', 'section'], class_=re.compile(r'(post-body|entry-content|post-content|article-body|td-post-content|main-content)', re.I))
+            if not target: target = soup
+
+            for tag in target(['script', 'style', 'noscript', 'nav', 'footer']):
+                tag.decompose()
+
+            clean_text = target.get_text(separator='\n', strip=True)
+            img_urls = extract_image_urls_from_html(resp.text, base_url=page_url)
+    except Exception as e:
+        print(f"⚠️ Error scraping article: {e}")
+    return title, clean_text, img_urls
 
 def download_image(url, output_path, referer_url=""):
     try:
@@ -71,8 +84,7 @@ def download_image(url, output_path, referer_url=""):
         if referer_url: req_headers["Referer"] = referer_url
         req = requests.get(url, headers=req_headers, timeout=15)
         if req.status_code == 200 and len(req.content) > 3000:
-            with open(output_path, 'wb') as f:
-                f.write(req.content)
+            with open(output_path, 'wb') as f: f.write(req.content)
             return True
     except Exception: pass
     return False
@@ -84,8 +96,7 @@ def check_new_articles_and_prepare_folders():
 
     try:
         with open('config.json', 'r', encoding='utf-8') as f:
-            config_data = json.load(f)
-            rss_links = config_data.get('rss_links', [])
+            rss_links = json.load(f).get('rss_links', [])
     except Exception: return
 
     time_limit = datetime.now() - timedelta(hours=24)
@@ -117,29 +128,24 @@ def check_new_articles_and_prepare_folders():
                 if folder_title.lower() == "shorts" or not folder_title or folder_title in existing:
                     continue
 
-                # ১. পূর্বে তৈরি হওয়া ইতিহাস চেক (ডুপ্লিকেট প্রতিরোধ)
-                if link.lower() in history_logs or raw_title.lower() in history_logs or folder_title.lower() in history_logs:
+                if link.lower() in history_logs or raw_title.lower() in history_logs:
                     continue
 
-                # ২. টাইটেলে নিষিদ্ধ কিওয়ার্ড ফিল্টার (এনজিও/ব্যাংক/চলমান)
                 if is_forbidden_article(raw_title) or is_forbidden_article(folder_title):
-                    print(f"🚫 [FILTERED] Skipping '{folder_title}' (Title contains forbidden keywords).")
+                    print(f"🚫 [FILTERED] Skipping '{folder_title}'.")
                     continue
 
-                content = entry.content[0].value if hasattr(entry, 'content') else getattr(entry, 'summary', "")
-                valid_img_urls = extract_image_urls_from_html(content, base_url=link)
-                if not valid_img_urls and link:
-                    valid_img_urls = scrape_images_from_webpage(link)
-
-                if not valid_img_urls:
-                    print(f"⏩ Skipping '{folder_title}' (No images found in article).")
+                # 🌟 ওয়েবসাইট থেকে সম্পূর্ণ আর্টিকেল টেক্সট ও ছবি সংগ্রহ
+                scraped_title, article_text, img_urls = scrape_article_content_and_images(link)
+                if not img_urls:
+                    print(f"⏩ Skipping '{folder_title}' (No images found).")
                     continue
 
                 folder_path = os.path.join(WORKSPACE_DIR, folder_title)
                 os.makedirs(folder_path, exist_ok=True)
                 
                 downloaded_temp_files = []
-                for idx, src in enumerate(valid_img_urls, start=1):
+                for idx, src in enumerate(img_urls, start=1):
                     temp_img_path = os.path.join(folder_path, f"temp_{idx}.jpg")
                     if download_image(src, temp_img_path, referer_url=link):
                         downloaded_temp_files.append(temp_img_path)
@@ -148,7 +154,7 @@ def check_new_articles_and_prepare_folders():
                     shutil.rmtree(folder_path, ignore_errors=True)
                     continue
 
-                # একাধিক ছবি থাকলে ১ম ১৬:৯ ব্যানার রিমুভ
+                # ব্যানার রিমুভার
                 if len(downloaded_temp_files) > 1:
                     try:
                         with Image.open(downloaded_temp_files[0]) as first_img:
@@ -171,12 +177,15 @@ def check_new_articles_and_prepare_folders():
                     shutil.rmtree(folder_path, ignore_errors=True)
                     continue
 
-                # টাইটেল ও লিংক সেভ
+                # 🌟 টাইটেল, লিংক এবং আর্টিকেলের ফুল টেক্সট সেভ করা
                 with open(os.path.join(folder_path, "title.txt"), "w", encoding="utf-8") as tf:
                     tf.write(raw_title)
                 if link:
                     with open(os.path.join(folder_path, "link.txt"), "w", encoding="utf-8") as lf:
                         lf.write(link)
+                if article_text:
+                    with open(os.path.join(folder_path, "article.txt"), "w", encoding="utf-8") as af:
+                        af.write(article_text)
 
-                print(f"✅ Prepared Article: {folder_title} ({final_img_count} Images)")
+                print(f"✅ Prepared Article: {folder_title} ({final_img_count} Images, Text Saved)")
                 existing.append(folder_title)
