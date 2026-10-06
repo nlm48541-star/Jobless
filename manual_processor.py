@@ -4,11 +4,11 @@ from bs4 import BeautifulSoup
 from PIL import Image
 
 from ai_service import (
-    generate_job_content, clean_script_for_speech, 
-    convert_all_numbers_in_script, generate_seo_metadata, 
-    generate_thumbnail_metadata, sanitize_youtube_tags, DEFAULT_BASE_TAGS
+    generate_job_content, convert_all_numbers_in_script, 
+    generate_seo_metadata, generate_thumbnail_metadata, 
+    sanitize_youtube_tags, DEFAULT_BASE_TAGS
 )
-from audio_engine import generate_voiceover_audio_pipeline
+from audio_engine import generate_voiceover_audio_pipeline, clean_script_for_speech
 from thumbnail import generate_dynamic_thumbnail
 from video_editor import render_synchronized_video, render_video_slideshow
 from youtube_uploader import upload_to_youtube
@@ -114,7 +114,6 @@ def process_manual_drive_folder(yt):
         f_lower = f.lower()
         ext = f_lower.split('.')[-1]
 
-        # 🌟 ম্যানুয়াল ফোল্ডারেও থাম্বনেইল ফাইল আলাদা চেনা
         if f_lower in ["thumbnail.png", "thumbnail.jpg", "thumbnail.jpeg"]:
             custom_thumb_path = f_path
         elif ext in ['jpg', 'jpeg', 'png', 'webp']:
@@ -128,7 +127,6 @@ def process_manual_drive_folder(yt):
         elif f_lower == "title.txt":
             title_txt_path = f_path
 
-    # link.txt হ্যান্ডলিং
     article_link = ""
     scraped_title = ""
     if link_txt_path and os.path.exists(link_txt_path):
@@ -146,7 +144,6 @@ def process_manual_drive_folder(yt):
         except Exception as e:
             print(f"⚠️ Notice on link processing: {e}")
 
-    # টাইটেল নির্ধারণ
     video_title = "নিয়োগ বিজ্ঞপ্তি"
     if title_txt_path and os.path.exists(title_txt_path):
         try:
@@ -162,7 +159,6 @@ def process_manual_drive_folder(yt):
         print("❌ No images available for video creation. Aborting manual job.")
         return
 
-    # স্ক্রিপ্ট এবং মেটাডাটা হ্যান্ডলিং
     user_provided_script = ""
     if script_txt_path and os.path.exists(script_txt_path):
         print("📄 [FOUND script.txt] Using user's custom script! Skipping AI script generation.")
@@ -202,7 +198,6 @@ def process_manual_drive_folder(yt):
         print("❌ Failed to obtain voiceover audio. Aborting manual job.")
         return
 
-    # অডিও প্রস্তুত করা
     if custom_audio_file:
         audio_path = custom_audio_file
         print(f"🎵 Using folder custom audio: {os.path.basename(custom_audio_file)}")
@@ -216,13 +211,12 @@ def process_manual_drive_folder(yt):
             return
         audio_path = gen_audio_path
 
-    # 🌟 থাম্বনেইল তৈরি (কাস্টম থাম্বনেইল থাকলে সেটি সরাসরি ব্যবহার, নতুবা জেনারেট)
     os.makedirs(TMP_DIR, exist_ok=True)
     thumbnail_path = os.path.join(TMP_DIR, "manual_thumbnail.jpg")
     if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
 
     if custom_thumb_path and os.path.exists(custom_thumb_path):
-        print(f"🖼️ [CUSTOM THUMBNAIL] Using '{os.path.basename(custom_thumb_path)}' directly (Bypassing dynamic generator).")
+        print(f"🖼️ [CUSTOM THUMBNAIL] Using '{os.path.basename(custom_thumb_path)}' directly.")
         with Image.open(custom_thumb_path) as c_thumb:
             if c_thumb.mode in ("RGBA", "LA") or (c_thumb.mode == "P" and "transparency" in c_thumb.info):
                 bg = Image.new("RGB", c_thumb.size, (255, 255, 255))
@@ -233,7 +227,6 @@ def process_manual_drive_folder(yt):
     else:
         generate_dynamic_thumbnail(video_title, thumbnail_path, thumb_meta=thumb_meta)
 
-    # ভিডিও রেন্ডারিং
     out_video_file = os.path.join(TMP_DIR, "manual_out.mp4")
     if os.path.exists(out_video_file): os.remove(out_video_file)
 
