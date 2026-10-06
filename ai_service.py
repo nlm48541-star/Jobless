@@ -7,7 +7,7 @@ WORKSPACE_DIR = "workspace"
 TRACKER_FILE = "api_key_tracker.json"
 WORKSPACE_TRACKER = os.path.join(WORKSPACE_DIR, "api_key_tracker.json")
 
-# 🌟 এআই অগ্রাধিকার ক্রম: OpenRouter -> Groq -> Cerebras -> Ollama
+# 🌟 নতুন এআই মডেল অগ্রাধিকার তালিকা: OpenRouter -> Groq -> Cerebras -> Ollama
 OPENROUTER_MODELS = [
     "google/gemini-2.0-flash-001",
     "meta-llama/llama-3.3-70b-instruct",
@@ -20,6 +20,16 @@ OLLAMA_MODELS = [
     "gemma4:31b", "gemma4", "gpt-oss:120b", "gpt-oss:20b",
     "nemotron-3-nano:30b", "kimi-k3", "minimax-m3", "kimi-k2.6"
 ]
+
+def clean_script_for_speech(raw_text):
+    """স্ক্রিপ্ট থেকে অপ্রয়োজনীয় চিহ্ন ও লিংক মুছে পড়ার উপযোগী করে"""
+    if not raw_text: return ""
+    text = re.sub(r'[\*\_\|\#\~]', '', str(raw_text))
+    text = re.sub(r'\[.*?\]', '', text)
+    text = re.sub(r'https?://\S+|wa\.me/\S+', '', text)
+    text = re.sub(r'[\<\>\{\}\(\)\@\$\^\&\+\=\_\\\/]', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 def parse_multiline_keys(raw_text):
     if not raw_text: return []
@@ -165,6 +175,16 @@ def strip_unwanted_chars(text):
     cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆', '', str(text))
     return cleaned.strip()
 
+def extract_vacancy_and_qual(title):
+    vac_match = re.search(r'(\d+|[০-৯]+)\s*(টি\s*)?পদে', title)
+    vac_str = vac_match.group(0) if vac_match else ""
+    qual = ""
+    if any(k in title.upper() for k in ["SSC", "এসএসসি"]): qual = "SSC পাশ যোগ্যতা"
+    elif any(k in title.upper() for k in ["HSC", "এইচএসসি"]): qual = "HSC পাশ যোগ্যতা"
+    elif any(k in title for k in ["৮ম", "অষ্টম"]): qual = "৮ম শ্রেণি পাশ"
+    elif any(k in title for k in ["স্নাতক", "ডিগ্রী", "অনার্স", "Degree", "Honours"]): qual = "স্নাতক পাশ যোগ্যতা"
+    return vac_str, qual
+
 def encode_image_base64(image_path, max_dim=1024):
     try:
         with Image.open(image_path) as img:
@@ -184,13 +204,10 @@ def parse_json_safely(raw_text):
     except Exception: return None
 
 # =========================================================================
-# 🌟 সেন্ট্রাল এআই কল মেকানিজম (OpenRouter -> Groq -> Cerebras -> Ollama)
+# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে (OpenRouter -> Groq -> Cerebras -> Ollama)
 # =========================================================================
 
 def execute_ai_query(prompt, base64_images=None, json_mode=True):
-    """
-    নির্ধারিত ৪টি প্ল্যাটফর্মের অগ্রাধিকার অনুযায়ী এআই রিকোয়েস্ট চালায়
-    """
     # ১. OpenRouter (১ম প্রায়োরিটি)
     raw_openrouter = os.environ.get("OPENROUTER_API_KEYS", os.environ.get("OPENROUTER_API_KEY", "")).strip()
     or_order = get_keys_in_cyclic_order("openrouter", raw_openrouter)
@@ -227,7 +244,7 @@ def execute_ai_query(prompt, base64_images=None, json_mode=True):
             for g_model in GROQ_MODELS:
                 payload = {
                     "model": g_model,
-                    "messages": [{"role": "system", "content": "You are a professional Bengali job circular specialist. Output valid JSON only." if json_mode else "Be accurate."}, {"role": "user", "content": prompt}],
+                    "messages": [{"role": "system", "content": "You are an expert Bengali job circular specialist. Output valid JSON only." if json_mode else "Be accurate."}, {"role": "user", "content": prompt}],
                     "temperature": 0.3, "max_tokens": 4000
                 }
                 if json_mode: payload["response_format"] = {"type": "json_object"}
@@ -292,13 +309,11 @@ def execute_ai_query(prompt, base64_images=None, json_mode=True):
     return None
 
 # =========================================================================
-# 🌟 ৪টি আলাদা ফোকাসড মডুলার কল (Multi-Step Pipeline)
+# 🌟 ৪টি পৃথক মডুলার কল (Multi-Step Pipeline)
 # =========================================================================
 
 def extract_verified_job_data(title, base64_images):
-    """
-    【কল ১】ছবি দেখে ১০০% নির্ভুলভাবে পদের নাম, পদ সংখ্যা, বেতন স্কেল ও আবেদন পদ্ধতি রিড করা
-    """
+    """【কল ১】ছবি দেখে ১০০% নির্ভুলভাবে পদের নাম, পদ সংখ্যা, বেতন স্কেল ও আবেদন পদ্ধতি রিড করা"""
     print("\n🔍 [AI STEP 1] Scanning circular images for 100% accurate post details...")
     prompt = f"""You are a strict forensic document data extractor for Bangladeshi Job Circulars.
 Title: "{title}"
@@ -306,13 +321,13 @@ Title: "{title}"
 CRITICAL INSTRUCTION:
 Look ONLY at the table of posts/vacancies in the circular images.
 Do NOT guess. Transcribe EXACT facts:
-1. "organization": Exact official Bengali name of the organization.
+1. "organization": Official Bengali name of the organization.
 2. "posts": Array of each job position listed:
    - "post_name": Exact position name in Bengali.
    - "vacancy_count": Exact number of vacancies (e.g. "১টি", "০৫টি", "১২টি"). If 1 person, write exactly "১টি". Do NOT inflate or guess.
    - "salary_scale": Exact pay scale and grade (e.g. "৯,৩০০ - ২২,৪৯০/- (গ্রেড-১৬)").
    - "educational_qualification": Exact minimum degree and division required.
-   - "work_nature": Brief description of what kind of work this role does (দাপ্তরিক কাজ/ড্রাইভিং/হিসাবরক্ষণ/ফিল্ড ওয়ার্ক).
+   - "work_nature": Brief description of what kind of work this role does (দাপ্তরিক কাজ/ফিল্ড ওয়ার্ক/টেকনিক্যাল).
 3. "total_vacancies": Sum total of vacancies or as stated.
 4. "application_method": Exactly how candidates must apply:
    - "online": If application is submitted online via website portal, teletalk, or web link.
@@ -331,19 +346,16 @@ Return strictly valid JSON:
     return execute_ai_query(prompt, base64_images=base64_images, json_mode=True)
 
 def generate_script_from_verified_data(verified_data, title):
-    """
-    【কল ২】যাচাইকৃত তথ্যের ওপর ভিত্তি করে ১০+ মিনিটের ইন-ডেপথ চিত্রনাট্য ও নিশ্চিত CTA তৈরি
-    """
+    """【কল ২】যাচাইকৃত তথ্যের ওপর ভিত্তি করে ১০+ মিনিটের গভীর স্ক্রিপ্ট ও নিশ্চিত CTA তৈরি"""
     print("🎙️ [AI STEP 2] Generating in-depth 10+ minute script with confirmed CTA...")
     data_str = json.dumps(verified_data, ensure_ascii=False, indent=2)
-
     app_method = verified_data.get("application_method", "online")
-    
-    # 🌟 নিশ্চিত আবেদন কল-টু-অ্যাকশন (CTA) নির্ধারণ
+
+    # 🌟 নিশ্চিত আবেদন কল-টু-অ্যাকশন (CTA)
     if app_method == "prescribed_form":
         cta_instruction = 'Tell viewers: "এই নিয়োগে আবেদনের জন্য নির্ধারিত আবেদন ফরমটি সঠিক নিয়মে পূরণ করতে এবং প্রয়োজনীয় কাগজপত্র প্রস্তুত করতে স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের অভিজ্ঞ টিম আপনার আবেদন ফরমটি নির্ভুলভাবে পূরণ করে দেবে।"'
     elif app_method == "formal_letter":
-        cta_instruction = 'Tell viewers: "এই নিয়োগের জন্য সঠিক ফরম্যাটে আনুষ্ঠানিক আবেদনপত্র ও জীবনবৃত্তান্ত (CV) তৈরি করতে স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের টিম আপনার হয়ে সঠিক আবেদনপত্র প্রস্তুত করে দেবে।"'
+        cta_instruction = 'Tell viewers: "এই নিয়োগের জন্য সঠিক ফরম্যাটে আনুষ্ঠানিক আবেদনপত্র ও জীবনবৃত্তান্ত (CV) প্রস্তুত করতে স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের টিম আপনার হয়ে সঠিক আবেদনপত্র প্রস্তুত করে দেবে।"'
     else:
         cta_instruction = 'Tell viewers: "এই নিয়োগে অনলাইনে শতভাগ নির্ভুলভাবে ঘরে বসে আবেদন সম্পন্ন করতে স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের অভিজ্ঞ টিম অত্যন্ত সতর্কতার সাথে আপনার আবেদন সফলভাবে সম্পন্ন করে দেবে।"'
 
@@ -380,9 +392,7 @@ Return strictly valid JSON:
     return execute_ai_query(prompt, base64_images=None, json_mode=True)
 
 def generate_seo_metadata(verified_data, title):
-    """
-    【কল ৩】এসইও ফ্রেন্ডলি টাইটেল, ডেসক্রিপশন ও ট্যাগসের জন্য আলাদা কল
-    """
+    """【কল ৩】এসইও ফ্রেন্ডলি টাইটেল, ডেসক্রিপশন ও ট্যাগসের জন্য আলাদা কল"""
     print("📈 [AI STEP 3] Generating SEO Title, Description & Tags...")
     posts_summary = ", ".join([p.get("post_name", "") for p in verified_data.get("posts", [])[:4]])
     total_vac = verified_data.get("total_vacancies", "")
@@ -403,9 +413,7 @@ Return strictly valid JSON:
     return execute_ai_query(prompt, base64_images=None, json_mode=True)
 
 def generate_thumbnail_metadata(verified_data, title):
-    """
-    【কল ৪】থাম্বনেইলের আকর্ষণীয় টেক্সটের জন্য আলাদা কল
-    """
+    """【কল ৪】থাম্বনেইলের আকর্ষণীয় টেক্সটের জন্য আলাদা কল"""
     print("🎨 [AI STEP 4] Generating High-CTR Thumbnail Texts...")
     first_post = verified_data.get("posts", [{}])[0]
     post_name = first_post.get("post_name", "জরুরি নিয়োগ")
@@ -442,6 +450,7 @@ Return strictly valid JSON:
 
 def generate_job_content(title, img_paths):
     clean_title = clean_title_for_display(title)
+    vac_str, qual_str = extract_vacancy_and_qual(clean_title)
     base64_images = [encode_image_base64(p) for p in img_paths[:3] if encode_image_base64(p)]
 
     # ১. কল ১: ছবি দেখে সঠিক তথ্য এক্সট্রাকশন
@@ -450,9 +459,9 @@ def generate_job_content(title, img_paths):
         print("⚠️ Direct vision OCR partial. Fallback to basic schema...")
         verified_data = {
             "organization": clean_title.split("নিয়োগ")[0].strip(),
-            "total_vacancies": "",
+            "total_vacancies": vac_str,
             "application_method": "online",
-            "posts": [{"post_name": "বিভিন্ন পদে নিয়োগ", "vacancy_count": "", "salary_scale": "সরকারি স্কেল", "educational_qualification": "বিজ্ঞপ্তি অনুযায়ী", "work_nature": "দাপ্তরিক দায়িত্ব"}]
+            "posts": [{"post_name": "বিভিন্ন পদে নিয়োগ", "vacancy_count": vac_str, "salary_scale": "সরকারি স্কেল", "educational_qualification": qual_str, "work_nature": "দাপ্তরিক দায়িত্ব"}]
         }
 
     # ২. কল ২: ১০+ মিনিটের গভীর স্ক্রিপ্ট তৈরি
@@ -483,9 +492,9 @@ def generate_job_content(title, img_paths):
         "top_text": strip_unwanted_chars(thumb_res.get("top_text", verified_data.get("organization", "সরকারি চাকরি"))),
         "row1_text": strip_unwanted_chars(thumb_res.get("row1_text", "জরুরি নিয়োগ")),
         "row2_text": strip_unwanted_chars(thumb_res.get("row2_text", verified_data.get("total_vacancies", "বিশাল নিয়োগ"))),
-        "sub_text": strip_unwanted_chars(thumb_res.get("sub_text", "যোগ্যতা ও নিয়ম")),
+        "sub_text": strip_unwanted_chars(thumb_res.get("sub_text", qual_str if qual_str else "যোগ্যতা ও নিয়ম")),
         "bot_text": strip_unwanted_chars(thumb_res.get("bot_text", "আবেদনের শেষ তারিখ ও নিয়ম"))
     }
 
-    print(f"✨ [PIPELINE SUCCESS] 10+ Min Script & Verified Data Generated Successfully for '{clean_title[:35]}...'!")
+    print(f"✨ [PIPELINE SUCCESS] 10+ Min Script & Verified Data Generated for '{clean_title[:35]}...'!")
     return opt_title, voiceover_script, segments, thumb_meta, video_desc, video_tags
