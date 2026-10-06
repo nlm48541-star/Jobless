@@ -4,7 +4,7 @@ from PIL import Image
 
 from feed_manager import (
     check_new_articles_and_prepare_folders, clean_filename, is_forbidden_article, 
-    WORKSPACE_DIR
+    WORKSPACE_DIR, scrape_article_content_and_images
 )
 from ai_service import generate_job_content
 from audio_engine import generate_voiceover_audio_pipeline
@@ -46,11 +46,10 @@ def process_ready_videos(yt):
         folder_path = os.path.join(WORKSPACE_DIR, folder_name)
         try:
             if is_forbidden_article(folder_name):
-                print(f"🚫 [FILTERED] Deleting forbidden folder '{folder_name}'.")
                 shutil.rmtree(folder_path, ignore_errors=True)
                 continue
 
-            existing_audio_file, txt_path, link_path = None, None, None
+            existing_audio_file, txt_path, link_path, article_txt_path = None, None, None, None
             custom_thumb_path = None
             img_files = []
             
@@ -64,9 +63,12 @@ def process_ready_videos(yt):
                     txt_path = os.path.join(folder_path, file)
                 elif f_lower == "link.txt":
                     link_path = os.path.join(folder_path, file)
-                # 🌟 থাম্বনেইল ফাইল আলাদা শনাক্ত করা (ভিডিওর স্লাইড থেকে আলাদা থাকবে)
-                elif f_lower in ["thumbnail.png", "thumbnail.jpg", "thumbnail.jpeg"]:
+                elif f_lower == "article.txt":
+                    article_txt_path = os.path.join(folder_path, file)
+                # 🌟 থাম্বনেইল ছবিকে চিহ্নিত করা এবং ভিডিওর স্লাইড থেকে ১০০% বাদ দেওয়া
+                elif any(k in f_lower for k in ["thumbnail", "thumb"]) and ext in ['jpg', 'jpeg', 'png', 'webp']:
                     custom_thumb_path = os.path.join(folder_path, file)
+                    continue  # স্লাইডশো লিস্টে যোগ হবে না
                 elif ext in ['jpg', 'jpeg', 'png', 'webp']: 
                     img_files.append(os.path.join(folder_path, file))
                     
@@ -88,14 +90,25 @@ def process_ready_videos(yt):
                         article_link = lf.read().strip()
                 except Exception: pass
 
+            article_text = ""
+            if article_txt_path and os.path.exists(article_txt_path):
+                try:
+                    with open(article_txt_path, 'r', encoding='utf-8') as af:
+                        article_text = af.read().strip()
+                except Exception: pass
+            elif article_link:
+                _, article_text, _ = scrape_article_content_and_images(article_link)
+
+            source_text = article_text if article_text else raw_title
+
             if is_forbidden_article(raw_title):
                 shutil.rmtree(folder_path, ignore_errors=True)
                 continue
 
             print(f"\n========== Process started: {folder_name} ==========")
 
-            # এআই দিয়ে ১০+ মিনিটের সেগমেন্টেড স্ক্রিপ্ট তৈরি
-            ai_res = generate_job_content(raw_title, img_files)
+            # এআই দিয়ে স্ক্রিপ্ট তৈরি
+            ai_res = generate_job_content(raw_title, source_text, img_files)
             opt_title, voiceover_script, segments, thumb_meta, video_desc, video_tags = ai_res
 
             if not opt_title or not voiceover_script:
@@ -112,39 +125,31 @@ def process_ready_videos(yt):
                 gen_audio_path = os.path.join(folder_path, "voiceover.mp3")
                 audio_success = generate_voiceover_audio_pipeline(voiceover_script, gen_audio_path)
                 if not audio_success or not os.path.exists(gen_audio_path):
-                    print(f"🛑 Audio synthesis failed for '{folder_name}'.")
                     continue
                 audio_path = gen_audio_path
 
-            # 🌟 থাম্বনেইল তৈরি (কাস্টম থাম্বনেইল থাকলে সেটি সরাসরি ব্যবহার, নতুবা ডায়নামিক জেনারেট)
+            # থাম্বনেইল
             thumbnail_path = os.path.join(TMP_DIR, "thumbnail.jpg")
             if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
 
             if custom_thumb_path and os.path.exists(custom_thumb_path):
-                print(f"🖼️ [CUSTOM THUMBNAIL] Using '{os.path.basename(custom_thumb_path)}' directly (Bypassing dynamic generator).")
+                print(f"🖼️ [CUSTOM THUMBNAIL] Using '{os.path.basename(custom_thumb_path)}' directly.")
                 with Image.open(custom_thumb_path) as c_thumb:
-                    if c_thumb.mode in ("RGBA", "LA") or (c_thumb.mode == "P" and "transparency" in c_thumb.info):
-                        bg = Image.new("RGB", c_thumb.size, (255, 255, 255))
-                        bg.paste(c_thumb.convert("RGBA"), mask=c_thumb.convert("RGBA"))
-                        bg.save(thumbnail_path, "JPEG", quality=100, subsampling=0)
-                    else:
-                        c_thumb.convert("RGB").save(thumbnail_path, "JPEG", quality=100, subsampling=0)
+                    c_thumb.convert("RGB").save(thumbnail_path, "JPEG", quality=100, subsampling=0)
             else:
                 generate_dynamic_thumbnail(raw_title, thumbnail_path, thumb_meta=thumb_meta)
 
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # অডিও-ভিজ্যুয়াল সিঙ্ক্রোনাইজড ভিডিও রেন্ডার
+            # ভিডিও রেন্ডারিং
             print("Rendering 16:9 Synchronized Video for YouTube...")
             render_synchronized_video(audio_path, img_files, segments, out_video_file, is_vertical=False)
             
             upload_success = upload_to_youtube(
                 yt, out_video_file, video_title, 
                 thumbnail_path if os.path.exists(thumbnail_path) else None,
-                description=video_desc,
-                tags=video_tags,
-                schedule_upload=True
+                description=video_desc, tags=video_tags, schedule_upload=True
             )
             
             if upload_success:
@@ -191,10 +196,9 @@ def process_shorts_folder(yt):
                 except Exception: pass
 
 if __name__ == "__main__":
-    print("\n====== [ Google Drive Bot Active | Synchronized 10-Min Engine ] ======\n")
+    print("\n====== [ Google Drive Bot Active | Text-Accurate 10-Min Engine ] ======\n")
     try:
         yt_service = get_youtube_service()
-
         try: process_manual_drive_folder(yt_service)
         except Exception: traceback.print_exc()
 
@@ -206,7 +210,6 @@ if __name__ == "__main__":
 
         try: process_shorts_folder(yt_service)
         except Exception: traceback.print_exc()
-
     except Exception:
         traceback.print_exc()
     finally:
