@@ -6,6 +6,7 @@ from ai_service import strip_unwanted_chars
 FONTS_DIR = "Fonts"
 PHOTOS_DIR = "Photos"
 
+# 🌟 ১৮টি নির্দিষ্ট প্রতিষ্ঠান ও তাদের লোগো ফাইলের ম্যাপিং
 ORG_LOGO_RULES = [
     (['সেনাবাহিনী', 'সেনা', 'army', 'সৈনিক', 'কমিশনড অফিসার'], ['Army.png', 'army.png', 'ARMY.PNG', 'sena.png']),
     (['নৌবাহিনী', 'নৌ', 'navy', 'নাবিক', 'sailor'], ['Navy.png', 'navy.png', 'NAVY.PNG', 'nou.png']),
@@ -37,10 +38,7 @@ VIBRANT_PALETTES = [
 ]
 
 def find_matched_org_logo(title_text):
-    """কেস-ইনসেনসিটিভভাবে Photos ফোল্ডার থেকে নির্দিষ্ট লোগো খুঁজে বের করে"""
     if not os.path.exists(PHOTOS_DIR): return None
-    
-    # Photos ফোল্ডারের সব ফাইল লোয়ারকেস ম্যাপিং করা
     disk_files = {f.lower(): os.path.join(PHOTOS_DIR, f) for f in os.listdir(PHOTOS_DIR)}
     t_lower = str(title_text).lower()
 
@@ -50,6 +48,21 @@ def find_matched_org_logo(title_text):
                 if fn.lower() in disk_files:
                     return disk_files[fn.lower()]
     return None
+
+def split_long_name_intelligently(name):
+    """বড় প্রতিষ্ঠানের নামকে সুষম দুটি লাইনে ভাগ করে"""
+    name = re.sub(r'\s+', ' ', str(name)).strip()
+    if ',' in name:
+        parts = [p.strip() for p in name.split(',', 1)]
+        if parts[0] and parts[1]: return parts[0], parts[1]
+    if ' ও ' in name:
+        parts = name.split(' ও ', 1)
+        if len(parts[0]) >= 6 and len(parts[1]) >= 6:
+            return parts[0].strip() + ' ও', parts[1].strip()
+    words = name.split()
+    if len(words) <= 1: return name, ""
+    mid = (len(words) + 1) // 2
+    return " ".join(words[:mid]), " ".join(words[mid:])
 
 def is_valid_bengali_font(font_path):
     try:
@@ -152,33 +165,22 @@ def draw_mixed_text_centered(draw, center_x, center_y, text, bn_font_path, font_
         cur_x += w
 
 def render_logo_to_box(img, logo_path, box_rect):
-    """
-    🌟 ১০০% নিখুঁত আলফা কম্পোজিট মেথডে যেকোনো ফরম্যাটের লোগো ড্র করে
-    """
     try:
         x1, y1, x2, y2 = box_rect
-        box_w = x2 - x1
-        box_h = y2 - y1
-
+        box_w, box_h = x2 - x1, y2 - y1
         with Image.open(logo_path) as raw_logo:
             logo_rgba = raw_logo.convert("RGBA")
-            
-            # লোগো রিসাইজ করা (বক্সের সাইজের ৯০% পর্যন্ত)
             max_w, max_h = int(box_w * 0.88), int(box_h * 0.88)
             logo_rgba.thumbnail((max_w, max_h), Image.LANCZOS)
             lw, lh = logo_rgba.size
-
-            # সাদা ব্যাকগ্রাউন্ডের ওপর আলফা কম্পোজিট
             box_patch = Image.new("RGBA", (box_w, box_h), (255, 255, 255, 255))
             px = (box_w - lw) // 2
             py = (box_h - lh) // 2
             box_patch.alpha_composite(logo_rgba, (px, py))
-
-            # মূল ইমেজে প্যাচ পেস্ট করা
             img.paste(box_patch.convert("RGB"), (x1, y1))
             return True
     except Exception as e:
-        print(f"⚠️ Logo render exception ({logo_path}): {e}")
+        print(f"⚠️ Logo render notice: {e}")
         return False
 
 def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
@@ -188,24 +190,48 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
 
     if not thumb_meta: thumb_meta = {}
 
-    top_text = strip_unwanted_chars(thumb_meta.get("top_text", "সরকারি চাকরি"))
-    row1_text = strip_unwanted_chars(thumb_meta.get("row1_text", "জরুরি নিয়োগ"))
-    row2_text = strip_unwanted_chars(thumb_meta.get("row2_text", "বিশাল নিয়োগ"))
-    sub_text = strip_unwanted_chars(thumb_meta.get("sub_text", "SSC/HSC পাশ যোগ্যতা"))
-    bot_text = strip_unwanted_chars(thumb_meta.get("bot_text", "আবেদনের শেষ তারিখ ও নিয়ম"))
+    # মেটাডাটা এক্সট্রাকশন
+    raw_top = strip_unwanted_chars(thumb_meta.get("top_text", ""))
+    row1_hook = strip_unwanted_chars(thumb_meta.get("row1_text", "জরুরি নিয়োগ"))
+    raw_sub = strip_unwanted_chars(thumb_meta.get("sub_text", "SSC/HSC পাশ"))
+    bot_text = strip_unwanted_chars(thumb_meta.get("bot_text", "অনলাইনে আবেদন ও বিস্তারিত"))
+
+    # যদি হুক ছাড়া অন্য কিছু না থাকে
+    if not any(h in row1_hook for h in ["নিয়োগ", "সুযোগ"]):
+        row1_hook = "জরুরি নিয়োগ"
+
+    # প্রতিষ্ঠানের নাম নির্ধারণ
+    org_candidate = raw_top
+    if not org_candidate or org_candidate in ["সরকারি চাকরি", "বেসরকারি চাকরি", "জরুরি নিয়োগ"]:
+        clean_t = title.split('|')[0].split('-')[0].strip()
+        org_candidate = clean_t.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_t else clean_t[:35]
+
+    org_words = org_candidate.split()
+    is_name_long = len(org_candidate) > 22 or len(org_words) > 3
+
+    # 🌟 আপনার নতুন রুল: ছোট নাম নাকি বড় নাম সে অনুযায়ী ২ লাইনের লেখা তৈরি
+    if is_name_long:
+        # বড় নাম: দুই লাইনে ভাগ হবে (অর্ধেক উপরে, অর্ধেক নিচে)
+        middle_line1, middle_line2 = split_long_name_intelligently(org_candidate)
+        top_bar_title = "সরকারি চাকরি" if "বেসরকারি" not in title else "বেসরকারি চাকরি"
+    else:
+        # ছোট নাম: ১ম লাইনে 'জরুরি নিয়োগ' / 'বিশাল নিয়োগ', ২য় লাইনে প্রতিষ্ঠানের নাম
+        middle_line1 = row1_hook
+        middle_line2 = org_candidate
+        top_bar_title = "সরকারি চাকরি" if "বেসরকারি" not in title else "বেসরকারি চাকরি"
 
     bar_font = get_fixed_bar_font()
     font_line1, font_line2 = get_two_distinct_middle_fonts()
 
     # নির্দিষ্ট প্রতিষ্ঠান লোগো চেকিং
-    matched_logo = find_matched_org_logo(title) or find_matched_org_logo(top_text)
+    matched_logo = find_matched_org_logo(title) or find_matched_org_logo(org_candidate)
 
     # =========================================================================
-    # 🌟 ১. স্পেশাল অর্গানাইজেশন ডিজাইন (৩টি টেক্সট বক্স + ডানপাশে বড় লোগো)
+    # 🌟 ১. স্পেশাল অর্গানাইজেশন ডিজাইন (ডানপাশে লোগো সহ)
     # =========================================================================
     if matched_logo and os.path.exists(matched_logo):
         theme = random.choice(VIBRANT_PALETTES)
-        print(f"✨ [Special Org Thumbnail] Detected Logo: {os.path.basename(matched_logo)} for '{title[:40]}'...")
+        print(f"✨ [Special Org Thumbnail] Logo: {os.path.basename(matched_logo)}")
 
         # টপ বার (0 to 200px)
         draw.rectangle([0, 0, W, 200], fill=theme["bar_bg"])
@@ -218,36 +244,40 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
                     img.paste(gl_rgba, (W - 185, 25), gl_rgba)
             except Exception: pass
 
-        fs_top, _ = get_best_fitted_mixed_font_size(top_text, max_w=W - 420, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
-        draw_mixed_text_centered(draw, W // 2, 100, top_text, bar_font, fs_top, theme["bar_text"])
+        fs_top, _ = get_best_fitted_mixed_font_size(org_candidate[:30], max_w=W - 420, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
+        draw_mixed_text_centered(draw, W // 2, 100, org_candidate[:30], bar_font, fs_top, theme["bar_text"])
 
         split_x = 1260
 
-        # 🌟 ডানপাশের লোগো বক্সে নিশ্চিতভাবে লোগো ড্র করা
+        # ডানে লোগো বক্স (1260 to 1920px)
         render_logo_to_box(img, matched_logo, (split_x, 200, W, 880))
 
-        # বামে ৩টি স্ট্যাকড সম্পূর্ণ আলাদা টেক্সট বক্স
-        # বক্স ১: হলুদ সাব-হুক (200 to 380px)
+        # বামে ৩টি স্ট্যাকড বক্স:
+        # বক্স ১: হলুদ সাব-হুক
         draw.rectangle([0, 200, split_x, 380], fill=theme["sub_bg"])
-        fs_b1, _ = get_best_fitted_mixed_font_size(row1_text, max_w=split_x - 40, max_h=150, bn_font_path=font_line1, start_size=220, min_size=90)
-        draw_mixed_text_centered(draw, split_x // 2, 290, row1_text, font_line1, fs_b1, theme["sub_text"])
+        fs_b1, _ = get_best_fitted_mixed_font_size(row1_hook, max_w=split_x - 40, max_h=150, bn_font_path=font_line1, start_size=220, min_size=90)
+        draw_mixed_text_centered(draw, split_x // 2, 290, row1_hook, font_line1, fs_b1, theme["sub_text"])
 
-        # বক্স ২: সাদা ব্যাকগ্রাউন্ডে বিশাল লাল মেইন হুক (380 to 700px)
+        # বক্স ২: সাদা ব্যাকগ্রাউন্ডে লাল হুক (পদ সংখ্যা / মূল বিষয়)
         draw.rectangle([0, 380, split_x, 700], fill="#ffffff")
-        fs_b2, _ = get_best_fitted_mixed_font_size(row2_text, max_w=split_x - 40, max_h=280, bn_font_path=font_line2, start_size=330, min_size=120)
-        draw_mixed_text_centered(draw, split_x // 2, 540, row2_text, font_line2, fs_b2, theme["hook_text"])
+        vac_text = strip_unwanted_chars(thumb_meta.get("row2_text", "বিশাল নিয়োগ"))
+        fs_b2, _ = get_best_fitted_mixed_font_size(vac_text, max_w=split_x - 40, max_h=280, bn_font_path=font_line2, start_size=330, min_size=120)
+        draw_mixed_text_centered(draw, split_x // 2, 540, vac_text, font_line2, fs_b2, theme["hook_text"])
 
-        # বক্স ৩: হলুদ সাব-লাইন (700 to 880px)
+        # বক্স ৩: হলুদ সাব-বক্স (যোগ্যতা / জেলা - কখনোই আবেদনের কথা রিপিট হবে না)
         draw.rectangle([0, 700, split_x, 880], fill=theme["sub_bg"])
-        fs_b3, _ = get_best_fitted_mixed_font_size(sub_text, max_w=split_x - 40, max_h=150, bn_font_path=font_line1, start_size=200, min_size=80)
-        draw_mixed_text_centered(draw, split_x // 2, 790, sub_text, font_line1, fs_b3, theme["sub_text"])
+        # আবেদনের কথা থাকলে ফিল্টার করে যোগ্যতা বসানো
+        box3_text = raw_sub
+        if any(term in box3_text for term in ["আবেদন", "ফরম", "পূরণ", "নিয়ম"]):
+            box3_text = "SSC/HSC পাশ / ৬৪ জেলা"
+        fs_b3, _ = get_best_fitted_mixed_font_size(box3_text, max_w=split_x - 40, max_h=150, bn_font_path=font_line1, start_size=200, min_size=80)
+        draw_mixed_text_centered(draw, split_x // 2, 790, box3_text, font_line1, fs_b3, theme["sub_text"])
 
-        # বর্ডার ও সেপারেটর লাইন
         draw.line([(split_x, 200), (split_x, 880)], fill=theme["border"], width=7)
         draw.line([(0, 380), (split_x, 380)], fill=theme["border"], width=6)
         draw.line([(0, 700), (split_x, 700)], fill=theme["border"], width=6)
 
-        # বটম বার (880 to 1080px)
+        # বটম বার (আবেদনের পদ্ধতি ও নিয়ম এখানে একমাত্র থাকবে)
         draw.rectangle([0, 880, W, H], fill=theme["bar_bg"])
         fs_bot, _ = get_best_fitted_mixed_font_size(bot_text, max_w=W - 80, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
         draw_mixed_text_centered(draw, W // 2, 980, bot_text, bar_font, fs_bot, theme["bot_text"])
@@ -256,10 +286,10 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
         draw.line([(0, 880), (W, 880)], fill=theme["border"], width=7)
 
     # =========================================================================
-    # 🌟 ২. রেগুলার ডিজাইন (ক্লাসিক ফুল ওয়াইড্থ ডিজাইন)
+    # 🌟 ২. রেগুলার ক্লাসিক থাম্বনেইল (ফুল ওয়াইড্থ ২ লাইনের ডিজাইন)
     # =========================================================================
     else:
-        print(f"📄 [Classic Thumbnail] Regular layout for '{title[:35]}...'")
+        print(f"📄 [Classic Thumbnail] Org: '{org_candidate}' | Long: {is_name_long}")
         green_bg = "#00521b"
         
         # টপ বার
@@ -273,26 +303,27 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
                     img.paste(gl_rgba, (W - 185, 25), gl_rgba)
             except Exception: pass
 
-        fs_top, _ = get_best_fitted_mixed_font_size(top_text, max_w=W - 420, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
-        draw_mixed_text_centered(draw, W // 2, 100, top_text, bar_font, fs_top, "#ffffff")
+        fs_top, _ = get_best_fitted_mixed_font_size(top_bar_title, max_w=W - 420, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
+        draw_mixed_text_centered(draw, W // 2, 100, top_bar_title, bar_font, fs_top, "#ffffff")
 
-        # মিডল সেকশন (ফুল ওয়াইড্থ সাদা ব্যাকগ্রাউন্ড)
+        # মিডল সেকশন (সাদা ব্যাকগ্রাউন্ডে বড় লেখা)
         draw.rectangle([0, 200, W, 880], fill="#ffffff")
 
-        fs_l1, h1 = get_best_fitted_mixed_font_size(row1_text, max_w=W - 80, max_h=340, bn_font_path=font_line1, start_size=330, min_size=130)
-        fs_l2, h2 = get_best_fitted_mixed_font_size(sub_text, max_w=W - 80, max_h=290, bn_font_path=font_line2, start_size=280, min_size=110)
+        # 🌟 লাইন ১ (উজ্জ্বল লাল) ও লাইন ২ (গাঢ় কালো)
+        fs_l1, h1 = get_best_fitted_mixed_font_size(middle_line1, max_w=W - 80, max_h=340, bn_font_path=font_line1, start_size=330, min_size=130)
+        fs_l2, h2 = get_best_fitted_mixed_font_size(middle_line2, max_w=W - 80, max_h=290, bn_font_path=font_line2, start_size=290, min_size=110)
 
         line_spacing = 15
         total_content_height = h1 + line_spacing + h2
         start_y = 540 - (total_content_height // 2)
 
-        # লাল লাইন ১ (মেইন হুক)
-        draw_mixed_text_centered(draw, W // 2, start_y + (h1 // 2), row1_text, font_line1, fs_l1, "#d80000")
+        # লাল লাইন ১
+        draw_mixed_text_centered(draw, W // 2, start_y + (h1 // 2), middle_line1, font_line1, fs_l1, "#d80000")
 
-        # কালো লাইন ২ (যোগ্যতা / জেলা)
-        draw_mixed_text_centered(draw, W // 2, start_y + h1 + line_spacing + (h2 // 2), sub_text, font_line2, fs_l2, "#000000")
+        # কালো লাইন ২
+        draw_mixed_text_centered(draw, W // 2, start_y + h1 + line_spacing + (h2 // 2), middle_line2, font_line2, fs_l2, "#000000")
 
-        # বটম বার
+        # বটম বার (অনলাইন আবেদন / ফরম পূরণ / আবেদনপত্র তৈরি একমাত্র এখানেই থাকবে)
         draw.rectangle([0, 880, W, H], fill=green_bg)
         fs_bot, _ = get_best_fitted_mixed_font_size(bot_text, max_w=W - 80, max_h=160, bn_font_path=bar_font, start_size=170, min_size=80)
         draw_mixed_text_centered(draw, W // 2, 980, bot_text, bar_font, fs_bot, "#ffe600")
@@ -301,4 +332,4 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
         draw.line([(0, 880), (W, 880)], fill="#003310", width=7)
 
     img.save(output_path, "JPEG", quality=100, subsampling=0)
-    print(f"✅ Generated Ultra-HD Thumbnail: '{row1_text} | {sub_text} | {bot_text}'")
+    print(f"✅ Generated Smart Dynamic Thumbnail: '{middle_line1} | {middle_line2} | {bot_text}'")
