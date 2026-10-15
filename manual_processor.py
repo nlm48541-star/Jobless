@@ -9,7 +9,7 @@ from ai_service import (
 )
 from audio_engine import generate_voiceover_audio_pipeline
 from thumbnail import generate_dynamic_thumbnail
-from video_editor import render_synchronized_video, render_video_slideshow
+from video_editor import render_video_slideshow
 from youtube_uploader import upload_to_youtube
 from feed_manager import scrape_article_content_and_images, download_image, clean_filename
 
@@ -75,7 +75,7 @@ def process_manual_drive_folder(yt):
         # 🌟 থাম্বনেইল ছবি আলাদা শনাক্ত করা এবং স্লাইডশো থেকে সম্পূর্ণ বাদ রাখা
         if any(k in f_lower for k in ["thumbnail", "thumb"]) and ext in ['jpg', 'jpeg', 'png', 'webp']:
             custom_thumb_path = f_path
-            continue  # স্লাইডশোতে যোগ হবে না
+            continue
         elif ext in ['jpg', 'jpeg', 'png', 'webp']:
             img_files.append(f_path)
         elif ext in ['mp3', 'wav', 'm4a', 'aac']:
@@ -134,7 +134,6 @@ def process_manual_drive_folder(yt):
                 user_provided_script = sf.read().strip()
         except Exception: pass
 
-    segments = []
     thumb_meta = {}
     video_desc = ""
     video_tags = DEFAULT_BASE_TAGS
@@ -155,13 +154,14 @@ def process_manual_drive_folder(yt):
         print("🤖 [ARTICLE TEXT MODE] Generating 10+ min accurate script from article text...")
         source_text = article_text if article_text else video_title
         ai_res = generate_job_content(video_title, source_text, img_files)
-        opt_title, voiceover_script, segments, thumb_meta, video_desc, video_tags = ai_res
+        opt_title, voiceover_script, thumb_meta, video_desc, video_tags = ai_res
         if opt_title: video_title = opt_title
 
     if not voiceover_script and not custom_audio_file:
         print("❌ Failed to obtain voiceover audio.")
         return
 
+    # অডিও প্রস্তুত করা
     if custom_audio_file:
         audio_path = custom_audio_file
     else:
@@ -171,6 +171,7 @@ def process_manual_drive_folder(yt):
         if not audio_ok or not os.path.exists(gen_audio_path): return
         audio_path = gen_audio_path
 
+    # থাম্বনেইল
     thumbnail_path = os.path.join(TMP_DIR, "manual_thumbnail.jpg")
     if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
     if custom_thumb_path and os.path.exists(custom_thumb_path):
@@ -180,13 +181,11 @@ def process_manual_drive_folder(yt):
     else:
         generate_dynamic_thumbnail(video_title, thumbnail_path, thumb_meta=thumb_meta)
 
+    # 🌟 সাধারণ স্লাইডশো ভিডিও রেন্ডার
     out_video_file = os.path.join(TMP_DIR, "manual_out.mp4")
     if os.path.exists(out_video_file): os.remove(out_video_file)
 
-    if segments:
-        render_synchronized_video(audio_path, img_files, segments, out_video_file, is_vertical=False)
-    else:
-        render_video_slideshow(audio_path, img_files, out_video_file, is_vertical=False)
+    render_video_slideshow(audio_path, img_files, out_video_file, is_vertical=False)
 
     upload_success = upload_to_youtube(
         yt, out_video_file, video_title,
@@ -199,10 +198,7 @@ def process_manual_drive_folder(yt):
             os.makedirs(LIVESTREAM_DIR, exist_ok=True)
             safe_name = clean_filename(video_title)[:40].strip()
             live_video_file = os.path.join(LIVESTREAM_DIR, f"{safe_name}.mp4")
-            if segments:
-                render_synchronized_video(audio_path, img_files, segments, live_video_file, is_vertical=True)
-            else:
-                render_video_slideshow(audio_path, img_files, live_video_file, is_vertical=True)
+            render_video_slideshow(audio_path, img_files, live_video_file, is_vertical=True)
         except Exception: pass
 
         clean_manual_folder_on_drive(folder_id)
