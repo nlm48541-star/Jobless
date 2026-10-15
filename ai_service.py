@@ -264,13 +264,11 @@ def execute_ai_query(prompt, json_mode=True):
     return None
 
 # =========================================================================
-# 🌟 ৪টি পৃথক মডুলার কল (আবেদন পদ্ধতি শনাক্ত ও রোবটিক শব্দ প্রতিরোধ)
+# 🌟 ৪টি পৃথক মডুলার কল (১০+ মিনিটের স্ক্রিপ্ট)
 # =========================================================================
 
 def extract_verified_job_data(title, article_text):
-    """
-    【কল ১】টেক্সট পড়ে পদের সংখ্যা ও ডাকযোগ/কুরিয়ার/অনলাইন আবেদন পদ্ধতি নিশ্চিত করা
-    """
+    """【কল ১】টেক্সট পড়ে পদের সংখ্যা ও আবেদন পদ্ধতি নিশ্চিত করা"""
     print("\n🔍 [STEP 1] Extracting accurate job facts & confirmed application method...")
     prompt = f"""You are a strict data extraction specialist.
 Analyze this human-written Bengali job circular article text carefully:
@@ -281,7 +279,7 @@ ARTICLE TEXT:
 ---
 
 CRITICAL INSTRUCTIONS:
-1. Examine if application is through Courier (কুরিয়ার) or Postal Department / Post Office (ডাক বিভাগ / ডাকযোগে / রেজিস্টার্ড ডাক) or Direct Office Submission:
+1. Examine if application is through Courier (কুরিয়ার) or Postal Department (ডাক বিভাগ / ডাকযোগে) or Direct Office Submission:
    - If applicants must fill a prescribed form (নির্ধারিত চাকরির আবেদন ফরম / নির্দিষ্ট ফরম পূরণ), set "application_method": "prescribed_form" and "hook_phrase": "ফর্ম পূরণ".
    - If applicants must write/draft a formal application letter on plain paper with CV (সাদা কাগজে স্বহস্তে লিখিত আবেদনপত্র / আবেদনপত্র তৈরি), set "application_method": "formal_letter" and "hook_phrase": "আবেদনপত্র তৈরি".
    - Otherwise, if application is via online link/teletalk/web portal, set "application_method": "online" and "hook_phrase": "অনলাইনে আবেদন".
@@ -309,14 +307,11 @@ Return strictly valid JSON:
     return execute_ai_query(prompt, json_mode=True)
 
 def generate_script_from_verified_data(verified_data, title, article_text):
-    """
-    【কল ২】১০+ মিনিটের গভীর স্ক্রিপ্ট ('শূন্যপদ' পুনরাবৃত্তি মুক্ত ও নিশ্চিত CTA)
-    """
+    """【কল ২】১০+ মিনিটের গভীর স্ক্রিপ্ট ('শূন্যপদ' পুনরাবৃত্তি মুক্ত ও নিশ্চিত CTA)"""
     print("🎙️ [STEP 2] Generating in-depth 10+ minute script without repetitive 'শূন্যপদ'...")
     data_str = json.dumps(verified_data, ensure_ascii=False, indent=2)
     app_method = verified_data.get("application_method", "online")
 
-    # 🌟 নিশ্চিত আবেদন কল-টু-অ্যাকশন
     if app_method == "prescribed_form":
         cta_instruction = 'Tell viewers: "এই নিয়োগে আবেদনের জন্য নির্ধারিত চাকরির আবেদন ফরমটি সঠিক নিয়মে পূরণ করতে এবং প্রয়োজনীয় কাগজপত্র প্রস্তুত করতে স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের অভিজ্ঞ টিম আপনার চাকরির ফর্ম পূরণ সফলভাবে সম্পন্ন করে দেবে।"'
     elif app_method == "formal_letter":
@@ -332,7 +327,7 @@ REFERENCE ARTICLE CONTEXT:
 {article_text[:2500]}
 
 STRICT SCRIPT RULES (10+ MINUTE VIDEO DURATION):
-1. LENGTH: 1350 to 1500 Bengali words total across 8 to 12 detailed segments.
+1. LENGTH: 1350 to 1500 Bengali words total. Continuous spoken natural Bengali.
 2. 🚫 STRICT PROHIBITION ON 'শূন্যপদ':
    - Do NOT repetitively say 'অমুক পদে এতটি শূন্যপদ রয়েছে' or overuse the robotic word 'শূন্যপদ'.
    - Instead, use conversational, natural Bengali expressions like:
@@ -344,25 +339,17 @@ STRICT SCRIPT RULES (10+ MINUTE VIDEO DURATION):
 4. FORBIDDEN: Do NOT explain application website steps, SMS codes, or photo pixel sizes.
 5. OUTRO & CONFIRMED CTA:
    {cta_instruction}
-6. VISUAL TARGETS (For Video Synchronizer):
-   Return as "script_segments" list:
-   - "focus_region": One of ["header", "post_1", "post_2", "post_3", "post_4", "terms", "footer"]
-   - "image_index": 1, 2, or 3
-   - "text": Spoken Bengali text (120 to 160 words per segment). All numbers in Bengali words!
+6. NUMBERS IN WORDS: Every single number in the spoken text MUST be written in full Bengali words (কথায় লেখা)! Do NOT mention any year.
 
 Return strictly valid JSON:
 {{
-  "script_segments": [
-    {{"segment_id": 1, "focus_region": "header", "image_index": 1, "text": "..."}},
-    {{"segment_id": 2, "focus_region": "post_1", "image_index": 1, "text": "..."}}
-  ]
+  "voiceover_script": "Full continuous spoken script of 1350 to 1500 Bengali words with numbers in Bengali words"
 }}"""
-    return execute_ai_query(prompt, json_mode=True)
+    res = execute_ai_query(prompt, json_mode=True)
+    return res.get("voiceover_script", "") if res else ""
 
 def generate_seo_metadata(verified_data, title):
-    """
-    【কল ৩】এসইও ফ্রেন্ডলি টাইটেল, ডেসক্রিপশন ও ট্যাগস ('ফর্ম পূরণ' / 'আবেদনপত্র তৈরি' সহ)
-    """
+    """【কল ৩】এসইও ফ্রেন্ডলি টাইটেল, ডেসক্রিপশন ও ট্যাগস ('ফর্ম পূরণ' / 'আবেদনপত্র তৈরি' সহ)"""
     print("📈 [STEP 3] Generating SEO Title, Description & Tags with Method Hook...")
     posts_summary = ", ".join([p.get("post_name", "") for p in verified_data.get("posts", [])[:4]])
     total_vac = verified_data.get("total_vacancies", "")
@@ -391,9 +378,7 @@ Return strictly valid JSON:
     return execute_ai_query(prompt, json_mode=True)
 
 def generate_thumbnail_metadata(verified_data, title):
-    """
-    【কল ৪】থাম্বনেইল টেক্সট ('ফর্ম পূরণ' / 'আবেদনপত্র তৈরি' সহ)
-    """
+    """【কল ৪】থাম্বনেইল টেক্সট ('ফর্ম পূরণ' / 'আবেদনপত্র তৈরি' সহ)"""
     print("🎨 [STEP 4] Generating Dynamic Thumbnail Texts with Method Hook...")
     first_post = verified_data.get("posts", [{}])[0]
     post_name = first_post.get("post_name", "জরুরি নিয়োগ")
@@ -432,7 +417,7 @@ Return strictly valid JSON:
     return execute_ai_query(prompt, json_mode=True)
 
 # =========================================================================
-# 🌟 মূল মাস্টার ফাংশন
+# 🌟 মূল মাস্টার ফাংশন (Main Orchestrator)
 # =========================================================================
 
 def generate_job_content(title, article_text, img_paths=None):
@@ -450,17 +435,11 @@ def generate_job_content(title, article_text, img_paths=None):
         }
 
     # ২. কল ২: ১০+ মিনিটের গভীর স্ক্রিপ্ট ('শূন্যপদ' মুক্ত)
-    script_res = generate_script_from_verified_data(verified_data, clean_title, article_text)
-    segments = script_res.get("script_segments", []) if script_res else []
-    if not segments:
-        segments = [{"segment_id": 1, "focus_region": "header", "image_index": 1, "text": "আসসালামু আলাইকুম। আজকের ভিডিওতে আপনাদের স্বাগতম।"}]
+    raw_script = generate_script_from_verified_data(verified_data, clean_title, article_text)
+    if not raw_script:
+        raw_script = "আসসালামু আলাইকুম। আজকের ভিডিওতে আপনাদের স্বাগতম। এই নিয়োগে আবেদনের বিস্তারিত তথ্যাবলী নিচে দেওয়া হলো।"
 
-    full_text_list = []
-    for seg in segments:
-        clean_t = convert_all_numbers_in_script(seg.get("text", ""))
-        seg["text"] = clean_t
-        full_text_list.append(clean_t)
-    voiceover_script = " ".join(full_text_list)
+    voiceover_script = convert_all_numbers_in_script(raw_script)
 
     # ৩. কল ৩: এসইও মেটাডাটা
     seo_res = generate_seo_metadata(verified_data, clean_title)
@@ -485,4 +464,4 @@ def generate_job_content(title, article_text, img_paths=None):
     }
 
     print(f"✨ [ACCURACY GUARANTEED] 10+ Min Script Generated with Method Hook: '{hook}'!")
-    return opt_title, voiceover_script, segments, thumb_meta, video_desc, video_tags
+    return opt_title, voiceover_script, thumb_meta, video_desc, video_tags
