@@ -4,87 +4,64 @@ import numpy as np
 from PIL import Image
 from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips, ImageClip, CompositeVideoClip
 
-def crop_circular_region(pil_img, focus_region):
+def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
+    """
+    সার্কুলার পেজগুলোকে কোনো অস্বাভাবিক জুম ছাড়া ওপর থেকে নিচে স্বাভাবিকভাবে স্ক্রল করায়
+    """
+    pil_img = Image.open(img_path).convert("RGB")
     w, h = pil_img.size
-    region = str(focus_region).lower()
-
-    if "header" in region:
-        return pil_img.crop((0, 0, w, int(h * 0.32)))
-    elif "post_1" in region:
-        return pil_img.crop((0, int(h * 0.18), w, int(h * 0.48)))
-    elif "post_2" in region:
-        return pil_img.crop((0, int(h * 0.34), w, int(h * 0.64)))
-    elif "post_3" in region:
-        return pil_img.crop((0, int(h * 0.48), w, int(h * 0.78)))
-    elif "terms" in region or "age" in region:
-        return pil_img.crop((0, int(h * 0.58), w, int(h * 0.85)))
-    else:
-        return pil_img.crop((0, int(h * 0.15), w, int(h * 0.75)))
-
-def make_synchronized_frame(img_path, focus_region, duration, target_w=1920, target_h=1080):
-    with Image.open(img_path) as full_img:
-        cropped_section = crop_circular_region(full_img.convert("RGB"), focus_region)
-
-    w, h = cropped_section.size
+    ratio = w / h
     target_ratio = target_w / target_h
-    zoom_factor = 1.08
 
-    if (w / h) >= target_ratio:
-        new_h = int(target_h * zoom_factor)
-        new_w = int((new_h / h) * w)
-    else:
-        new_w = int(target_w * zoom_factor)
-        new_h = int((new_w / w) * h)
-
-    new_w = max(target_w, new_w)
-    new_h = max(target_h, new_h)
-
-    img_np = np.array(cropped_section.resize((new_w, new_h), Image.LANCZOS))
-    max_y_offset = max(0, new_h - target_h)
-    max_x_offset = max(0, new_w - target_w)
-
-    def frame_getter(t):
-        prog = min(1.0, max(0.0, t / duration if duration > 0 else 0))
-        y_start = int(prog * max_y_offset)
-        x_start = int(prog * max_x_offset)
-        return img_np[y_start : y_start + target_h, x_start : x_start + target_w]
-
-    return VideoClip(frame_getter, duration=duration)
-
-def make_standard_slide_frame(img_path, duration, target_w=1920, target_h=1080):
-    with Image.open(img_path) as full_img:
-        pil_img = full_img.convert("RGB")
-        w, h = pil_img.size
-        ratio = w / h
-        target_ratio = target_w / target_h
-
-        if target_w < target_h:
-            # ৯:১৬
-            if ratio < (9.0 / 16.0) - 0.01:
-                new_w, new_h = target_w, max(target_h, int((target_w / w) * h))
-                img_np = np.array(pil_img.resize((new_w, new_h), Image.LANCZOS))
-                def getter(t):
-                    prog = min(1.0, max(0.0, t / duration if duration > 0 else 0))
-                    y = int(prog * max(0, new_h - target_h))
-                    return img_np[y : y + target_h, 0:target_w]
-                return VideoClip(getter, duration=duration)
-            else:
-                scale = min(target_w / w, target_h / h)
-                resized = pil_img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-                canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
-                canvas.paste(resized, ((target_w - int(w * scale)) // 2, (target_h - int(h * scale)) // 2))
-                return VideoClip(lambda t: np.array(canvas), duration=duration)
-        else:
-            # ১৬:৯
-            zoom = 1.05
-            new_h = int(target_h * zoom) if ratio >= target_ratio else int((int(target_w * zoom) / w) * h)
-            new_w = int((new_h / h) * w) if ratio >= target_ratio else int(target_w * zoom)
-            new_w, new_h = max(target_w, new_w), max(target_h, new_h)
+    if target_w < target_h:
+        # ৯:১৬ পোর্ট্রেট ভিডিও (JobLive / Shorts)
+        if ratio < (9.0 / 16.0) - 0.01:
+            new_w, new_h = target_w, max(target_h, int((target_w / w) * h))
             img_np = np.array(pil_img.resize((new_w, new_h), Image.LANCZOS))
-            def getter(t):
+            max_offset = max(0, new_h - target_h)
+            def frame_getter(t):
                 prog = min(1.0, max(0.0, t / duration if duration > 0 else 0))
-                return img_np[int(prog * (new_h - target_h)) : int(prog * (new_h - target_h)) + target_h, int(prog * (new_w - target_w)) : int(prog * (new_w - target_w)) + target_w]
-            return VideoClip(getter, duration=duration)
+                y_start = int(prog * max_offset)
+                return img_np[y_start : y_start + target_h, 0:target_w]
+            clip = VideoClip(frame_getter, duration=duration)
+        elif (9.0 / 16.0) - 0.01 <= ratio < (16.0 / 9.0) - 0.01:
+            scale = min(target_w / w, target_h / h)
+            resized = pil_img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+            canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
+            canvas.paste(resized, ((target_w - int(w * scale)) // 2, (target_h - int(h * scale)) // 2))
+            clip = VideoClip(lambda t: np.array(canvas), duration=duration)
+        else:
+            new_h, new_w = target_h, max(target_w, int((target_h / h) * w))
+            img_np = np.array(pil_img.resize((new_w, new_h), Image.LANCZOS))
+            max_offset = max(0, new_w - target_w)
+            def frame_getter(t):
+                prog = min(1.0, max(0.0, t / duration if duration > 0 else 0))
+                x_start = int(prog * max_offset)
+                return img_np[0:target_h, x_start : x_start + target_w]
+            clip = VideoClip(frame_getter, duration=duration)
+    else:
+        # ১৬:৯ ল্যান্ডস্কেপ ভিডিও (সার্কুলার পেজ উপর থেকে নিচে মসৃণ স্ক্রল হবে)
+        if ratio >= target_ratio: 
+            new_h, new_w = target_h, int((target_h / h) * w)
+        else: 
+            new_w, new_h = target_w, int((target_w / w) * h)
+        if new_w < target_w: new_w, new_h = target_w, int((new_w / w) * h)
+        if new_h < target_h: new_h, new_w = target_h, int((new_h / h) * w)
+        
+        img_np = np.array(pil_img.resize((new_w, new_h), Image.LANCZOS))
+        max_y_offset = max(0, new_h - target_h)
+        max_x_offset = max(0, new_w - target_w)
+        
+        def frame_getter(t):
+            prog = min(1.0, max(0.0, t / duration if duration > 0 else 0))
+            y_start = int(prog * max_y_offset)
+            x_start = int(prog * max_x_offset)
+            return img_np[y_start : y_start + target_h, x_start : x_start + target_w]
+            
+        clip = VideoClip(frame_getter, duration=duration)
+
+    pil_img.close()
+    return clip
 
 def find_front_overlay_file():
     for c in ["Front.png", "front.png", "FRONT.PNG"]:
@@ -132,52 +109,21 @@ def apply_front_overlay(main_clip, target_w, target_h):
         except Exception: pass
     return main_clip
 
-def render_synchronized_video(audio_path, img_files, segments, out_file, is_vertical=False):
-    """সেগমেন্ট অনুযায়ী সিঙ্ক্রোনাইজড ভিডিও তৈরি করে"""
-    if not img_files: raise ValueError("No images provided.")
-    target_w, target_h = (1080, 1920) if is_vertical else (1920, 1080)
-    full_audio = AudioFileClip(audio_path)
-    total_audio_duration = full_audio.duration
-
-    num_segments = len(segments) if segments else 1
-    duration_per_segment = total_audio_duration / num_segments
-
-    video_clips = []
-    num_images = len(img_files)
-
-    for idx, seg in enumerate(segments):
-        focus = seg.get("focus_region", "header")
-        img_idx = seg.get("image_index", 1) - 1
-        actual_img_path = img_files[img_idx % num_images]
-        clip = make_synchronized_frame(actual_img_path, focus, duration_per_segment, target_w, target_h)
-        video_clips.append(clip)
-
-    final_video = concatenate_videoclips(video_clips).set_audio(full_audio)
-    final_video = apply_front_overlay(final_video, target_w, target_h)
-
-    print(f"🎬 Exporting {round(total_audio_duration/60, 1)}-minute Synced Video...")
-    final_video.write_videofile(
-        out_file, fps=30, codec="libx264", audio_codec="aac", audio_bitrate="192k",
-        threads=4, preset="ultrafast",
-        ffmpeg_params=["-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-movflags", "+faststart"],
-        logger=None
-    )
-    final_video.close()
-    full_audio.close()
-    for c in video_clips: c.close()
-
 def render_video_slideshow(audio_path, img_files, out_file, is_vertical=False):
-    """সাধারণ স্লাইডশো ভিডিও তৈরি করে"""
-    if not img_files: raise ValueError("No images provided.")
+    """
+    🌟 পুরো অডিও জুড়ে সার্কুলার পেজগুলোকে মসৃণভাবে স্ক্রল করায়
+    """
+    if not img_files: raise ValueError("No images provided for video rendering.")
     target_w, target_h = (1080, 1920) if is_vertical else (1920, 1080)
     full_audio = AudioFileClip(audio_path)
     total_audio_duration = full_audio.duration
     per_img_duration = total_audio_duration / len(img_files)
 
-    video_clips = [make_standard_slide_frame(img, per_img_duration, target_w, target_h) for img in img_files]
+    video_clips = [make_video_frame(img, per_img_duration, target_w, target_h) for img in img_files]
     final_video = concatenate_videoclips(video_clips).set_audio(full_audio)
     final_video = apply_front_overlay(final_video, target_w, target_h)
 
+    print(f"🎬 Exporting {round(total_audio_duration/60, 1)}-minute Smooth Scrolling Video...")
     final_video.write_videofile(
         out_file, fps=30, codec="libx264", audio_codec="aac", audio_bitrate="192k",
         threads=4, preset="ultrafast",
