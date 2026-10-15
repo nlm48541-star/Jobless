@@ -9,7 +9,7 @@ from feed_manager import (
 from ai_service import generate_job_content
 from audio_engine import generate_voiceover_audio_pipeline
 from thumbnail import generate_dynamic_thumbnail
-from video_editor import render_synchronized_video
+from video_editor import render_video_slideshow
 from youtube_uploader import get_youtube_service, upload_to_youtube
 from manual_processor import process_manual_drive_folder
 
@@ -65,10 +65,10 @@ def process_ready_videos(yt):
                     link_path = os.path.join(folder_path, file)
                 elif f_lower == "article.txt":
                     article_txt_path = os.path.join(folder_path, file)
-                # 🌟 থাম্বনেইল ছবিকে চিহ্নিত করা এবং ভিডিওর স্লাইড থেকে ১০০% বাদ দেওয়া
+                # 🌟 থাম্বনেইল ইমেজ স্লাইডশো থেকে সম্পূর্ণ বাদ রাখা
                 elif any(k in f_lower for k in ["thumbnail", "thumb"]) and ext in ['jpg', 'jpeg', 'png', 'webp']:
                     custom_thumb_path = os.path.join(folder_path, file)
-                    continue  # স্লাইডশো লিস্টে যোগ হবে না
+                    continue
                 elif ext in ['jpg', 'jpeg', 'png', 'webp']: 
                     img_files.append(os.path.join(folder_path, file))
                     
@@ -90,6 +90,7 @@ def process_ready_videos(yt):
                         article_link = lf.read().strip()
                 except Exception: pass
 
+            # আর্টিকেলের টেক্সট পড়া
             article_text = ""
             if article_txt_path and os.path.exists(article_txt_path):
                 try:
@@ -107,9 +108,9 @@ def process_ready_videos(yt):
 
             print(f"\n========== Process started: {folder_name} ==========")
 
-            # এআই দিয়ে স্ক্রিপ্ট তৈরি
+            # এআই দিয়ে নির্ভুল স্ক্রিপ্ট ও মেটাডাটা
             ai_res = generate_job_content(raw_title, source_text, img_files)
-            opt_title, voiceover_script, segments, thumb_meta, video_desc, video_tags = ai_res
+            opt_title, voiceover_script, thumb_meta, video_desc, video_tags = ai_res
 
             if not opt_title or not voiceover_script:
                 print(f"🛑 [CANCELLED] AI generation failed for '{folder_name}'.")
@@ -142,9 +143,9 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # ভিডিও রেন্ডারিং
-            print("Rendering 16:9 Synchronized Video for YouTube...")
-            render_synchronized_video(audio_path, img_files, segments, out_video_file, is_vertical=False)
+            # 🌟 অডিওর পুরো সময়ে পেজগুলো ওপর থেকে নিচে মসৃণভাবে স্ক্রল হবে
+            print("Rendering 16:9 Smooth Scrolling Video for YouTube...")
+            render_video_slideshow(audio_path, img_files, out_video_file, is_vertical=False)
             
             upload_success = upload_to_youtube(
                 yt, out_video_file, video_title, 
@@ -160,7 +161,7 @@ def process_ready_videos(yt):
                     if not os.path.exists(LIVESTREAM_DIR): os.makedirs(LIVESTREAM_DIR, exist_ok=True)
                     safe_name = clean_filename(video_title)[:45].strip()
                     live_video_file = os.path.join(LIVESTREAM_DIR, f"{safe_name}.mp4")
-                    render_synchronized_video(audio_path, img_files, segments, live_video_file, is_vertical=True)
+                    render_video_slideshow(audio_path, img_files, live_video_file, is_vertical=True)
                 except Exception: pass
 
                 shutil.rmtree(folder_path, ignore_errors=True)
@@ -196,7 +197,7 @@ def process_shorts_folder(yt):
                 except Exception: pass
 
 if __name__ == "__main__":
-    print("\n====== [ Google Drive Bot Active | Text-Accurate 10-Min Engine ] ======\n")
+    print("\n====== [ Google Drive Bot Active | Smooth Scroll 10-Min Engine ] ======\n")
     try:
         yt_service = get_youtube_service()
         try: process_manual_drive_folder(yt_service)
