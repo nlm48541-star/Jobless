@@ -1,7 +1,7 @@
 {
   "ollama": {
     "current_index": 2,
-    "last_updated": "2026-10-11T04:01:57.557591"
+    "last_updated": "2026-10-16T19:13:38.277913"
   },
   "gemini_tts": {
     "current_index": 0
@@ -10,11 +10,11 @@
     "current_index": 143
   },
   "openrouter": {
-    "current_index": 1,
-    "last_updated": "2026-10-16T06:02:52.061569"
+    "current_index": 0,
+    "last_updated": "2026-10-16T19:13:36.737353"
   },
   "groq": {
     "current_index": 0,
-    "last_updated": "2026-10-11T04:01:48.953643"
+    "last_updated": "2026-10-16T19:13:37.124807"
   }
 }
