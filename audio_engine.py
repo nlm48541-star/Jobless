@@ -79,7 +79,7 @@ def get_keys_in_cyclic_order(service_name, raw_keys_str):
     return [((saved_idx + i) % total, keys[(saved_idx + i) % total]) for i in range(total)]
 
 # =========================================================================
-# 🌟 ১. Gemini 3.8 Flash TTS ইঞ্জিন (ভয়েস আইডি 404 হলে অটো-রিকভারি)
+# 🌟 ১. Gemini 3.8 Flash TTS ইঞ্জিন (ভয়েস আইডি 404 হলে সাথে সাথে অল্টারনেট)
 # =========================================================================
 
 def synthesize_with_gemini_tts(speech_text, output_audio_path):
@@ -121,7 +121,7 @@ def synthesize_with_gemini_tts(speech_text, output_audio_path):
                         generation_config={"speech_config": [{"voice": voice_id}]}
                     )
                 except Exception as ve:
-                    # যদি কাস্টম ভয়েস 404 দেয়, সরাসরি অল্টারনেট স্টাইলে চেষ্টা
+                    # যদি কাস্টম ভয়েস 404 দেয়, সরাসরি ডিফল্ট ভয়েসে চেষ্টা
                     if "404" in str(ve) or "not found" in str(ve).lower():
                         interaction = client.interactions.create(
                             model="gemini-3.8-flash-tts",
@@ -177,7 +177,7 @@ def synthesize_with_elevenlabs(speech_text, output_audio_path):
     consecutive_fails = 0
 
     for actual_idx, api_key in eleven_order:
-        # 🌟 সার্কিট ব্রেকার: পর পর ৫টি কি ফেইল করলে সময় বাঁচাতে বাকিগুলো স্কিপ করে সরাসরি Edge-এ চলে যাবে
+        # 🌟 পর পর ৫টি কি ফেইল করলে সময় বাঁচাতে বাকি ১৪৩টি কি স্কিপ করে সরাসরি Edge-এ জাম্প করবে
         if consecutive_fails >= 5:
             print(f"  ⚡ [CIRCUIT BREAKER] 5 consecutive ElevenLabs keys failed quota. Jumping instantly to Tier 3 to save time!")
             break
