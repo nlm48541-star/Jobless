@@ -24,7 +24,6 @@ def clean_script_for_speech(raw_text):
     return text
 
 def split_text_into_chunks(text, max_chars=450):
-    """১০ মিনিটের দীর্ঘ স্ক্রিপ্টকে প্রফেশনাল বাক্য অনুযায়ী খণ্ডে খণ্ডে ভাগ করে"""
     raw_parts = re.split(r'([।\?\!\n]+)', text)
     chunks = []
     current = ""
@@ -37,7 +36,6 @@ def split_text_into_chunks(text, max_chars=450):
     return chunks
 
 def combine_wav_bytes(wav_bytes_list):
-    """একাধিক WAV অডিও খণ্ডকে একটি একক নিরবচ্ছিন্ন ১০ মিনিটের অডিওতে রূপান্তর করে"""
     if not wav_bytes_list: return b""
     if len(wav_bytes_list) == 1: return wav_bytes_list[0]
     out_buf = io.BytesIO()
@@ -81,11 +79,11 @@ def get_keys_in_cyclic_order(service_name, raw_keys_str):
     return [((saved_idx + i) % total, keys[(saved_idx + i) % total]) for i in range(total)]
 
 # =========================================================================
-# 🌟 ১. প্রথম প্রায়োরিটি: Gemini 3.8 Flash TTS (Custom Voice: voice_z3e67k0f8p8c)
+# 🌟 ১. Gemini 3.8 Flash TTS ইঞ্জিন (ভয়েস আইডি 404 হলে অটো-রিকভারি)
 # =========================================================================
 
 def synthesize_with_gemini_tts(speech_text, output_audio_path):
-    print("\n--- [AUDIO TIER 1] Gemini 3.8 Flash TTS (10-Min In-Depth Voiceover) ---")
+    print("\n--- [AUDIO TIER 1] Gemini 3.8 Flash TTS ---")
     raw_gemini = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", "")).strip()
     gemini_order = get_keys_in_cyclic_order("gemini_tts", raw_gemini)
     total_gemini = len(parse_multiline_keys(raw_gemini))
@@ -100,37 +98,37 @@ def synthesize_with_gemini_tts(speech_text, output_audio_path):
     try:
         from google import genai
     except ImportError:
-        print("  ⚠️ 'google-genai' library not installed.")
         return False
 
     chunks = split_text_into_chunks(speech_text, max_chars=400)
     print(f"🔑 Loaded {total_gemini} Gemini Key(s). Resuming from Key #{gemini_order[0][0] + 1}...")
-    print(f"📝 Synthesizing {len(chunks)} speech chunk(s) across Gemini...")
 
     for actual_idx, api_key in gemini_order:
         key_num = actual_idx + 1
         masked = mask_key(api_key)
-        print(f"\n  🚀 [Gemini Key #{key_num}/{total_gemini}] (Key: {masked})")
         start_t = time.time()
         key_failed = False
         audio_chunks_bytes = []
 
         try:
             client = genai.Client(api_key=api_key)
-            for c_idx, chunk in enumerate(chunks, 1):
-                interaction = client.interactions.create(
-                    model="gemini-3.8-flash-tts",
-                    input=[{
-                        "type": "user_input",
-                        "content": [{
-                            "type": "text",
-                            "text": chunk,
-                            "annotations": [{"type": "speech_metadata", "style": delivery_style}]
-                        }]
-                    }],
-                    response_format={"type": "audio"},
-                    generation_config={"speech_config": [{"voice": voice_id}]}
-                )
+            for chunk in chunks:
+                try:
+                    interaction = client.interactions.create(
+                        model="gemini-3.8-flash-tts",
+                        input=[{"type": "user_input", "content": [{"type": "text", "text": chunk, "annotations": [{"type": "speech_metadata", "style": delivery_style}]}]}],
+                        response_format={"type": "audio"},
+                        generation_config={"speech_config": [{"voice": voice_id}]}
+                    )
+                except Exception as ve:
+                    # যদি কাস্টম ভয়েস 404 দেয়, সরাসরি অল্টারনেট স্টাইলে চেষ্টা
+                    if "404" in str(ve) or "not found" in str(ve).lower():
+                        interaction = client.interactions.create(
+                            model="gemini-3.8-flash-tts",
+                            input=[{"type": "user_input", "content": [{"type": "text", "text": chunk}]}],
+                            response_format={"type": "audio"}
+                        )
+                    else: raise ve
 
                 if hasattr(interaction, 'output_audio') and hasattr(interaction.output_audio, 'data'):
                     audio_bytes = base64.b64decode(interaction.output_audio.data)
@@ -157,7 +155,7 @@ def synthesize_with_gemini_tts(speech_text, output_audio_path):
     return False
 
 # =========================================================================
-# 🌟 ২. দ্বিতীয় প্রায়োরিটি: ElevenLabs API (eleven_v3)
+# 🌟 ২. ElevenLabs API (১৪৮টি কি সার্কিট ব্রেকার সহ)
 # =========================================================================
 
 def synthesize_with_elevenlabs(speech_text, output_audio_path):
@@ -170,35 +168,32 @@ def synthesize_with_elevenlabs(speech_text, output_audio_path):
         print("  ⚠️ No 'ELEVENLABS_API_KEYS' configured. Moving to Tier 3...")
         return False
 
-    voice_id = "JBFqnCBsd6RMkjVDRZzb" # George (Official Premade Voice)
+    voice_id = "JBFqnCBsd6RMkjVDRZzb"
     tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
     chunks = split_text_into_chunks(speech_text, max_chars=400)
 
     print(f"🔑 Loaded {total_eleven} ElevenLabs Key(s). Resuming from Key #{eleven_order[0][0] + 1}...")
 
+    consecutive_fails = 0
+
     for actual_idx, api_key in eleven_order:
+        # 🌟 সার্কিট ব্রেকার: পর পর ৫টি কি ফেইল করলে সময় বাঁচাতে বাকিগুলো স্কিপ করে সরাসরি Edge-এ চলে যাবে
+        if consecutive_fails >= 5:
+            print(f"  ⚡ [CIRCUIT BREAKER] 5 consecutive ElevenLabs keys failed quota. Jumping instantly to Tier 3 to save time!")
+            break
+
         key_num = actual_idx + 1
         masked = mask_key(api_key)
-        headers = {
-            "Accept": "audio/mpeg",
-            "Content-Type": "application/json",
-            "xi-api-key": api_key
-        }
-
+        headers = {"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": api_key}
         start_t = time.time()
         key_failed = False
         audio_mp3_chunks = []
 
-        print(f"\n  🚀 [ElevenLabs Key #{key_num}/{total_eleven}] ({masked})")
+        print(f"  🚀 [ElevenLabs Key #{key_num}/{total_eleven}] ({masked})")
         for chunk in chunks:
-            payload = {
-                "text": chunk,
-                "model_id": "eleven_v3",
-                "language_code": "bn",
-                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-            }
+            payload = {"text": chunk, "model_id": "eleven_v3", "language_code": "bn", "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}
             try:
-                resp = requests.post(tts_url, json=payload, headers=headers, timeout=90)
+                resp = requests.post(tts_url, json=payload, headers=headers, timeout=30)
                 if resp.status_code == 200 and len(resp.content) > 1000:
                     audio_mp3_chunks.append(resp.content)
                 else:
@@ -216,12 +211,13 @@ def synthesize_with_elevenlabs(speech_text, output_audio_path):
             print(f"  ✅ [SUCCESS] Generated via ElevenLabs Key #{key_num}! ({audio_mb} MB in {round(time.time() - start_t, 2)}s)")
             return True
         else:
+            consecutive_fails += 1
             save_tracker_index("elevenlabs", actual_idx + 1, total_eleven)
 
     return False
 
 # =========================================================================
-# 🌟 ৩. তৃতীয় ব্যাকআপ: Microsoft Edge Neural TTS
+# 🌟 ৩. Microsoft Edge Neural ব্যাকআপ (০.৭৯ সেকেন্ড)
 # =========================================================================
 
 def synthesize_with_edge_fallback(speech_text, output_audio_path):
@@ -242,27 +238,20 @@ def synthesize_with_edge_fallback(speech_text, output_audio_path):
     return False
 
 # =========================================================================
-# 🌟 ৪. চতুর্থ চূড়ান্ত ফলব্যাক: লোকাল ব্যাকগ্রাউন্ড অডিও
+# 🌟 ৪. লোকাল অডিও ফেইল-সেফ
 # =========================================================================
 
 def synthesize_with_local_music(output_audio_path):
-    print("\n--- [AUDIO TIER 4] Local Audio Fail-Safe ---")
-    candidates = [
-        "sample_voice.mp3",
-        "sample_voice.wav",
-        "Music/bg_music.mp3",
-        "Photos/sample_voice.mp3"
-    ]
+    candidates = ["sample_voice.mp3", "sample_voice.wav", "Music/bg_music.mp3", "Photos/sample_voice.mp3"]
     for m in candidates:
         if os.path.exists(m) and os.path.getsize(m) > 2000:
             import shutil
             shutil.copyfile(m, output_audio_path)
-            print(f"  ✅ [FAIL-SAFE] Using Local Audio File '{m}'!")
             return True
     return False
 
 # =========================================================================
-# 🌟 মাস্টার অডিও পাইপলাইন (Orchestrator)
+# 🌟 মূল মাস্টার পাইপলাইন
 # =========================================================================
 
 def generate_voiceover_audio_pipeline(text, output_audio_path):
@@ -271,11 +260,7 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
     words = len(speech_text.split())
 
     print("\n" + "="*65)
-    print("🎙️ [AUDIO ENGINE] Multi-Tier Cascade Active (10-Minute Pipeline)")
-    print("   1. Gemini 3.8 Flash TTS")
-    print("   2. ElevenLabs API")
-    print("   3. Microsoft Edge Backup")
-    print("   4. Local Audio Fail-Safe")
+    print("🎙️ [AUDIO ENGINE] Multi-Tier Cascade Active")
     print(f"📊 [Text Stats] Chars: {clean_chars} | Words: {words}")
     print(f"📝 [Preview]: \"{speech_text[:120]}...\"")
     print("="*65)
@@ -285,17 +270,17 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
         if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
             return True
 
-    # ২. ElevenLabs
+    # ২. ElevenLabs (সার্কিট ব্রেকার সহ)
     if synthesize_with_elevenlabs(speech_text, output_audio_path):
         if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
             return True
 
-    # ৩. Microsoft Edge Neural
+    # ৩. Microsoft Edge Neural (০.৭৯ সেকেন্ড)
     if synthesize_with_edge_fallback(speech_text, output_audio_path):
         if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
             return True
 
-    # ৪. লোকাল মিউজিক
+    # ৪. লোকাল অডিও
     if synthesize_with_local_music(output_audio_path):
         if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
             return True
