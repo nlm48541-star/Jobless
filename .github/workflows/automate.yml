@@ -15,7 +15,7 @@ permissions:
 jobs:
   run-automation:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 40 # 🌟 প্রতি রানের জন্য নিরাপদ ৪০ মিনিট (এখন ১০-১৫ মিনিটেই শেষ হবে)
 
     steps:
       - name: Checkout repository
@@ -54,7 +54,7 @@ jobs:
           mkdir -p workspace
           rclone sync "gdrive:" ./workspace --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --fast-list
 
-      # 🌟 সমস্ত প্রয়োজনীয় API Secrets পাস করা হয়েছে
+      # 🌟 সমস্ত এআই ও অডিও এপিআই কি পাস করা হয়েছে
       - name: Run Python Process (Movie & YouTube upload)
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
@@ -96,13 +96,13 @@ jobs:
             rclone copy ./workspace_live "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --fast-list
           fi
 
-      # 🌟 'JobLive' ফোল্ডার থেকে ৩০ দিনের পুরোনো ভিডিও সরাসরি স্থায়ী ডিলিট (Trash এ জমা হবে না)
+      # ৩০ দিনের পুরোনো ভিডিও সরাসরি ডিলিট
       - name: Cleanup old JobLive videos (Older than 30 days)
         if: always()
         run: |
           rclone delete "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --min-age 30d --drive-use-trash=false --fast-list || true
 
-      # 🌟 গুগল ড্রাইভের Trash (রিসাইকেল বিন) সম্পূর্ণ খালি করে ড্রাইভ স্টোরেজ মুক্ত করা
+      # ড্রাইভের রিসাইকেল বিন সম্পূর্ণ ফাঁকা করা
       - name: Empty Google Drive Trash Permanently
         if: always()
         run: |
