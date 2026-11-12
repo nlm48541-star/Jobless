@@ -165,14 +165,20 @@ def strip_unwanted_chars(text):
     return cleaned.strip()
 
 def parse_json_safely(raw_text):
+    if not raw_text: return None
     try:
         json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
         if json_match: return json.loads(json_match.group(0))
         return json.loads(raw_text)
-    except Exception: return None
+    except Exception:
+        # 🌟 ট্রাঙ্কেটেড স্ক্রিপ্ট থেকে সরাসরি টেক্সট রিকভারি
+        match = re.search(r'"voiceover_script"\s*:\s*"(.*?)(?:"\s*\}|\Z)', raw_text, re.DOTALL)
+        if match:
+            return {"voiceover_script": match.group(1).replace('\\"', '"').replace('\\n', ' ').strip()}
+    return None
 
 # =========================================================================
-# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে
+# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে
 # =========================================================================
 
 def execute_ai_query(prompt, json_mode=True):
@@ -187,7 +193,7 @@ def execute_ai_query(prompt, json_mode=True):
             for model_name in OPENROUTER_MODELS:
                 payload = {"model": model_name, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3}
                 try:
-                    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=50)
+                    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60)
                     if resp.status_code == 200:
                         content_txt = resp.json()['choices'][0]['message']['content']
                         save_tracker_index("openrouter", actual_idx, total_or)
@@ -208,11 +214,11 @@ def execute_ai_query(prompt, json_mode=True):
                 payload = {
                     "model": g_model,
                     "messages": [{"role": "system", "content": "You are a professional Bengali job circular specialist. Output valid JSON only." if json_mode else "Be accurate."}, {"role": "user", "content": prompt}],
-                    "temperature": 0.3, "max_tokens": 4000
+                    "temperature": 0.3, "max_tokens": 6000
                 }
                 if json_mode: payload["response_format"] = {"type": "json_object"}
                 try:
-                    resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=40)
+                    resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=45)
                     if resp.status_code == 200:
                         content_txt = resp.json()['choices'][0]['message']['content']
                         save_tracker_index("groq", actual_idx, total_groq)
@@ -230,9 +236,9 @@ def execute_ai_query(prompt, json_mode=True):
         for actual_idx, c_key in cerebras_order:
             headers = {"Authorization": f"Bearer {c_key}", "Content-Type": "application/json"}
             for c_model in CEREBRAS_MODELS:
-                payload = {"model": c_model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3, "max_tokens": 4000}
+                payload = {"model": c_model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3, "max_tokens": 6000}
                 try:
-                    resp = requests.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload, timeout=40)
+                    resp = requests.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload, timeout=45)
                     if resp.status_code == 200:
                         content_txt = resp.json()['choices'][0]['message']['content']
                         save_tracker_index("cerebras", actual_idx, total_cerebras)
@@ -264,18 +270,17 @@ def execute_ai_query(prompt, json_mode=True):
     return None
 
 # =========================================================================
-# 🌟 ৪টি পৃথক মডুলার কল (১০+ মিনিটের স্ক্রিপ্ট)
+# 🌟 ৪টি পৃথক মডুলার কল
 # =========================================================================
 
 def extract_verified_job_data(title, article_text):
-    """【কল ১】টেক্সট পড়ে পদের সংখ্যা ও আবেদন পদ্ধতি নিশ্চিত করা"""
     print("\n🔍 [STEP 1] Extracting accurate job facts & confirmed application method...")
     prompt = f"""You are a strict data extraction specialist.
 Analyze this human-written Bengali job circular article text carefully:
 ---
 TITLE: {title}
 ARTICLE TEXT:
-{article_text[:4000]}
+{article_text[:3500]}
 ---
 
 CRITICAL INSTRUCTIONS:
@@ -307,8 +312,7 @@ Return strictly valid JSON:
     return execute_ai_query(prompt, json_mode=True)
 
 def generate_script_from_verified_data(verified_data, title, article_text):
-    """【কল ২】১০+ মিনিটের গভীর স্ক্রিপ্ট ('শূন্যপদ' পুনরাবৃত্তি মুক্ত ও নিশ্চিত CTA)"""
-    print("🎙️ [STEP 2] Generating in-depth 10+ minute script without repetitive 'শূন্যপদ'...")
+    print("🎙️ [STEP 2] Generating in-depth voiceover script without repetitive 'শূন্যপদ'...")
     data_str = json.dumps(verified_data, ensure_ascii=False, indent=2)
     app_method = verified_data.get("application_method", "online")
 
@@ -324,10 +328,10 @@ Title: "{title}"
 VERIFIED JOB DATA:
 {data_str}
 REFERENCE ARTICLE CONTEXT:
-{article_text[:2500]}
+{article_text[:2000]}
 
-STRICT SCRIPT RULES (10+ MINUTE VIDEO DURATION):
-1. LENGTH: 1350 to 1500 Bengali words total. Continuous spoken natural Bengali.
+STRICT SCRIPT RULES:
+1. Write a comprehensive, detailed spoken Bengali script (around 650 to 900 words).
 2. 🚫 STRICT PROHIBITION ON 'শূন্যপদ':
    - Do NOT repetitively say 'অমুক পদে এতটি শূন্যপদ রয়েছে' or overuse the robotic word 'শূন্যপদ'.
    - Instead, use conversational, natural Bengali expressions like:
@@ -335,7 +339,7 @@ STRICT SCRIPT RULES (10+ MINUTE VIDEO DURATION):
      * 'এই পদে [সংখ্যা] জন নিয়োগ পাবেন'
      * 'এই পদের জন্য মোট [সংখ্যা] জন কর্মী নেওয়া হবে'
 3. IN-DEPTH DETAILS:
-   - For every post, thoroughly explain daily responsibilities (কোন পদের কি কাজ ও দায়িত্ব), qualifications, GPA, salary scale, grade, and government benefits.
+   - For every post, thoroughly explain daily responsibilities (কোন পদের কি কাজ ও দায়িত্ব), qualifications, GPA, salary scale, grade, and benefits.
 4. FORBIDDEN: Do NOT explain application website steps, SMS codes, or photo pixel sizes.
 5. OUTRO & CONFIRMED CTA:
    {cta_instruction}
@@ -343,13 +347,14 @@ STRICT SCRIPT RULES (10+ MINUTE VIDEO DURATION):
 
 Return strictly valid JSON:
 {{
-  "voiceover_script": "Full continuous spoken script of 1350 to 1500 Bengali words with numbers in Bengali words"
+  "voiceover_script": "Full continuous spoken script in Bengali words"
 }}"""
     res = execute_ai_query(prompt, json_mode=True)
-    return res.get("voiceover_script", "") if res else ""
+    if res and isinstance(res, dict):
+        return res.get("voiceover_script", "")
+    return ""
 
 def generate_seo_metadata(verified_data, title):
-    """【কল ৩】এসইও ফ্রেন্ডলি টাইটেল, ডেসক্রিপশন ও ট্যাগস ('ফর্ম পূরণ' / 'আবেদনপত্র তৈরি' সহ)"""
     print("📈 [STEP 3] Generating SEO Title, Description & Tags with Method Hook...")
     posts_summary = ", ".join([p.get("post_name", "") for p in verified_data.get("posts", [])[:4]])
     total_vac = verified_data.get("total_vacancies", "")
@@ -365,8 +370,8 @@ Application Method Hook: "{hook_phrase}"
 
 MANDATORY RULE:
 - The YouTube Title, Description, and Tags MUST prominently mention "{hook_phrase}"!
-  * If "{hook_phrase}" is "ফর্ম পূরণ": Title must include 'ফর্ম পূরণ' (e.g. "... | চাকরির ফর্ম পূরণ করার নিয়ম 🔥").
-  * If "{hook_phrase}" is "আবেদনপত্র তৈরি": Title must include 'আবেদনপত্র তৈরি' (e.g. "... | চাকরির আবেদনপত্র তৈরি করার নিয়ম 📝").
+  * If "{hook_phrase}" is "ফর্ম পূরণ": Title must include 'ফর্ম পূরণ'.
+  * If "{hook_phrase}" is "আবেদনপত্র তৈরি": Title must include 'আবেদনপত্র তৈরি'.
   * If "{hook_phrase}" is "অনলাইনে আবেদন": Title must include 'অনলাইনে আবেদন'.
 
 Return strictly valid JSON:
@@ -378,7 +383,6 @@ Return strictly valid JSON:
     return execute_ai_query(prompt, json_mode=True)
 
 def generate_thumbnail_metadata(verified_data, title):
-    """【কল ৪】থাম্বনেইল টেক্সট ('ফর্ম পূরণ' / 'আবেদনপত্র তৈরি' সহ)"""
     print("🎨 [STEP 4] Generating Dynamic Thumbnail Texts with Method Hook...")
     first_post = verified_data.get("posts", [{}])[0]
     post_name = first_post.get("post_name", "জরুরি নিয়োগ")
@@ -395,9 +399,7 @@ Qualification: "{qual}"
 Application Method Hook: "{hook_phrase}"
 
 MANDATORY RULE:
-One of the thumbnail text lines (row1_text, sub_text, or bot_text) MUST specifically highlight "{hook_phrase}"!
-- If "{hook_phrase}" is "ফর্ম পূরণ": use texts like "ফর্ম পূরণের নিয়ম" or "ফর্ম পূরণ করলেই চাকরি".
-- If "{hook_phrase}" is "আবেদনপত্র তৈরি": use texts like "আবেদনপত্র তৈরির নিয়ম" or "আবেদনপত্র তৈরি".
+One of the thumbnail text lines MUST specifically highlight "{hook_phrase}"!
 
 Rules:
 - "top_text": 2-3 words. Organization name or category.
@@ -417,7 +419,7 @@ Return strictly valid JSON:
     return execute_ai_query(prompt, json_mode=True)
 
 # =========================================================================
-# 🌟 মূল মাস্টার ফাংশন (Main Orchestrator)
+# 🌟 মূল মাস্টার ফাংশন
 # =========================================================================
 
 def generate_job_content(title, article_text, img_paths=None):
@@ -434,10 +436,20 @@ def generate_job_content(title, article_text, img_paths=None):
             "posts": [{"post_name": "বিভিন্ন পদে নিয়োগ", "vacancy_count": "", "salary_scale": "সরকারি স্কেল", "educational_qualification": "বিজ্ঞপ্তি অনুযায়ী", "work_nature": "দাপ্তরিক দায়িত্ব"}]
         }
 
-    # ২. কল ২: ১০+ মিনিটের গভীর স্ক্রিপ্ট ('শূন্যপদ' মুক্ত)
+    # ২. কল ২: পূর্ণাঙ্গ গভীর স্ক্রিপ্ট ('শূন্যপদ' মুক্ত)
     raw_script = generate_script_from_verified_data(verified_data, clean_title, article_text)
-    if not raw_script:
-        raw_script = "আসসালামু আলাইকুম। আজকের ভিডিওতে আপনাদের স্বাগতম। এই নিয়োগে আবেদনের বিস্তারিত তথ্যাবলী নিচে দেওয়া হলো।"
+    
+    # 🌟 যদি কোনো কারণে কল ২ খালি আসে, তাৎক্ষণিক রিকভারি দিয়ে দীর্ঘ স্ক্রিপ্ট জেনারেট করা
+    if not raw_script or len(raw_script.split()) < 30:
+        print("⚠️ Direct script call truncated. Performing rich text fallback generation...")
+        rec_prompt = f"""Write a detailed 600+ word spoken Bengali documentary script about this job circular:
+Title: {clean_title}
+Organization: {verified_data.get('organization')}
+Posts: {json.dumps(verified_data.get('posts', []), ensure_ascii=False)}
+Do not mention any year. Write all numbers in Bengali words. Do not overuse 'শূন্যপদ', use 'লোক নেওয়া হবে'.
+End with: 'ঘরে বসে শতভাগ নির্ভুলভাবে আবেদন করতে স্ক্রিনে দেওয়া বা ডেসক্রিপশনের হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) যোগাযোগ করুন।'"""
+        recovered = execute_ai_query(rec_prompt, json_mode=False)
+        raw_script = recovered if recovered and len(recovered.split()) > 30 else "আসসালামু আলাইকুম। আজকের ভিডিওতে আপনাদের স্বাগতম। এই নিয়োগে বিভিন্ন পদে কর্মী নিয়োগ দেওয়া হবে।"
 
     voiceover_script = convert_all_numbers_in_script(raw_script)
 
@@ -463,5 +475,5 @@ def generate_job_content(title, article_text, img_paths=None):
         "bot_text": strip_unwanted_chars(thumb_res.get("bot_text", f"{hook} ও বিস্তারিত"))
     }
 
-    print(f"✨ [ACCURACY GUARANTEED] 10+ Min Script Generated with Method Hook: '{hook}'!")
+    print(f"✨ [ACCURACY GUARANTEED] {len(voiceover_script.split())}-word Rich Script Generated for '{clean_title[:35]}...'!")
     return opt_title, voiceover_script, thumb_meta, video_desc, video_tags
