@@ -17,6 +17,9 @@ TMP_DIR = "temp_assets"
 LIVESTREAM_DIR = "workspace_live"
 HISTORY_FILE = os.path.join(WORKSPACE_DIR, "history.txt")
 
+# 🌟 প্রতি ১ ঘণ্টার রানে সর্বোচ্চ ২টি ভিডিও প্রসেস হবে যাতে ১০-১৫ মিনিটে রান শেষ হয়ে যায় (কখনো ক্যানসেল হবে না)
+MAX_VIDEOS_PER_RUN = 2
+
 def add_to_history(entry_text):
     if not entry_text or not str(entry_text).strip(): return
     clean_val = str(entry_text).strip()
@@ -42,7 +45,13 @@ def process_ready_videos(yt):
 
     folders = [f for f in os.listdir(WORKSPACE_DIR) if os.path.isdir(os.path.join(WORKSPACE_DIR, f)) and f.lower() != "shorts"]
     
-    for folder_name in folders:
+    processed_count = 0
+
+    for folder_name in sorted(folders):
+        if processed_count >= MAX_VIDEOS_PER_RUN:
+            print(f"🛑 Reached batch limit of {MAX_VIDEOS_PER_RUN} videos for this run. Remaining will process next hour.")
+            break
+
         folder_path = os.path.join(WORKSPACE_DIR, folder_name)
         try:
             if is_forbidden_article(folder_name):
@@ -65,7 +74,6 @@ def process_ready_videos(yt):
                     link_path = os.path.join(folder_path, file)
                 elif f_lower == "article.txt":
                     article_txt_path = os.path.join(folder_path, file)
-                # 🌟 থাম্বনেইল ইমেজ স্লাইডশো থেকে সম্পূর্ণ বাদ রাখা
                 elif any(k in f_lower for k in ["thumbnail", "thumb"]) and ext in ['jpg', 'jpeg', 'png', 'webp']:
                     custom_thumb_path = os.path.join(folder_path, file)
                     continue
@@ -90,7 +98,6 @@ def process_ready_videos(yt):
                         article_link = lf.read().strip()
                 except Exception: pass
 
-            # আর্টিকেলের টেক্সট পড়া
             article_text = ""
             if article_txt_path and os.path.exists(article_txt_path):
                 try:
@@ -106,14 +113,13 @@ def process_ready_videos(yt):
                 shutil.rmtree(folder_path, ignore_errors=True)
                 continue
 
-            print(f"\n========== Process started: {folder_name} ==========")
+            print(f"\n========== Process started ({processed_count + 1}/{MAX_VIDEOS_PER_RUN}): {folder_name} ==========")
 
-            # এআই দিয়ে নির্ভুল স্ক্রিপ্ট ও মেটাডাটা
-            ai_res = generate_job_content(raw_title, source_text, img_files)
-            opt_title, voiceover_script, thumb_meta, video_desc, video_tags = ai_res
+            # এআই দিয়ে পূর্ণাঙ্গ স্ক্রিপ্ট
+            opt_title, voiceover_script, thumb_meta, video_desc, video_tags = generate_job_content(raw_title, source_text, img_files)
 
-            if not opt_title or not voiceover_script:
-                print(f"🛑 [CANCELLED] AI generation failed for '{folder_name}'.")
+            if not opt_title or not voiceover_script or len(voiceover_script.split()) < 25:
+                print(f"🛑 [CANCELLED] Full script generation failed for '{folder_name}'.")
                 continue
 
             video_title = opt_title
@@ -134,7 +140,6 @@ def process_ready_videos(yt):
             if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
 
             if custom_thumb_path and os.path.exists(custom_thumb_path):
-                print(f"🖼️ [CUSTOM THUMBNAIL] Using '{os.path.basename(custom_thumb_path)}' directly.")
                 with Image.open(custom_thumb_path) as c_thumb:
                     c_thumb.convert("RGB").save(thumbnail_path, "JPEG", quality=100, subsampling=0)
             else:
@@ -143,8 +148,7 @@ def process_ready_videos(yt):
             out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
             if os.path.exists(out_video_file): os.remove(out_video_file)
 
-            # 🌟 অডিওর পুরো সময়ে পেজগুলো ওপর থেকে নিচে মসৃণভাবে স্ক্রল হবে
-            print("Rendering 16:9 Smooth Scrolling Video for YouTube...")
+            print("Rendering 16:9 Video for YouTube...")
             render_video_slideshow(audio_path, img_files, out_video_file, is_vertical=False)
             
             upload_success = upload_to_youtube(
@@ -165,7 +169,8 @@ def process_ready_videos(yt):
                 except Exception: pass
 
                 shutil.rmtree(folder_path, ignore_errors=True)
-                print(f"✅ Folder '{folder_name}' successfully processed and uploaded.\n")
+                print(f"✅ Folder '{folder_name}' successfully uploaded.\n")
+                processed_count += 1
 
         except Exception as folder_error:
             traceback.print_exc()
@@ -197,7 +202,7 @@ def process_shorts_folder(yt):
                 except Exception: pass
 
 if __name__ == "__main__":
-    print("\n====== [ Google Drive Bot Active | Smooth Scroll 10-Min Engine ] ======\n")
+    print("\n====== [ Google Drive Bot Active | Optimized Batch Engine ] ======\n")
     try:
         yt_service = get_youtube_service()
         try: process_manual_drive_folder(yt_service)
