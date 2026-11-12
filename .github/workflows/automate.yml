@@ -27,6 +27,7 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
+      # বাংলা ফন্ট ও সিস্টেম টুলস
       - name: Install System Dependencies (Fonts, FFmpeg, Rclone)
         run: |
           sudo apt-get update
@@ -70,6 +71,7 @@ jobs:
           ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
         run: python main.py
 
+      # 🌟 ট্র্যাকার হিস্টোরি রিপোজিটরিতে অটো-কমিট পুশ
       - name: Commit & Push Trackers to Repository
         if: always()
         run: |
@@ -79,12 +81,14 @@ jobs:
           git commit -m "Auto-update key tracker [skip ci]" || true
           git push origin main || true
 
+      # 🌟 প্রসেস করা ফোল্ডার ড্রাইভ থেকে স্থায়ীভাবে রিমুভ (Trash বাইপাস করে)
       - name: Push updates back to Google Drive (Permanent Folder Cleanup)
         if: always()
         run: |
           rclone sync ./workspace "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --drive-use-trash=false --fast-list
           rclone rmdirs "gdrive:" --drive-root-folder-id="${{ secrets.GDRIVE_PARENT_FOLDER_ID }}" --leave-root || true
 
+      # পোর্ট্রেট ভিডিও জবলাইভে পাঠানো
       - name: Push JobLive videos to Google Drive
         if: always()
         run: |
@@ -92,7 +96,14 @@ jobs:
             rclone copy ./workspace_live "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --fast-list
           fi
 
+      # 🌟 'JobLive' ফোল্ডার থেকে ৩০ দিনের পুরোনো ভিডিও সরাসরি স্থায়ী ডিলিট (Trash এ জমা হবে না)
       - name: Cleanup old JobLive videos (Older than 30 days)
         if: always()
         run: |
-          rclone delete "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --min-age 30d --fast-list || true
+          rclone delete "gdrive:" --drive-root-folder-id="1yFTcykKJaPdvlPC55SwmE0A8GCoYN6mW" --min-age 30d --drive-use-trash=false --fast-list || true
+
+      # 🌟 গুগল ড্রাইভের Trash (রিসাইকেল বিন) সম্পূর্ণ খালি করে ড্রাইভ স্টোরেজ মুক্ত করা
+      - name: Empty Google Drive Trash Permanently
+        if: always()
+        run: |
+          rclone cleanup "gdrive:" || true
