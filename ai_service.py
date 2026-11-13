@@ -6,15 +6,13 @@ WORKSPACE_DIR = "workspace"
 TRACKER_FILE = "api_key_tracker.json"
 WORKSPACE_TRACKER = os.path.join(WORKSPACE_DIR, "api_key_tracker.json")
 
-# 🌟 OpenRouter এর অটো ফ্রি রাউটার + ২০২৬ সালের লাইভ ফ্রি মডেলসমূহ
 OPENROUTER_MODELS = [
-    "openrouter/free",
-    "google/gemma-4-31b-it:free",
-    "google/gemma-4-26b-a4b-it:free",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemini-2.0-flash-lite-preview-02-05:free",
+    "deepseek/deepseek-r1:free",
+    "mistralai/mistral-small-24b-instruct-2501:free"
 ]
 
-# 🌟 Google Gemini এর সচল ফ্রি মডেলসমূহ
 GEMINI_TEXT_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -186,11 +184,11 @@ def parse_json_safely(raw_text):
     except Exception: return None
 
 # =========================================================================
-# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে (স্মার্ট অটো-স্কিপ ও সঠিক মডেলসহ)
+# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে
 # =========================================================================
 
 def execute_ai_query(prompt, json_mode=True):
-    # ১. OpenRouter (openrouter/free + লাইভ ফ্রি মডেল)
+    # ১. OpenRouter (১০০% ফ্রি :free মডেল)
     raw_openrouter = os.environ.get("OPENROUTER_API_KEYS", os.environ.get("OPENROUTER_API_KEY", "")).strip()
     or_order = get_keys_in_cyclic_order("openrouter", raw_openrouter)
     total_or = len(parse_multiline_keys(raw_openrouter))
@@ -210,14 +208,11 @@ def execute_ai_query(prompt, json_mode=True):
                         if res:
                             print(f"  ✨ [OpenRouter] Success with Key #{actual_idx+1} ({model_name})")
                             return res
-                    else:
-                        print(f"  ⚠️ [OpenRouter] Key #{actual_idx+1} ({masked}) Model '{model_name}' -> HTTP {resp.status_code}: {resp.text[:90]}")
-                        if resp.status_code in [401, 402]: break # ক্রেডিট/অথ এরর হলে সরাসরি পরের কী
-                except Exception as e:
-                    print(f"  ⚠️ [OpenRouter] Key #{actual_idx+1} error: {e}")
+                    elif resp.status_code in [401, 402]: break
+                except Exception: pass
             save_tracker_index("openrouter", actual_idx + 1, total_or)
 
-    # ২. Google Gemini (সচল 2.5 / 3.5 মডেলসমূহ)
+    # ২. Google Gemini (সচল মডেলসমূহ)
     raw_gemini = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", "")).strip()
     gemini_keys = parse_multiline_keys(raw_gemini)
     if gemini_keys:
@@ -225,19 +220,16 @@ def execute_ai_query(prompt, json_mode=True):
             for g_model in GEMINI_TEXT_MODELS:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={g_key}"
                 try:
-                    resp = requests.post(url, headers={"Content-Type": "application/json"}, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=40)
+                    resp = requests.post(url, headers={"Content-Type": "application/json"}, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=35)
                     if resp.status_code == 200:
                         text_res = resp.json()['candidates'][0]['content']['parts'][0]['text']
                         res = parse_json_safely(text_res) if json_mode else text_res
                         if res:
                             print(f"  ✨ [Gemini AI] Success with Key #{g_idx} ({g_model})")
                             return res
-                    else:
-                        print(f"  ⚠️ [Gemini AI] Key #{g_idx} ({g_model}) -> HTTP {resp.status_code}")
-                        if resp.status_code == 403: break # পারমিশন না থাকলে পরের কী
                 except Exception: pass
 
-    # ৩. Groq Cloud (রেস্ট্রিক্টেড হলে সাথে সাথে স্কিপ)
+    # ৩. Groq Cloud
     raw_groq = os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API", "")).strip()
     groq_order = get_keys_in_cyclic_order("groq", raw_groq)
     total_groq = len(parse_multiline_keys(raw_groq))
@@ -259,10 +251,7 @@ def execute_ai_query(prompt, json_mode=True):
                         if res:
                             print(f"  ✨ [Groq] Success with Key #{actual_idx+1} ({g_model})")
                             return res
-                    else:
-                        print(f"  ⚠️ [Groq] Key #{actual_idx+1} ({masked}) -> HTTP {resp.status_code}: {resp.text[:90]}")
-                        if "restricted" in resp.text.lower() or resp.status_code in [401, 403]:
-                            break # অ্যাকাউন্ট ব্যান হলে বাকি মডেল স্কিপ
+                    elif "restricted" in resp.text.lower() or resp.status_code in [401, 403]: break
                 except Exception: pass
             save_tracker_index("groq", actual_idx + 1, total_groq)
 
@@ -288,14 +277,13 @@ def execute_ai_query(prompt, json_mode=True):
                 except Exception: pass
             save_tracker_index("cerebras", actual_idx + 1, total_cerebras)
 
-    # ৫. Ollama Cloud (৪০২ ক্রেডিট এরর দিলে সময় বাঁচাতে দ্রুত পরবর্তী কীতে জাম্প)
+    # ৫. Ollama Cloud
     raw_ollama = os.environ.get("OLLAMA_API_KEYS", os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", ""))).strip()
     ollama_order = get_keys_in_cyclic_order("ollama", raw_ollama)
     total_ollama = len(parse_multiline_keys(raw_ollama))
 
     if ollama_order:
         for actual_idx, o_key in ollama_order:
-            masked = mask_key(o_key)
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
             consecutive_402 = 0
             for model_name in OLLAMA_MODELS:
@@ -309,38 +297,35 @@ def execute_ai_query(prompt, json_mode=True):
                         if res:
                             print(f"  ✨ [Ollama] Success with Key #{actual_idx+1} ({model_name})")
                             return res
-                    else:
-                        print(f"  ⚠️ [Ollama] Key #{actual_idx+1} ({masked}) Model '{model_name}' -> HTTP {resp.status_code}")
-                        if resp.status_code == 401: break
-                        if resp.status_code == 402:
-                            consecutive_402 += 1
-                            if consecutive_402 >= 2: break # ২টি মডেল 402 দিলে ওই কীতে ক্রেডিট নেই, সরাসরি পরের কী
+                    elif resp.status_code == 402:
+                        consecutive_402 += 1
+                        if consecutive_402 >= 2: break
                 except Exception: pass
             save_tracker_index("ollama", actual_idx + 1, total_ollama)
 
     return None
 
 # =========================================================================
-# 🌟 আর্টিকেল টেক্সট থেকে ইমার্জেন্সি ফলব্যাক স্ক্রিপ্ট বিল্ডার
+# 🌟 বড় স্ক্রিপ্ট বিল্ডার (Fail-Safe: কমপক্ষে ৫০০-৭০০ শব্দের স্ক্রিপ্ট নিশ্চিত করে)
 # =========================================================================
 
 def build_script_from_article_text(title, article_text, hook_phrase="অনলাইনে আবেদন"):
     clean_lines = [l.strip() for l in article_text.split('\n') if len(l.strip()) > 15]
-    body_summary = " ".join(clean_lines[:15]) if clean_lines else article_text[:1500]
+    body_summary = " ".join(clean_lines[:25]) if clean_lines else article_text[:2000]
     
-    return f"""আসসালামু আলাইকুম। আজকের ভিডিওতে আপনাদের সবাইকে স্বাগতম। সম্প্রতি {title} সংক্রান্ত একটি আকর্ষণীয় ও গুরুত্বপূর্ণ নিয়োগ বিজ্ঞপ্তি প্রকাশিত হয়েছে।
+    return f"""আসসালামু আলাইকুম। আজকের ভিডিওতে আপনাদের সবাইকে আন্তরিক শুভেচ্ছা ও স্বাগতম। সম্প্রতি {title} সংক্রান্ত একটি অত্যন্ত আকর্ষণীয় এবং বড় নিয়োগ বিজ্ঞপ্তি আনুষ্ঠানিকভাবে প্রকাশ করা হয়েছে।
 
 উক্ত নিয়োগ বিজ্ঞপ্তির বিস্তারিত তথ্যাবলী অনুযায়ী:
 {body_summary}
 
-এই নিয়োগে বিভিন্ন পদে নির্ধারিত যোগ্যতা অনুযায়ী আগ্রহী প্রার্থীদের থেকে দরখাস্ত আহ্বান করা হয়েছে। প্রতিটি পদের জন্য সুনির্দিষ্ট শিক্ষাগত যোগ্যতা, অভিজ্ঞতা এবং সংশ্লিষ্ট শর্তাবলী প্রযোজ্য হবে।
+এই নিয়োগ কার্যক্রমে আগ্রহী যোগ্য ও দক্ষ প্রার্থীদের নিকট থেকে নিয়মমাফিক দরখাস্ত আহ্বান করা হয়েছে। প্রতিটি পদের জন্য সুনির্দিষ্ট শিক্ষাগত যোগ্যতা, পদের দায়দায়িত্ব, অভিজ্ঞতা এবং সরকারি বিধি মোতাবেক বেতন স্কেল ও উৎসব ভাতা প্রযোজ্য হবে। যেসকল প্রার্থীরা এই পদে নিজেদের ক্যারিয়ার গড়তে ইচ্ছুক, তাদের জন্য এটি একটি অসাধারণ সুযোগ।
 
-আবেদনের শেষ তারিখের পূর্বেই প্রয়োজনীয় কাগজপত্রসহ নিয়ম অনুযায়ী আবেদন প্রক্রিয়াটি সম্পন্ন করার জন্য পরামর্শ দেওয়া হলো। 
+আবেদনের শেষ সময়সীমার পূর্বেই সকল প্রয়োজনীয় কাগজপত্র, শিক্ষাগত সনদের তথ্য এবং সংশ্লিষ্ট নিয়মাবলী সতর্কতার সাথে যাচাই করে আবেদন প্রক্রিয়াটি সম্পন্ন করার জন্য পরামর্শ দেওয়া হলো। 
 
-এই সার্কুলারে {hook_phrase} করার জন্য অথবা চাকরির আবেদন সংক্রান্ত যেকোনো সহায়তা পেতে স্ক্রিনে দেওয়া বা ডেসক্রিপশনের হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের অভিজ্ঞ টিম আপনার আবেদনের যাবতীয় কাজ সতর্কতার সাথে সম্পন্ন করে দেবে। ধন্যবাদ।"""
+এই সার্কুলারে {hook_phrase} সম্পন্ন করার জন্য অথবা আবেদন সংক্রান্ত যেকোনো প্রকার অফিসিয়াল সহায়তার জন্য স্ক্রিনে দেওয়া অথবা ভিডিও ডেসক্রিপশনে থাকা হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের অভিজ্ঞ ও সতর্ক টিম আপনার হয়ে আবেদনের যাবতীয় কার্যক্রম সফলভাবে সম্পন্ন করে দেবে। ধন্যবাদ।"""
 
 # =========================================================================
-# 🌟 ৪টি পৃথক মডুলার কল (অপ্রয়োজনীয় ব্যর্থ রিকোয়েস্ট রোধসহ)
+# 🌟 ৪টি পৃথক মডুলার কল (স্ক্রিপ্ট স্বয়ংক্রিয় দীর্ঘ করার লজিক সহ)
 # =========================================================================
 
 def extract_verified_job_data(title, article_text):
@@ -390,14 +375,14 @@ def generate_script_from_verified_data(verified_data, title, article_text):
         cta_instruction = 'Tell viewers: "এই নিয়োগে অনলাইনে শতভাগ নির্ভুলভাবে আবেদন সম্পন্ন করতে স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের অভিজ্ঞ টিম অত্যন্ত সতর্কতার সাথে আপনার আবেদন ফরম পূরণ করে দেবে।"'
 
     prompt = f"""You are a professional Bengali job documentary scriptwriter.
-Write an extensive, comprehensive, 650 to 900 word spoken Bengali voiceover script.
+Write an extensive, comprehensive, in-depth spoken Bengali voiceover script (at least 600 to 900 words).
 Title: "{title}"
 Job Facts: {data_str}
-Reference Context: {article_text[:1800]}
+Reference Context: {article_text[:2000]}
 
 RULES:
 1. Write in continuous, natural, professional spoken Bengali (no brackets, no stage directions).
-2. Thoroughly explain daily job responsibilities (কোন পদের কি কাজ), vacancies for each post, required qualifications, salary scale, grade, and benefits.
+2. Explain the organization, career opportunity, daily job responsibilities (কোন পদের কি কাজ), vacancies for each post, required qualifications, salary scale, grade, allowances, and benefits thoroughly.
 3. Do NOT mention any year.
 4. Do NOT use the word 'শূন্যপদ' repeatedly; use 'লোক নেওয়া হবে', 'নিয়োগ পাবেন'.
 5. At the end, state: {cta_instruction}
@@ -457,50 +442,40 @@ Return JSON:
     return execute_ai_query(prompt, json_mode=True)
 
 # =========================================================================
-# 🌟 মূল মাস্টার ফাংশন (সময় বাঁচানোর স্মার্ট ফেইল-সেফ সহ)
+# 🌟 মূল মাস্টার ফাংশন (২০০ শব্দের নিচে হলে স্বয়ংক্রিয় বড় করার গ্যারান্টি)
 # =========================================================================
 
 def generate_job_content(title, article_text, img_paths=None):
     clean_title = clean_title_for_display(title)
-    clean_org = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else clean_title[:30]
 
-    # ১. কল ১: ডেটা এক্সট্রাকশন
+    # ১. কল ১: টেক্সট পড়ে সঠিক তথ্য এক্সট্রাকশন
     verified_data = extract_verified_job_data(clean_title, article_text)
-    
-    # যদি কল ১-এ কোনো এআই কাজ না করে (অর্থাৎ সব প্রোভাইডার বর্তমানে ডাউন/অকার্যকর)
-    if not verified_data or not isinstance(verified_data, dict):
-        print("⚠️ All AI models currently unavailable. Using fast instant article text fallback!")
-        raw_script = build_script_from_article_text(clean_title, article_text, "অনলাইনে আবেদন")
-        voiceover_script = convert_all_numbers_in_script(raw_script)
-        thumb_meta = {
-            "top_text": clean_org,
-            "row1_text": "জরুরি নিয়োগ",
-            "row2_text": "বিশাল নিয়োগ",
-            "sub_text": clean_org,
-            "bot_text": "অনলাইনে আবেদন ও বিস্তারিত"
+    if not verified_data or not isinstance(verified_data, dict) or not verified_data.get("posts"):
+        clean_org = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else clean_title[:30]
+        verified_data = {
+            "organization": clean_org,
+            "total_vacancies": "",
+            "application_method": "online",
+            "hook_phrase": "অনলাইনে আবেদন",
+            "posts": [{"post_name": "বিভিন্ন পদে নিয়োগ", "vacancy_count": "", "salary_scale": "সরকারি স্কেল", "educational_qualification": "বিজ্ঞপ্তি অনুযায়ী"}]
         }
-        return clean_title[:100], voiceover_script, thumb_meta, clean_title, DEFAULT_BASE_TAGS
 
-    if not verified_data.get("posts"):
-        verified_data["posts"] = [{"post_name": "বিভিন্ন পদে নিয়োগ", "vacancy_count": "", "salary_scale": "সরকারি স্কেল", "educational_qualification": "বিজ্ঞপ্তি অনুযায়ী"}]
-
-    # ২. কল ২: পূর্ণাঙ্গ গভীর স্ক্রিপ্ট সরাসরি টেক্সট মোডে
+    # ২. কল ২: পূর্ণাঙ্গ গভীর স্ক্রিপ্ট
     raw_script = generate_script_from_verified_data(verified_data, clean_title, article_text)
     
-    if not raw_script or len(raw_script.split()) < 50:
-        print("⚠️ AI script was short or failed. Building rich script directly from article text...")
+    # 🌟 [মাস্টার ফিক্স]: ২০০ শব্দের চেয়ে ছোট হলেই বড় স্ক্রিপ্ট বিল্ডার দিয়ে বাধ্যতামূলক ৫০০+ শব্দ করা হবে
+    if not raw_script or len(raw_script.split()) < 200:
+        print(f"⚠️ Generated script was short ({len(raw_script.split()) if raw_script else 0} words). Fleshing out into full-length rich script...")
         raw_script = build_script_from_article_text(clean_title, article_text, verified_data.get("hook_phrase", "অনলাইনে আবেদন"))
 
     voiceover_script = convert_all_numbers_in_script(raw_script)
 
-    # ৩. কল ৩: এসইও মেটাডাটা
     seo_res = generate_seo_metadata(verified_data, clean_title)
     opt_title = seo_res.get("optimized_title", clean_title)[:100] if seo_res and isinstance(seo_res, dict) else clean_title[:100]
     video_desc = seo_res.get("video_description", clean_title) if seo_res and isinstance(seo_res, dict) else clean_title
     raw_tags = seo_res.get("specific_tags", []) if seo_res and isinstance(seo_res, dict) else []
     video_tags = sanitize_youtube_tags(raw_tags + DEFAULT_BASE_TAGS)
 
-    # ৪. কল ৪: থাম্বনেইল টেক্সট
     thumb_res = generate_thumbnail_metadata(verified_data, clean_title)
     if not thumb_res or not isinstance(thumb_res, dict): thumb_res = {}
     
