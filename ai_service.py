@@ -6,12 +6,15 @@ WORKSPACE_DIR = "workspace"
 TRACKER_FILE = "api_key_tracker.json"
 WORKSPACE_TRACKER = os.path.join(WORKSPACE_DIR, "api_key_tracker.json")
 
+# 🌟 ওপেনরাউটারের ১০০% ফ্রি মডেলসমূহ (০ ডলার ব্যালেন্সেও চলবে)
 OPENROUTER_MODELS = [
-    "google/gemini-2.0-flash-001",
-    "meta-llama/llama-3.3-70b-instruct",
-    "deepseek/deepseek-chat",
-    "mistralai/mistral-large-2411"
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemini-2.0-flash-lite-preview-02-05:free",
+    "google/gemini-2.0-pro-exp-02-05:free",
+    "deepseek/deepseek-r1:free",
+    "mistralai/mistral-small-24b-instruct-2501:free"
 ]
+
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.1-8b"]
 OLLAMA_MODELS = [
@@ -177,11 +180,11 @@ def parse_json_safely(raw_text):
     except Exception: return None
 
 # =========================================================================
-# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে (ভার্বোস ডিবাগ লগিং সহ)
+# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে (ভার্বোস ডিবাগ লগিং ও ফ্রি মডেল সহ)
 # =========================================================================
 
 def execute_ai_query(prompt, json_mode=True):
-    # ১. OpenRouter (১ম প্রায়োরিটি)
+    # ১. OpenRouter (১০০% ফ্রি :free মডেল দিয়ে শুরু)
     raw_openrouter = os.environ.get("OPENROUTER_API_KEYS", os.environ.get("OPENROUTER_API_KEY", "")).strip()
     or_order = get_keys_in_cyclic_order("openrouter", raw_openrouter)
     total_or = len(parse_multiline_keys(raw_openrouter))
@@ -199,14 +202,32 @@ def execute_ai_query(prompt, json_mode=True):
                         save_tracker_index("openrouter", actual_idx, total_or)
                         res = parse_json_safely(content_txt) if json_mode else content_txt
                         if res: return res
-                    elif resp.status_code in [401, 402, 429]:
-                        print(f"  ⚠️ OpenRouter Key ({masked}) error: {resp.status_code} ({resp.text[:80]})")
-                        break
+                    else:
+                        print(f"  • OpenRouter ({model_name}) status: {resp.status_code}")
                 except Exception as e:
-                    print(f"  ⚠️ OpenRouter request notice: {e}")
+                    print(f"  • OpenRouter notice: {e}")
             save_tracker_index("openrouter", actual_idx + 1, total_or)
 
-    # ২. Groq (২য় প্রায়োরিটি)
+    # ২. Google Gemini Text AI (অফিশিয়াল ফ্রি টিয়ার)
+    raw_gemini = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", "")).strip()
+    gemini_keys = parse_multiline_keys(raw_gemini)
+    if gemini_keys:
+        for g_idx, g_key in enumerate(gemini_keys, 1):
+            for g_model in ["gemini-2.0-flash", "gemini-1.5-flash"]:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={g_key}"
+                headers = {"Content-Type": "application/json"}
+                payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                try:
+                    resp = requests.post(url, headers=headers, json=payload, timeout=40)
+                    if resp.status_code == 200:
+                        text_res = resp.json()['candidates'][0]['content']['parts'][0]['text']
+                        res = parse_json_safely(text_res) if json_mode else text_res
+                        if res:
+                            print(f"  ✨ [SUCCESS] AI Content Generated via Google {g_model}!")
+                            return res
+                except Exception: pass
+
+    # ৩. Groq Cloud
     raw_groq = os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API", "")).strip()
     groq_order = get_keys_in_cyclic_order("groq", raw_groq)
     total_groq = len(parse_multiline_keys(raw_groq))
@@ -229,14 +250,13 @@ def execute_ai_query(prompt, json_mode=True):
                         save_tracker_index("groq", actual_idx, total_groq)
                         res = parse_json_safely(content_txt) if json_mode else content_txt
                         if res: return res
-                    elif resp.status_code in [401, 402, 429]:
-                        print(f"  ⚠️ Groq Key ({masked}) error: {resp.status_code} ({resp.text[:80]})")
-                        break
+                    else:
+                        print(f"  • Groq ({g_model}) status: {resp.status_code} ({resp.text[:60]})")
                 except Exception as e:
-                    print(f"  ⚠️ Groq notice: {e}")
+                    print(f"  • Groq notice: {e}")
             save_tracker_index("groq", actual_idx + 1, total_groq)
 
-    # ৩. Cerebras (৩য় প্রায়োরিটি)
+    # ৪. Cerebras Cloud
     raw_cerebras = os.environ.get("CEREBRAS_API_KEYS", os.environ.get("CEREBRAS_API_KEY", "")).strip()
     cerebras_order = get_keys_in_cyclic_order("cerebras", raw_cerebras)
     total_cerebras = len(parse_multiline_keys(raw_cerebras))
@@ -253,11 +273,10 @@ def execute_ai_query(prompt, json_mode=True):
                         save_tracker_index("cerebras", actual_idx, total_cerebras)
                         res = parse_json_safely(content_txt) if json_mode else content_txt
                         if res: return res
-                    elif resp.status_code in [401, 402, 429]: break
                 except Exception: pass
             save_tracker_index("cerebras", actual_idx + 1, total_cerebras)
 
-    # ৪. Ollama (৪র্থ প্রায়োরিটি - Gemma First)
+    # ৫. Ollama Cloud
     raw_ollama = os.environ.get("OLLAMA_API_KEYS", os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", ""))).strip()
     ollama_order = get_keys_in_cyclic_order("ollama", raw_ollama)
     total_ollama = len(parse_multiline_keys(raw_ollama))
@@ -268,20 +287,40 @@ def execute_ai_query(prompt, json_mode=True):
             for model_name in OLLAMA_MODELS:
                 payload = {"model": model_name, "messages": [{"role": "user", "content": prompt}], "stream": False, "options": {"temperature": 0.4}}
                 try:
-                    resp = requests.post("https://api.ollama.com/api/chat", headers=headers, json=payload, timeout=60)
+                    resp = requests.post("https://api.ollama.com/api/chat", headers=headers, json=payload, timeout=50)
                     if resp.status_code == 200:
                         content_txt = resp.json().get("message", {}).get("content", "").strip()
                         save_tracker_index("ollama", actual_idx, total_ollama)
                         res = parse_json_safely(content_txt) if json_mode else content_txt
                         if res: return res
-                    elif resp.status_code in [401, 402, 429]: break
                 except Exception: pass
             save_tracker_index("ollama", actual_idx + 1, total_ollama)
 
     return None
 
 # =========================================================================
-# 🌟 ৪টি পৃথক মডুলার কল (স্ক্রিপ্ট সরাসরি টেক্সট মোডে আসবে, নো ক্র্যাশ)
+# 🌟 আর্টিকেল টেক্সট থেকে ইমার্জেন্সি ফলব্যাক স্ক্রিপ্ট বিল্ডার (Fail-Safe)
+# =========================================================================
+
+def build_script_from_article_text(title, article_text, hook_phrase="অনলাইনে আবেদন"):
+    """সব এআই ফেইল করলেও ওয়েবসাইটের আসল টেক্সট থেকে একটি পূর্ণাঙ্গ বড় স্ক্রিপ্ট বানিয়ে দেবে"""
+    clean_lines = [l.strip() for l in article_text.split('\n') if len(l.strip()) > 15]
+    body_summary = " ".join(clean_lines[:15]) if clean_lines else article_text[:1500]
+    
+    script = f"""আসসালামু আলাইকুম। আজকের ভিডিওতে আপনাদের সবাইকে স্বাগতম। সম্প্রতি {title} সংক্রান্ত একটি আকর্ষণীয় ও গুরুত্বপূর্ণ নিয়োগ বিজ্ঞপ্তি প্রকাশিত হয়েছে।
+
+উক্ত নিয়োগ বিজ্ঞপ্তির বিস্তারিত তথ্যাবলী অনুযায়ী:
+{body_summary}
+
+এই নিয়োগে বিভিন্ন পদে নির্ধারিত যোগ্যতা অনুযায়ী আগ্রহী প্রার্থীদের থেকে দরখাস্ত আহ্বান করা হয়েছে। প্রতিটি পদের জন্য সুনির্দিষ্ট শিক্ষাগত যোগ্যতা, অভিজ্ঞতা এবং সংশ্লিষ্ট শর্তাবলী প্রযোজ্য হবে।
+
+আবেদনের শেষ তারিখের পূর্বেই প্রয়োজনীয় কাগজপত্রসহ নিয়ম অনুযায়ী আবেদন প্রক্রিয়াটি সম্পন্ন করার জন্য পরামর্শ দেওয়া হলো। 
+
+এই সার্কুলারে {hook_phrase} করার জন্য অথবা চাকরির আবেদন সংক্রান্ত যেকোনো সহায়তা পেতে স্ক্রিনে দেওয়া বা ডেসক্রিপশনের হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের অভিজ্ঞ টিম আপনার আবেদনের যাবতীয় কাজ সতর্কতার সাথে সম্পন্ন করে দেবে। ধন্যবাদ।"""
+    return script
+
+# =========================================================================
+# 🌟 ৪টি পৃথক মডুলার কল
 # =========================================================================
 
 def extract_verified_job_data(title, article_text):
@@ -319,9 +358,6 @@ Return strictly valid JSON:
     return execute_ai_query(prompt, json_mode=True)
 
 def generate_script_from_verified_data(verified_data, title, article_text):
-    """
-    🌟 [মাস্টার ফিক্স]: স্ক্রিপ্ট কোনো JSON দিয়ে চাওয়া হবে না, সরাসরি খাঁটি বাংলায় লেখা হবে
-    """
     print("🎙️ [STEP 2] Generating in-depth spoken script (Direct Text Mode)...")
     data_str = json.dumps(verified_data, ensure_ascii=False, indent=2)
     app_method = verified_data.get("application_method", "online")
@@ -347,7 +383,6 @@ RULES:
 5. At the end, state: {cta_instruction}
 6. IMPORTANT: Output ONLY the spoken Bengali script text directly. Do NOT output JSON, markdown fences, or introduction."""
 
-    # 🌟 সরাসরি টেক্সট মোডে আনা হচ্ছে, ফলে টোকেন ক্র্যাশ বা JSON ভাঙার কোনো সুযোগ নেই
     res_text = execute_ai_query(prompt, json_mode=False)
     return res_text if res_text and isinstance(res_text, str) else ""
 
@@ -409,7 +444,7 @@ Return strictly valid JSON:
     return execute_ai_query(prompt, json_mode=True)
 
 # =========================================================================
-# 🌟 মূল মাস্টার ফাংশন (Main Orchestrator)
+# 🌟 মূল মাস্টার ফাংশন (১০০% স্ক্রিপ্ট নিশ্চয়তা সহ)
 # =========================================================================
 
 def generate_job_content(title, article_text, img_paths=None):
@@ -430,22 +465,10 @@ def generate_job_content(title, article_text, img_paths=None):
     # ২. কল ২: পূর্ণাঙ্গ গভীর স্ক্রিপ্ট সরাসরি টেক্সট মোডে
     raw_script = generate_script_from_verified_data(verified_data, clean_title, article_text)
     
-    # 🌟 যদি স্ক্রিপ্ট ১০০ শব্দের কম হয়, সরাসরি জরুরি এক্সপ্যান্ডার কল
-    if not raw_script or len(raw_script.split()) < 100:
-        print("⚠️ Direct script was short. Performing rich narrative expansion...")
-        org_name = verified_data.get('organization', clean_title)
-        posts_str = ", ".join([p.get('post_name', '') for p in verified_data.get('posts', [])])
-        exp_prompt = f"""Write an extensive, detailed 700+ word spoken Bengali documentary script about this job:
-Title: {clean_title}
-Organization: {org_name}
-Posts: {posts_str}
-Details: {article_text[:1500]}
-Do not mention any year. Write all numbers in Bengali words. Do not overuse 'শূন্যপদ', use 'লোক নেওয়া হবে'.
-End with: 'ঘরে বসে শতভাগ নির্ভুলভাবে আবেদন করতে স্ক্রিনে দেওয়া বা ডেসক্রিপশনের হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) যোগাযোগ করুন।'
-Output ONLY the Bengali speech text."""
-        expanded = execute_ai_query(exp_prompt, json_mode=False)
-        if expanded and len(expanded.split()) > 100:
-            raw_script = expanded
+    # 🌟 ফেইল-সেফ: কোনো কারণে এআই স্ক্রিপ্ট ছোট বা খালি দিলে ওয়েবসাইটের লেখা থেকেই বড় স্ক্রিপ্ট বানিয়ে নেওয়া
+    if not raw_script or len(raw_script.split()) < 50:
+        print("⚠️ AI script was too short or failed. Constructing rich script directly from article text...")
+        raw_script = build_script_from_article_text(clean_title, article_text, verified_data.get("hook_phrase", "অনলাইনে আবেদন"))
 
     voiceover_script = convert_all_numbers_in_script(raw_script)
 
