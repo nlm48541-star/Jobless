@@ -6,11 +6,10 @@ WORKSPACE_DIR = "workspace"
 TRACKER_FILE = "api_key_tracker.json"
 WORKSPACE_TRACKER = os.path.join(WORKSPACE_DIR, "api_key_tracker.json")
 
-# 🌟 ওপেনরাউটারের ১০০% ফ্রি মডেলসমূহ (০ ডলার ব্যালেন্সেও চলবে)
+# 🌟 ওপেনরাউটারের ফ্রি মডেল তালিকা
 OPENROUTER_MODELS = [
     "meta-llama/llama-3.3-70b-instruct:free",
     "google/gemini-2.0-flash-lite-preview-02-05:free",
-    "google/gemini-2.0-pro-exp-02-05:free",
     "deepseek/deepseek-r1:free",
     "mistralai/mistral-small-24b-instruct-2501:free"
 ]
@@ -18,7 +17,7 @@ OPENROUTER_MODELS = [
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.1-8b"]
 OLLAMA_MODELS = [
-    "gemma4:31b", "gemma4", "gpt-oss:120b", "gpt-oss:20b",
+    "gemma4", "gemma4:31b", "gpt-oss:20b", "gpt-oss:120b",
     "nemotron-3-nano:30b", "kimi-k3", "minimax-m3", "kimi-k2.6"
 ]
 
@@ -180,11 +179,11 @@ def parse_json_safely(raw_text):
     except Exception: return None
 
 # =========================================================================
-# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে (ভার্বোস ডিবাগ লগিং ও ফ্রি মডেল সহ)
+# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে (কোনো এরর লুকানো হবে না + স্মার্ট রোটেশন)
 # =========================================================================
 
 def execute_ai_query(prompt, json_mode=True):
-    # ১. OpenRouter (১০০% ফ্রি :free মডেল দিয়ে শুরু)
+    # ১. OpenRouter (১০০% ফ্রি :free মডেল)
     raw_openrouter = os.environ.get("OPENROUTER_API_KEYS", os.environ.get("OPENROUTER_API_KEY", "")).strip()
     or_order = get_keys_in_cyclic_order("openrouter", raw_openrouter)
     total_or = len(parse_multiline_keys(raw_openrouter))
@@ -194,40 +193,24 @@ def execute_ai_query(prompt, json_mode=True):
             masked = mask_key(or_key)
             headers = {"Authorization": f"Bearer {or_key}", "Content-Type": "application/json", "HTTP-Referer": "https://github.com", "X-Title": "YouTube Automation"}
             for model_name in OPENROUTER_MODELS:
-                payload = {"model": model_name, "messages": [{"role": "user", "content": prompt}], "temperature": 0.4}
+                payload = {"model": model_name, "messages": [{"role": "user", "content": prompt}], "temperature": 0.4, "max_tokens": 2500}
                 try:
-                    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60)
+                    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=45)
                     if resp.status_code == 200:
                         content_txt = resp.json()['choices'][0]['message']['content']
                         save_tracker_index("openrouter", actual_idx, total_or)
                         res = parse_json_safely(content_txt) if json_mode else content_txt
-                        if res: return res
+                        if res:
+                            print(f"  ✨ [OpenRouter] Success with Key #{actual_idx+1} ({model_name})")
+                            return res
                     else:
-                        print(f"  • OpenRouter ({model_name}) status: {resp.status_code}")
+                        print(f"  ⚠️ [OpenRouter] Key #{actual_idx+1} ({masked}) Model '{model_name}' -> HTTP {resp.status_code}: {resp.text[:100]}")
+                        if resp.status_code == 401: break # শুধুমাত্র ভুল কী হলেই পরের কীতে যাবে
                 except Exception as e:
-                    print(f"  • OpenRouter notice: {e}")
+                    print(f"  ⚠️ [OpenRouter] Key #{actual_idx+1} error: {e}")
             save_tracker_index("openrouter", actual_idx + 1, total_or)
 
-    # ২. Google Gemini Text AI (অফিশিয়াল ফ্রি টিয়ার)
-    raw_gemini = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", "")).strip()
-    gemini_keys = parse_multiline_keys(raw_gemini)
-    if gemini_keys:
-        for g_idx, g_key in enumerate(gemini_keys, 1):
-            for g_model in ["gemini-2.0-flash", "gemini-1.5-flash"]:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={g_key}"
-                headers = {"Content-Type": "application/json"}
-                payload = {"contents": [{"parts": [{"text": prompt}]}]}
-                try:
-                    resp = requests.post(url, headers=headers, json=payload, timeout=40)
-                    if resp.status_code == 200:
-                        text_res = resp.json()['candidates'][0]['content']['parts'][0]['text']
-                        res = parse_json_safely(text_res) if json_mode else text_res
-                        if res:
-                            print(f"  ✨ [SUCCESS] AI Content Generated via Google {g_model}!")
-                            return res
-                except Exception: pass
-
-    # ৩. Groq Cloud
+    # ২. Groq Cloud
     raw_groq = os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API", "")).strip()
     groq_order = get_keys_in_cyclic_order("groq", raw_groq)
     total_groq = len(parse_multiline_keys(raw_groq))
@@ -237,52 +220,64 @@ def execute_ai_query(prompt, json_mode=True):
             masked = mask_key(g_key)
             headers = {"Authorization": f"Bearer {g_key}", "Content-Type": "application/json"}
             for g_model in GROQ_MODELS:
+                sys_msg = "You are a professional Bengali job circular specialist. Return valid JSON." if json_mode else "You are a professional Bengali scriptwriter."
                 payload = {
                     "model": g_model,
-                    "messages": [{"role": "system", "content": "You are a professional Bengali job circular specialist. Output strictly valid JSON." if json_mode else "Write natural Bengali text."}, {"role": "user", "content": prompt}],
-                    "temperature": 0.4, "max_tokens": 4096
+                    "messages": [{"role": "system", "content": sys_msg}, {"role": "user", "content": prompt}],
+                    "temperature": 0.4, "max_tokens": 2500
                 }
                 if json_mode: payload["response_format"] = {"type": "json_object"}
                 try:
-                    resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=45)
+                    resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=40)
                     if resp.status_code == 200:
                         content_txt = resp.json()['choices'][0]['message']['content']
                         save_tracker_index("groq", actual_idx, total_groq)
                         res = parse_json_safely(content_txt) if json_mode else content_txt
-                        if res: return res
+                        if res:
+                            print(f"  ✨ [Groq] Success with Key #{actual_idx+1} ({g_model})")
+                            return res
                     else:
-                        print(f"  • Groq ({g_model}) status: {resp.status_code} ({resp.text[:60]})")
+                        print(f"  ⚠️ [Groq] Key #{actual_idx+1} ({masked}) Model '{g_model}' -> HTTP {resp.status_code}: {resp.text[:120]}")
+                        if resp.status_code == 401: break
                 except Exception as e:
-                    print(f"  • Groq notice: {e}")
+                    print(f"  ⚠️ [Groq] Key #{actual_idx+1} error: {e}")
             save_tracker_index("groq", actual_idx + 1, total_groq)
 
-    # ৪. Cerebras Cloud
+    # ৩. Cerebras Cloud
     raw_cerebras = os.environ.get("CEREBRAS_API_KEYS", os.environ.get("CEREBRAS_API_KEY", "")).strip()
     cerebras_order = get_keys_in_cyclic_order("cerebras", raw_cerebras)
     total_cerebras = len(parse_multiline_keys(raw_cerebras))
 
     if cerebras_order:
         for actual_idx, c_key in cerebras_order:
+            masked = mask_key(c_key)
             headers = {"Authorization": f"Bearer {c_key}", "Content-Type": "application/json"}
             for c_model in CEREBRAS_MODELS:
-                payload = {"model": c_model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.4, "max_tokens": 4096}
+                payload = {"model": c_model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.4, "max_tokens": 2500}
                 try:
-                    resp = requests.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload, timeout=45)
+                    resp = requests.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload, timeout=40)
                     if resp.status_code == 200:
                         content_txt = resp.json()['choices'][0]['message']['content']
                         save_tracker_index("cerebras", actual_idx, total_cerebras)
                         res = parse_json_safely(content_txt) if json_mode else content_txt
-                        if res: return res
-                except Exception: pass
+                        if res:
+                            print(f"  ✨ [Cerebras] Success with Key #{actual_idx+1} ({c_model})")
+                            return res
+                    else:
+                        print(f"  ⚠️ [Cerebras] Key #{actual_idx+1} ({masked}) Model '{c_model}' -> HTTP {resp.status_code}: {resp.text[:100]}")
+                        if resp.status_code == 401: break
+                except Exception as e:
+                    print(f"  ⚠️ [Cerebras] Key #{actual_idx+1} error: {e}")
             save_tracker_index("cerebras", actual_idx + 1, total_cerebras)
 
-    # ৫. Ollama Cloud
+    # ৪. Ollama Cloud (Gemma First - প্রতিটি মডেল চেষ্টা করবে)
     raw_ollama = os.environ.get("OLLAMA_API_KEYS", os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", ""))).strip()
     ollama_order = get_keys_in_cyclic_order("ollama", raw_ollama)
     total_ollama = len(parse_multiline_keys(raw_ollama))
 
     if ollama_order:
         for actual_idx, o_key in ollama_order:
+            masked = mask_key(o_key)
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
             for model_name in OLLAMA_MODELS:
                 payload = {"model": model_name, "messages": [{"role": "user", "content": prompt}], "stream": False, "options": {"temperature": 0.4}}
@@ -292,22 +287,46 @@ def execute_ai_query(prompt, json_mode=True):
                         content_txt = resp.json().get("message", {}).get("content", "").strip()
                         save_tracker_index("ollama", actual_idx, total_ollama)
                         res = parse_json_safely(content_txt) if json_mode else content_txt
-                        if res: return res
-                except Exception: pass
+                        if res:
+                            print(f"  ✨ [Ollama] Success with Key #{actual_idx+1} ({model_name})")
+                            return res
+                    else:
+                        print(f"  ⚠️ [Ollama] Key #{actual_idx+1} ({masked}) Model '{model_name}' -> HTTP {resp.status_code}: {resp.text[:100]}")
+                        if resp.status_code == 401: break # শুধুমাত্র 401 হলেই পরের কী, 402/429 হলে পরের মডেল ট্রাই করবে!
+                except Exception as e:
+                    print(f"  ⚠️ [Ollama] Key #{actual_idx+1} ({model_name}) error: {e}")
             save_tracker_index("ollama", actual_idx + 1, total_ollama)
+
+    # ৫. Google Gemini Text AI (অতিরিক্ত ফ্রি ব্যাকআপ)
+    raw_gemini = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", "")).strip()
+    gemini_keys = parse_multiline_keys(raw_gemini)
+    if gemini_keys:
+        for g_idx, g_key in enumerate(gemini_keys, 1):
+            for g_model in ["gemini-2.0-flash", "gemini-1.5-flash"]:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={g_key}"
+                try:
+                    resp = requests.post(url, headers={"Content-Type": "application/json"}, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=40)
+                    if resp.status_code == 200:
+                        text_res = resp.json()['candidates'][0]['content']['parts'][0]['text']
+                        res = parse_json_safely(text_res) if json_mode else text_res
+                        if res:
+                            print(f"  ✨ [Gemini AI] Success with Key #{g_idx} ({g_model})")
+                            return res
+                    else:
+                        print(f"  ⚠️ [Gemini AI] Key #{g_idx} ({g_model}) -> HTTP {resp.status_code}")
+                except Exception: pass
 
     return None
 
 # =========================================================================
-# 🌟 আর্টিকেল টেক্সট থেকে ইমার্জেন্সি ফলব্যাক স্ক্রিপ্ট বিল্ডার (Fail-Safe)
+# 🌟 আর্টিকেল টেক্সট থেকে ইমার্জেন্সি ফলব্যাক স্ক্রিপ্ট বিল্ডার
 # =========================================================================
 
 def build_script_from_article_text(title, article_text, hook_phrase="অনলাইনে আবেদন"):
-    """সব এআই ফেইল করলেও ওয়েবসাইটের আসল টেক্সট থেকে একটি পূর্ণাঙ্গ বড় স্ক্রিপ্ট বানিয়ে দেবে"""
     clean_lines = [l.strip() for l in article_text.split('\n') if len(l.strip()) > 15]
     body_summary = " ".join(clean_lines[:15]) if clean_lines else article_text[:1500]
     
-    script = f"""আসসালামু আলাইকুম। আজকের ভিডিওতে আপনাদের সবাইকে স্বাগতম। সম্প্রতি {title} সংক্রান্ত একটি আকর্ষণীয় ও গুরুত্বপূর্ণ নিয়োগ বিজ্ঞপ্তি প্রকাশিত হয়েছে।
+    return f"""আসসালামু আলাইকুম। আজকের ভিডিওতে আপনাদের সবাইকে স্বাগতম। সম্প্রতি {title} সংক্রান্ত একটি আকর্ষণীয় ও গুরুত্বপূর্ণ নিয়োগ বিজ্ঞপ্তি প্রকাশিত হয়েছে।
 
 উক্ত নিয়োগ বিজ্ঞপ্তির বিস্তারিত তথ্যাবলী অনুযায়ী:
 {body_summary}
@@ -317,7 +336,6 @@ def build_script_from_article_text(title, article_text, hook_phrase="অনল�
 আবেদনের শেষ তারিখের পূর্বেই প্রয়োজনীয় কাগজপত্রসহ নিয়ম অনুযায়ী আবেদন প্রক্রিয়াটি সম্পন্ন করার জন্য পরামর্শ দেওয়া হলো। 
 
 এই সার্কুলারে {hook_phrase} করার জন্য অথবা চাকরির আবেদন সংক্রান্ত যেকোনো সহায়তা পেতে স্ক্রিনে দেওয়া বা ডেসক্রিপশনের হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের অভিজ্ঞ টিম আপনার আবেদনের যাবতীয় কাজ সতর্কতার সাথে সম্পন্ন করে দেবে। ধন্যবাদ।"""
-    return script
 
 # =========================================================================
 # 🌟 ৪টি পৃথক মডুলার কল
@@ -325,15 +343,15 @@ def build_script_from_article_text(title, article_text, hook_phrase="অনল�
 
 def extract_verified_job_data(title, article_text):
     print("\n🔍 [STEP 1] Extracting accurate job facts & application method...")
-    prompt = f"""Analyze this Bengali job circular article text:
+    prompt = f"""Analyze this Bengali job circular article text and return strictly JSON:
 ---
 TITLE: {title}
 TEXT:
-{article_text[:3500]}
+{article_text[:2500]}
 ---
 
 Extract EXACT facts:
-1. Examine application method:
+1. Application method:
    - If postal/courier/in-person form: "application_method": "prescribed_form", "hook_phrase": "ফর্ম পূরণ"
    - If handwritten application letter/CV: "application_method": "formal_letter", "hook_phrase": "আবেদনপত্র তৈরি"
    - Otherwise: "application_method": "online", "hook_phrase": "অনলাইনে আবেদন"
@@ -345,7 +363,7 @@ Extract EXACT facts:
    - "salary_scale": Pay scale and grade.
    - "educational_qualification": Minimum degree needed.
 
-Return strictly valid JSON:
+Return JSON:
 {{
   "organization": "...",
   "total_vacancies": "...",
@@ -373,7 +391,7 @@ def generate_script_from_verified_data(verified_data, title, article_text):
 Write an extensive, comprehensive, 650 to 900 word spoken Bengali voiceover script.
 Title: "{title}"
 Job Facts: {data_str}
-Reference Context: {article_text[:2000]}
+Reference Context: {article_text[:1800]}
 
 RULES:
 1. Write in continuous, natural, professional spoken Bengali (no brackets, no stage directions).
@@ -381,7 +399,7 @@ RULES:
 3. Do NOT mention any year.
 4. Do NOT use the word 'শূন্যপদ' repeatedly; use 'লোক নেওয়া হবে', 'নিয়োগ পাবেন'.
 5. At the end, state: {cta_instruction}
-6. IMPORTANT: Output ONLY the spoken Bengali script text directly. Do NOT output JSON, markdown fences, or introduction."""
+6. IMPORTANT: Output ONLY the spoken Bengali script text directly. Do NOT output JSON or markdown fences."""
 
     res_text = execute_ai_query(prompt, json_mode=False)
     return res_text if res_text and isinstance(res_text, str) else ""
@@ -393,7 +411,7 @@ def generate_seo_metadata(verified_data, title):
     org = verified_data.get("organization", title)
     hook_phrase = verified_data.get("hook_phrase", "অনলাইনে আবেদন")
 
-    prompt = f"""Generate YouTube SEO metadata for this job circular:
+    prompt = f"""Generate YouTube SEO metadata in JSON for this job circular:
 Organization: "{org}"
 Title: "{title}"
 Key Posts: "{posts_summary}"
@@ -402,7 +420,7 @@ Hook: "{hook_phrase}"
 
 MANDATORY: YouTube Title, Description, and Tags MUST include '{hook_phrase}'.
 
-Return strictly valid JSON:
+Return JSON:
 {{
   "optimized_title": "High CTR Bengali YouTube Title under 95 chars with '{hook_phrase}' and symbols (🔥, 🚨, |)",
   "video_description": "Comprehensive description with post highlights, vacancy details, '{hook_phrase}' instructions, and WhatsApp contact: wa.me/8801540503092",
@@ -419,38 +437,30 @@ def generate_thumbnail_metadata(verified_data, title):
     qual = first_post.get("educational_qualification", "যোগ্যতা ও নিয়ম")
     hook_phrase = verified_data.get("hook_phrase", "অনলাইনে আবেদন")
 
-    prompt = f"""Generate 4 dynamic, distinct thumbnail texts:
+    prompt = f"""Generate 4 dynamic thumbnail texts in JSON:
 Organization: "{org}"
 Main Post: "{post_name}"
 Vacancies: "{total_vac}"
 Qualification: "{qual}"
 Hook: "{hook_phrase}"
 
-Rules:
-- "top_text": 2-3 words. Organization name.
-- "row1_text": 2-3 words. Main hook (e.g. "{post_name}").
-- "row2_text": 2-3 words. Vacancy count in RED (e.g. "{total_vac if total_vac else 'বিশাল নিয়োগ'}").
-- "sub_text": 2-3 words. Qualification or Hook.
-- "bot_text": 2-4 words. Bottom bar text featuring "{hook_phrase}".
-
-Return strictly valid JSON:
+Return JSON:
 {{
-  "top_text": "...",
-  "row1_text": "...",
-  "row2_text": "...",
-  "sub_text": "...",
-  "bot_text": "..."
+  "top_text": "2-3 words organization name",
+  "row1_text": "2-3 words main hook",
+  "row2_text": "2-3 words vacancy count",
+  "sub_text": "2-3 words qualification or hook",
+  "bot_text": "2-4 words bottom bar text featuring '{hook_phrase}'"
 }}"""
     return execute_ai_query(prompt, json_mode=True)
 
 # =========================================================================
-# 🌟 মূল মাস্টার ফাংশন (১০০% স্ক্রিপ্ট নিশ্চয়তা সহ)
+# 🌟 মূল মাস্টার ফাংশন
 # =========================================================================
 
 def generate_job_content(title, article_text, img_paths=None):
     clean_title = clean_title_for_display(title)
 
-    # ১. কল ১: টেক্সট পড়ে সঠিক পদ ও আবেদন পদ্ধতি এক্সট্রাক্ট করা
     verified_data = extract_verified_job_data(clean_title, article_text)
     if not verified_data or not isinstance(verified_data, dict) or not verified_data.get("posts"):
         clean_org = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else clean_title[:30]
@@ -462,24 +472,20 @@ def generate_job_content(title, article_text, img_paths=None):
             "posts": [{"post_name": "বিভিন্ন পদে নিয়োগ", "vacancy_count": "", "salary_scale": "সরকারি স্কেল", "educational_qualification": "বিজ্ঞপ্তি অনুযায়ী"}]
         }
 
-    # ২. কল ২: পূর্ণাঙ্গ গভীর স্ক্রিপ্ট সরাসরি টেক্সট মোডে
     raw_script = generate_script_from_verified_data(verified_data, clean_title, article_text)
     
-    # 🌟 ফেইল-সেফ: কোনো কারণে এআই স্ক্রিপ্ট ছোট বা খালি দিলে ওয়েবসাইটের লেখা থেকেই বড় স্ক্রিপ্ট বানিয়ে নেওয়া
     if not raw_script or len(raw_script.split()) < 50:
-        print("⚠️ AI script was too short or failed. Constructing rich script directly from article text...")
+        print("⚠️ AI script was short or failed. Building rich script directly from article text...")
         raw_script = build_script_from_article_text(clean_title, article_text, verified_data.get("hook_phrase", "অনলাইনে আবেদন"))
 
     voiceover_script = convert_all_numbers_in_script(raw_script)
 
-    # ৩. কল ৩: এসইও মেটাডাটা
     seo_res = generate_seo_metadata(verified_data, clean_title)
     opt_title = seo_res.get("optimized_title", clean_title)[:100] if seo_res and isinstance(seo_res, dict) else clean_title[:100]
     video_desc = seo_res.get("video_description", clean_title) if seo_res and isinstance(seo_res, dict) else clean_title
     raw_tags = seo_res.get("specific_tags", []) if seo_res and isinstance(seo_res, dict) else []
     video_tags = sanitize_youtube_tags(raw_tags + DEFAULT_BASE_TAGS)
 
-    # ৪. কল ৪: থাম্বনেইল টেক্সট
     thumb_res = generate_thumbnail_metadata(verified_data, clean_title)
     if not thumb_res or not isinstance(thumb_res, dict): thumb_res = {}
     
