@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os, re, time, base64, requests, json, io, wave
+import concurrent.futures
 
 WORKSPACE_DIR = "workspace"
 TRACKER_FILE = "api_key_tracker.json"
@@ -79,8 +80,26 @@ def get_keys_in_cyclic_order(service_name, raw_keys_str):
     return [((saved_idx + i) % total, keys[(saved_idx + i) % total]) for i in range(total)]
 
 # =========================================================================
-# 🌟 ১. Gemini 3.8 Flash TTS ইঞ্জিন (ভয়েস আইডি 404 হলে সাথে সাথে অল্টারনেট)
+# 🌟 ১. Gemini 3.8 Flash TTS (২৫ সেকেন্ড হার্ড টাইমআউট সহ)
 # =========================================================================
+
+def _call_gemini_single_chunk(client, chunk, voice_id, delivery_style):
+    try:
+        return client.interactions.create(
+            model="gemini-3.8-flash-tts",
+            input=[{"type": "user_input", "content": [{"type": "text", "text": chunk, "annotations": [{"type": "speech_metadata", "style": delivery_style}]}]}],
+            response_format={"type": "audio"},
+            generation_config={"speech_config": [{"voice": voice_id}]}
+        )
+    except Exception as e:
+        if "404" in str(e) or "not found" in str(e).lower():
+            # কাস্টম ভয়েস না পেলে স্ট্যান্ডার্ড জেমিনি ভয়েসে রিকভারি
+            return client.interactions.create(
+                model="gemini-3.8-flash-tts",
+                input=[{"type": "user_input", "content": [{"type": "text", "text": chunk}]}],
+                response_format={"type": "audio"}
+            )
+        raise e
 
 def synthesize_with_gemini_tts(speech_text, output_audio_path):
     print("\n--- [AUDIO TIER 1] Gemini 3.8 Flash TTS ---")
@@ -106,6 +125,7 @@ def synthesize_with_gemini_tts(speech_text, output_audio_path):
     for actual_idx, api_key in gemini_order:
         key_num = actual_idx + 1
         masked = mask_key(api_key)
+        print(f"\n  🚀 [Gemini Key #{key_num}/{total_gemini}] ({masked})")
         start_t = time.time()
         key_failed = False
         audio_chunks_bytes = []
@@ -113,22 +133,15 @@ def synthesize_with_gemini_tts(speech_text, output_audio_path):
         try:
             client = genai.Client(api_key=api_key)
             for chunk in chunks:
-                try:
-                    interaction = client.interactions.create(
-                        model="gemini-3.8-flash-tts",
-                        input=[{"type": "user_input", "content": [{"type": "text", "text": chunk, "annotations": [{"type": "speech_metadata", "style": delivery_style}]}]}],
-                        response_format={"type": "audio"},
-                        generation_config={"speech_config": [{"voice": voice_id}]}
-                    )
-                except Exception as ve:
-                    # যদি কাস্টম ভয়েস 404 দেয়, সরাসরি ডিফল্ট ভয়েসে চেষ্টা
-                    if "404" in str(ve) or "not found" in str(ve).lower():
-                        interaction = client.interactions.create(
-                            model="gemini-3.8-flash-tts",
-                            input=[{"type": "user_input", "content": [{"type": "text", "text": chunk}]}],
-                            response_format={"type": "audio"}
-                        )
-                    else: raise ve
+                # 🌟 ২৫ সেকেন্ডের হার্ড টাইমআউট থ্রেড (কোনোভাবেই হ্যাং হতে পারবে না)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(_call_gemini_single_chunk, client, chunk, voice_id, delivery_style)
+                    try:
+                        interaction = future.result(timeout=25)
+                    except concurrent.futures.TimeoutError:
+                        print(f"  ⚠️ Gemini Key #{key_num} timed out after 25s! Moving to next key...")
+                        key_failed = True
+                        break
 
                 if hasattr(interaction, 'output_audio') and hasattr(interaction.output_audio, 'data'):
                     audio_bytes = base64.b64decode(interaction.output_audio.data)
@@ -155,7 +168,7 @@ def synthesize_with_gemini_tts(speech_text, output_audio_path):
     return False
 
 # =========================================================================
-# 🌟 ২. ElevenLabs API (১৪৮টি কি সার্কিট ব্রেকার সহ)
+# 🌟 ২. ElevenLabs API (সার্কিট ব্রেকার সহ)
 # =========================================================================
 
 def synthesize_with_elevenlabs(speech_text, output_audio_path):
@@ -177,9 +190,8 @@ def synthesize_with_elevenlabs(speech_text, output_audio_path):
     consecutive_fails = 0
 
     for actual_idx, api_key in eleven_order:
-        # 🌟 পর পর ৫টি কি ফেইল করলে সময় বাঁচাতে বাকি ১৪৩টি কি স্কিপ করে সরাসরি Edge-এ জাম্প করবে
         if consecutive_fails >= 5:
-            print(f"  ⚡ [CIRCUIT BREAKER] 5 consecutive ElevenLabs keys failed quota. Jumping instantly to Tier 3 to save time!")
+            print(f"  ⚡ [CIRCUIT BREAKER] 5 consecutive ElevenLabs keys failed quota. Jumping to Tier 3!")
             break
 
         key_num = actual_idx + 1
@@ -193,7 +205,7 @@ def synthesize_with_elevenlabs(speech_text, output_audio_path):
         for chunk in chunks:
             payload = {"text": chunk, "model_id": "eleven_v3", "language_code": "bn", "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}
             try:
-                resp = requests.post(tts_url, json=payload, headers=headers, timeout=30)
+                resp = requests.post(tts_url, json=payload, headers=headers, timeout=25)
                 if resp.status_code == 200 and len(resp.content) > 1000:
                     audio_mp3_chunks.append(resp.content)
                 else:
@@ -260,12 +272,12 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
     words = len(speech_text.split())
 
     print("\n" + "="*65)
-    print("🎙️ [AUDIO ENGINE] Multi-Tier Cascade Active")
+    print("🎙️ [AUDIO ENGINE] Multi-Tier Cascade Active (With 25s Timeout Protection)")
     print(f"📊 [Text Stats] Chars: {clean_chars} | Words: {words}")
     print(f"📝 [Preview]: \"{speech_text[:120]}...\"")
     print("="*65)
 
-    # ১. Gemini 3.8 TTS
+    # ১. Gemini 3.8 TTS (২৫ সেকেন্ড হার্ড টাইমআউট সহ)
     if synthesize_with_gemini_tts(speech_text, output_audio_path):
         if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
             return True
@@ -275,7 +287,7 @@ def generate_voiceover_audio_pipeline(text, output_audio_path):
         if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
             return True
 
-    # ৩. Microsoft Edge Neural (০.৭৯ সেকেন্ড)
+    # ৩. Microsoft Edge Neural
     if synthesize_with_edge_fallback(speech_text, output_audio_path):
         if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
             return True
