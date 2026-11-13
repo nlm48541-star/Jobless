@@ -6,12 +6,16 @@ from moviepy.editor import AudioFileClip, VideoClip, concatenate_videoclips, Ima
 
 TMP_RENDER_DIR = "temp_assets"
 
+
 def find_front_overlay_file():
     for c in ["Front.png", "front.png", "FRONT.PNG"]:
-        if os.path.exists(c): return c
+        if os.path.exists(c):
+            return c
     for f in os.listdir("."):
-        if f.lower() == "front.png": return f
+        if f.lower() == "front.png":
+            return f
     return None
+
 
 def prepare_image_for_ffmpeg(img_path, out_path, target_w, target_h):
     """ছবিটিকে FFmpeg স্ক্রলিংয়ের উপযোগী করে জোড় (Even) পিক্সেল সাইজে প্রস্তুত করে"""
@@ -42,8 +46,10 @@ def prepare_image_for_ffmpeg(img_path, out_path, target_w, target_h):
                 new_h, new_w = target_h, int((target_h / h) * w)
             else:
                 new_w, new_h = target_w, int((target_w / w) * h)
-            if new_w < target_w: new_w, new_h = target_w, int((new_w / w) * h)
-            if new_h < target_h: new_h, new_w = target_h, int((new_h / h) * w)
+            if new_w < target_w:
+                new_w, new_h = target_w, int((new_w / w) * h)
+            if new_h < target_h:
+                new_h, new_w = target_h, int((new_h / h) * w)
             canvas = pil_img.resize((new_w, new_h), Image.LANCZOS)
 
         # জোড় সংখ্যা (Even dimensions) নিশ্চিত করা যাতে x264 এনকোডার ক্র্যাশ না করে
@@ -55,6 +61,7 @@ def prepare_image_for_ffmpeg(img_path, out_path, target_w, target_h):
 
         canvas.save(out_path, "JPEG", quality=95)
         return cw, ch
+
 
 def render_via_ffmpeg_fast(audio_path, duration, img_files, out_file, target_w, target_h):
     """
@@ -94,12 +101,13 @@ def render_via_ffmpeg_fast(audio_path, duration, img_files, out_file, target_w, 
     # FFmpeg কমান্ড তৈরি
     cmd = ["ffmpeg", "-y"]
     for p_file in prep_files:
-        cmd.extend(["-loop", "1", "-t", f"{per_img_dur:.3f}", "-i", p_file])
+        cmd.extend(["-framerate", "24", "-loop", "1", "-t", f"{per_img_dur:.3f}", "-i", p_file])
 
     front_idx = num_imgs
     audio_idx = num_imgs
     if scaled_front_p:
-        cmd.extend(["-i", scaled_front_p])
+        # 🌟 -loop 1 ও -t দিয়ে পুরো ভিডিও জুড়ে Front.png চালু রাখা হয়েছে
+        cmd.extend(["-framerate", "24", "-loop", "1", "-t", f"{duration + 2.0:.3f}", "-i", scaled_front_p])
         audio_idx = num_imgs + 1
 
     cmd.extend(["-i", audio_path])
@@ -154,6 +162,7 @@ def render_via_ffmpeg_fast(audio_path, duration, img_files, out_file, target_w, 
         print(f"⚠️ FFmpeg notice: {res.stderr[-300:] if res.stderr else 'Unknown error'}")
         return False
 
+
 # =========================================================================
 # 🌟 ব্যাকআপ MoviePy ইঞ্জিন (অপ্টিমাইজড ১৫ FPS)
 # =========================================================================
@@ -182,10 +191,14 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
             max_offset = max(0, new_w - target_w)
             clip = VideoClip(lambda t: img_np[0:target_h, int(min(1.0, max(0.0, t/duration))*max_offset):int(min(1.0, max(0.0, t/duration))*max_offset)+target_w], duration=duration)
     else:
-        if ratio >= target_ratio: new_h, new_w = target_h, int((target_h / h) * w)
-        else: new_w, new_h = target_w, int((target_w / w) * h)
-        if new_w < target_w: new_w, new_h = target_w, int((new_w / w) * h)
-        if new_h < target_h: new_h, new_w = target_h, int((new_h / h) * w)
+        if ratio >= target_ratio:
+            new_h, new_w = target_h, int((target_h / h) * w)
+        else:
+            new_w, new_h = target_w, int((target_w / w) * h)
+        if new_w < target_w:
+            new_w, new_h = target_w, int((new_w / w) * h)
+        if new_h < target_h:
+            new_h, new_w = target_h, int((new_h / h) * w)
         img_np = np.array(pil_img.resize((new_w, new_h), Image.LANCZOS))
         max_y = max(0, new_h - target_h)
         max_x = max(0, new_w - target_w)
@@ -193,8 +206,10 @@ def make_video_frame(img_path, duration, target_w=1920, target_h=1080):
     pil_img.close()
     return clip
 
+
 def render_video_slideshow(audio_path, img_files, out_file, is_vertical=False):
-    if not img_files: raise ValueError("No images provided.")
+    if not img_files:
+        raise ValueError("No images provided.")
     target_w, target_h = (1080, 1920) if is_vertical else (1920, 1080)
 
     audio_clip = AudioFileClip(audio_path)
@@ -220,4 +235,5 @@ def render_video_slideshow(audio_path, img_files, out_file, is_vertical=False):
     )
     final_video.close()
     audio_clip.close()
-    for c in clips: c.close()
+    for c in clips:
+        c.close()
