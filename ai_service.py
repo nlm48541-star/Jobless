@@ -6,19 +6,26 @@ WORKSPACE_DIR = "workspace"
 TRACKER_FILE = "api_key_tracker.json"
 WORKSPACE_TRACKER = os.path.join(WORKSPACE_DIR, "api_key_tracker.json")
 
-# 🌟 ওপেনরাউটারের ফ্রি মডেল তালিকা
+# 🌟 OpenRouter এর অটো ফ্রি রাউটার + ২০২৬ সালের লাইভ ফ্রি মডেলসমূহ
 OPENROUTER_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "google/gemini-2.0-flash-lite-preview-02-05:free",
-    "deepseek/deepseek-r1:free",
-    "mistralai/mistral-small-24b-instruct-2501:free"
+    "openrouter/free",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+]
+
+# 🌟 Google Gemini এর সচল ফ্রি মডেলসমূহ
+GEMINI_TEXT_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3.5-flash-lite"
 ]
 
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.1-8b"]
 OLLAMA_MODELS = [
-    "gemma4", "gemma4:31b", "gpt-oss:20b", "gpt-oss:120b",
-    "nemotron-3-nano:30b", "kimi-k3", "minimax-m3", "kimi-k2.6"
+    "glm-5.3-flash:cloud", "glm-5.2:cloud", "deepseek-v3.1:671b-cloud",
+    "gemma4", "gemma4:31b", "gpt-oss:20b", "kimi-k3", "minimax-m3"
 ]
 
 def clean_script_for_speech(raw_text):
@@ -179,11 +186,11 @@ def parse_json_safely(raw_text):
     except Exception: return None
 
 # =========================================================================
-# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে (কোনো এরর লুকানো হবে না + স্মার্ট রোটেশন)
+# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে (স্মার্ট অটো-স্কিপ ও সঠিক মডেলসহ)
 # =========================================================================
 
 def execute_ai_query(prompt, json_mode=True):
-    # ১. OpenRouter (১০০% ফ্রি :free মডেল)
+    # ১. OpenRouter (openrouter/free + লাইভ ফ্রি মডেল)
     raw_openrouter = os.environ.get("OPENROUTER_API_KEYS", os.environ.get("OPENROUTER_API_KEY", "")).strip()
     or_order = get_keys_in_cyclic_order("openrouter", raw_openrouter)
     total_or = len(parse_multiline_keys(raw_openrouter))
@@ -204,105 +211,18 @@ def execute_ai_query(prompt, json_mode=True):
                             print(f"  ✨ [OpenRouter] Success with Key #{actual_idx+1} ({model_name})")
                             return res
                     else:
-                        print(f"  ⚠️ [OpenRouter] Key #{actual_idx+1} ({masked}) Model '{model_name}' -> HTTP {resp.status_code}: {resp.text[:100]}")
-                        if resp.status_code == 401: break # শুধুমাত্র ভুল কী হলেই পরের কীতে যাবে
+                        print(f"  ⚠️ [OpenRouter] Key #{actual_idx+1} ({masked}) Model '{model_name}' -> HTTP {resp.status_code}: {resp.text[:90]}")
+                        if resp.status_code in [401, 402]: break # ক্রেডিট/অথ এরর হলে সরাসরি পরের কী
                 except Exception as e:
                     print(f"  ⚠️ [OpenRouter] Key #{actual_idx+1} error: {e}")
             save_tracker_index("openrouter", actual_idx + 1, total_or)
 
-    # ২. Groq Cloud
-    raw_groq = os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API", "")).strip()
-    groq_order = get_keys_in_cyclic_order("groq", raw_groq)
-    total_groq = len(parse_multiline_keys(raw_groq))
-
-    if groq_order:
-        for actual_idx, g_key in groq_order:
-            masked = mask_key(g_key)
-            headers = {"Authorization": f"Bearer {g_key}", "Content-Type": "application/json"}
-            for g_model in GROQ_MODELS:
-                sys_msg = "You are a professional Bengali job circular specialist. Return valid JSON." if json_mode else "You are a professional Bengali scriptwriter."
-                payload = {
-                    "model": g_model,
-                    "messages": [{"role": "system", "content": sys_msg}, {"role": "user", "content": prompt}],
-                    "temperature": 0.4, "max_tokens": 2500
-                }
-                if json_mode: payload["response_format"] = {"type": "json_object"}
-                try:
-                    resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=40)
-                    if resp.status_code == 200:
-                        content_txt = resp.json()['choices'][0]['message']['content']
-                        save_tracker_index("groq", actual_idx, total_groq)
-                        res = parse_json_safely(content_txt) if json_mode else content_txt
-                        if res:
-                            print(f"  ✨ [Groq] Success with Key #{actual_idx+1} ({g_model})")
-                            return res
-                    else:
-                        print(f"  ⚠️ [Groq] Key #{actual_idx+1} ({masked}) Model '{g_model}' -> HTTP {resp.status_code}: {resp.text[:120]}")
-                        if resp.status_code == 401: break
-                except Exception as e:
-                    print(f"  ⚠️ [Groq] Key #{actual_idx+1} error: {e}")
-            save_tracker_index("groq", actual_idx + 1, total_groq)
-
-    # ৩. Cerebras Cloud
-    raw_cerebras = os.environ.get("CEREBRAS_API_KEYS", os.environ.get("CEREBRAS_API_KEY", "")).strip()
-    cerebras_order = get_keys_in_cyclic_order("cerebras", raw_cerebras)
-    total_cerebras = len(parse_multiline_keys(raw_cerebras))
-
-    if cerebras_order:
-        for actual_idx, c_key in cerebras_order:
-            masked = mask_key(c_key)
-            headers = {"Authorization": f"Bearer {c_key}", "Content-Type": "application/json"}
-            for c_model in CEREBRAS_MODELS:
-                payload = {"model": c_model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.4, "max_tokens": 2500}
-                try:
-                    resp = requests.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload, timeout=40)
-                    if resp.status_code == 200:
-                        content_txt = resp.json()['choices'][0]['message']['content']
-                        save_tracker_index("cerebras", actual_idx, total_cerebras)
-                        res = parse_json_safely(content_txt) if json_mode else content_txt
-                        if res:
-                            print(f"  ✨ [Cerebras] Success with Key #{actual_idx+1} ({c_model})")
-                            return res
-                    else:
-                        print(f"  ⚠️ [Cerebras] Key #{actual_idx+1} ({masked}) Model '{c_model}' -> HTTP {resp.status_code}: {resp.text[:100]}")
-                        if resp.status_code == 401: break
-                except Exception as e:
-                    print(f"  ⚠️ [Cerebras] Key #{actual_idx+1} error: {e}")
-            save_tracker_index("cerebras", actual_idx + 1, total_cerebras)
-
-    # ৪. Ollama Cloud (Gemma First - প্রতিটি মডেল চেষ্টা করবে)
-    raw_ollama = os.environ.get("OLLAMA_API_KEYS", os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", ""))).strip()
-    ollama_order = get_keys_in_cyclic_order("ollama", raw_ollama)
-    total_ollama = len(parse_multiline_keys(raw_ollama))
-
-    if ollama_order:
-        for actual_idx, o_key in ollama_order:
-            masked = mask_key(o_key)
-            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
-            for model_name in OLLAMA_MODELS:
-                payload = {"model": model_name, "messages": [{"role": "user", "content": prompt}], "stream": False, "options": {"temperature": 0.4}}
-                try:
-                    resp = requests.post("https://api.ollama.com/api/chat", headers=headers, json=payload, timeout=50)
-                    if resp.status_code == 200:
-                        content_txt = resp.json().get("message", {}).get("content", "").strip()
-                        save_tracker_index("ollama", actual_idx, total_ollama)
-                        res = parse_json_safely(content_txt) if json_mode else content_txt
-                        if res:
-                            print(f"  ✨ [Ollama] Success with Key #{actual_idx+1} ({model_name})")
-                            return res
-                    else:
-                        print(f"  ⚠️ [Ollama] Key #{actual_idx+1} ({masked}) Model '{model_name}' -> HTTP {resp.status_code}: {resp.text[:100]}")
-                        if resp.status_code == 401: break # শুধুমাত্র 401 হলেই পরের কী, 402/429 হলে পরের মডেল ট্রাই করবে!
-                except Exception as e:
-                    print(f"  ⚠️ [Ollama] Key #{actual_idx+1} ({model_name}) error: {e}")
-            save_tracker_index("ollama", actual_idx + 1, total_ollama)
-
-    # ৫. Google Gemini Text AI (অতিরিক্ত ফ্রি ব্যাকআপ)
+    # ২. Google Gemini (সচল 2.5 / 3.5 মডেলসমূহ)
     raw_gemini = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", "")).strip()
     gemini_keys = parse_multiline_keys(raw_gemini)
     if gemini_keys:
         for g_idx, g_key in enumerate(gemini_keys, 1):
-            for g_model in ["gemini-2.0-flash", "gemini-1.5-flash"]:
+            for g_model in GEMINI_TEXT_MODELS:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={g_key}"
                 try:
                     resp = requests.post(url, headers={"Content-Type": "application/json"}, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=40)
@@ -314,7 +234,89 @@ def execute_ai_query(prompt, json_mode=True):
                             return res
                     else:
                         print(f"  ⚠️ [Gemini AI] Key #{g_idx} ({g_model}) -> HTTP {resp.status_code}")
+                        if resp.status_code == 403: break # পারমিশন না থাকলে পরের কী
                 except Exception: pass
+
+    # ৩. Groq Cloud (রেস্ট্রিক্টেড হলে সাথে সাথে স্কিপ)
+    raw_groq = os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API", "")).strip()
+    groq_order = get_keys_in_cyclic_order("groq", raw_groq)
+    total_groq = len(parse_multiline_keys(raw_groq))
+
+    if groq_order:
+        for actual_idx, g_key in groq_order:
+            masked = mask_key(g_key)
+            headers = {"Authorization": f"Bearer {g_key}", "Content-Type": "application/json"}
+            for g_model in GROQ_MODELS:
+                sys_msg = "You are a professional Bengali job circular specialist. Return valid JSON." if json_mode else "You are a professional Bengali scriptwriter."
+                payload = {"model": g_model, "messages": [{"role": "system", "content": sys_msg}, {"role": "user", "content": prompt}], "temperature": 0.4, "max_tokens": 2500}
+                if json_mode: payload["response_format"] = {"type": "json_object"}
+                try:
+                    resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=35)
+                    if resp.status_code == 200:
+                        content_txt = resp.json()['choices'][0]['message']['content']
+                        save_tracker_index("groq", actual_idx, total_groq)
+                        res = parse_json_safely(content_txt) if json_mode else content_txt
+                        if res:
+                            print(f"  ✨ [Groq] Success with Key #{actual_idx+1} ({g_model})")
+                            return res
+                    else:
+                        print(f"  ⚠️ [Groq] Key #{actual_idx+1} ({masked}) -> HTTP {resp.status_code}: {resp.text[:90]}")
+                        if "restricted" in resp.text.lower() or resp.status_code in [401, 403]:
+                            break # অ্যাকাউন্ট ব্যান হলে বাকি মডেল স্কিপ
+                except Exception: pass
+            save_tracker_index("groq", actual_idx + 1, total_groq)
+
+    # ৪. Cerebras Cloud
+    raw_cerebras = os.environ.get("CEREBRAS_API_KEYS", os.environ.get("CEREBRAS_API_KEY", "")).strip()
+    cerebras_order = get_keys_in_cyclic_order("cerebras", raw_cerebras)
+    total_cerebras = len(parse_multiline_keys(raw_cerebras))
+
+    if cerebras_order:
+        for actual_idx, c_key in cerebras_order:
+            headers = {"Authorization": f"Bearer {c_key}", "Content-Type": "application/json"}
+            for c_model in CEREBRAS_MODELS:
+                payload = {"model": c_model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.4, "max_tokens": 2500}
+                try:
+                    resp = requests.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload, timeout=35)
+                    if resp.status_code == 200:
+                        content_txt = resp.json()['choices'][0]['message']['content']
+                        save_tracker_index("cerebras", actual_idx, total_cerebras)
+                        res = parse_json_safely(content_txt) if json_mode else content_txt
+                        if res:
+                            print(f"  ✨ [Cerebras] Success with Key #{actual_idx+1} ({c_model})")
+                            return res
+                except Exception: pass
+            save_tracker_index("cerebras", actual_idx + 1, total_cerebras)
+
+    # ৫. Ollama Cloud (৪০২ ক্রেডিট এরর দিলে সময় বাঁচাতে দ্রুত পরবর্তী কীতে জাম্প)
+    raw_ollama = os.environ.get("OLLAMA_API_KEYS", os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", ""))).strip()
+    ollama_order = get_keys_in_cyclic_order("ollama", raw_ollama)
+    total_ollama = len(parse_multiline_keys(raw_ollama))
+
+    if ollama_order:
+        for actual_idx, o_key in ollama_order:
+            masked = mask_key(o_key)
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
+            consecutive_402 = 0
+            for model_name in OLLAMA_MODELS:
+                payload = {"model": model_name, "messages": [{"role": "user", "content": prompt}], "stream": False, "options": {"temperature": 0.4}}
+                try:
+                    resp = requests.post("https://api.ollama.com/api/chat", headers=headers, json=payload, timeout=40)
+                    if resp.status_code == 200:
+                        content_txt = resp.json().get("message", {}).get("content", "").strip()
+                        save_tracker_index("ollama", actual_idx, total_ollama)
+                        res = parse_json_safely(content_txt) if json_mode else content_txt
+                        if res:
+                            print(f"  ✨ [Ollama] Success with Key #{actual_idx+1} ({model_name})")
+                            return res
+                    else:
+                        print(f"  ⚠️ [Ollama] Key #{actual_idx+1} ({masked}) Model '{model_name}' -> HTTP {resp.status_code}")
+                        if resp.status_code == 401: break
+                        if resp.status_code == 402:
+                            consecutive_402 += 1
+                            if consecutive_402 >= 2: break # ২টি মডেল 402 দিলে ওই কীতে ক্রেডিট নেই, সরাসরি পরের কী
+                except Exception: pass
+            save_tracker_index("ollama", actual_idx + 1, total_ollama)
 
     return None
 
@@ -338,7 +340,7 @@ def build_script_from_article_text(title, article_text, hook_phrase="অনল�
 এই সার্কুলারে {hook_phrase} করার জন্য অথবা চাকরির আবেদন সংক্রান্ত যেকোনো সহায়তা পেতে স্ক্রিনে দেওয়া বা ডেসক্রিপশনের হোয়াটসঅ্যাপ নম্বরে (জিরো ওয়ান ফাইভ ফোর জিরো ফাইভ জিরো থ্রি জিরো নাইন টু) আজই যোগাযোগ করুন। আমাদের অভিজ্ঞ টিম আপনার আবেদনের যাবতীয় কাজ সতর্কতার সাথে সম্পন্ন করে দেবে। ধন্যবাদ।"""
 
 # =========================================================================
-# 🌟 ৪টি পৃথক মডুলার কল
+# 🌟 ৪টি পৃথক মডুলার কল (অপ্রয়োজনীয় ব্যর্থ রিকোয়েস্ট রোধসহ)
 # =========================================================================
 
 def extract_verified_job_data(title, article_text):
@@ -455,23 +457,34 @@ Return JSON:
     return execute_ai_query(prompt, json_mode=True)
 
 # =========================================================================
-# 🌟 মূল মাস্টার ফাংশন
+# 🌟 মূল মাস্টার ফাংশন (সময় বাঁচানোর স্মার্ট ফেইল-সেফ সহ)
 # =========================================================================
 
 def generate_job_content(title, article_text, img_paths=None):
     clean_title = clean_title_for_display(title)
+    clean_org = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else clean_title[:30]
 
+    # ১. কল ১: ডেটা এক্সট্রাকশন
     verified_data = extract_verified_job_data(clean_title, article_text)
-    if not verified_data or not isinstance(verified_data, dict) or not verified_data.get("posts"):
-        clean_org = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else clean_title[:30]
-        verified_data = {
-            "organization": clean_org,
-            "total_vacancies": "",
-            "application_method": "online",
-            "hook_phrase": "অনলাইনে আবেদন",
-            "posts": [{"post_name": "বিভিন্ন পদে নিয়োগ", "vacancy_count": "", "salary_scale": "সরকারি স্কেল", "educational_qualification": "বিজ্ঞপ্তি অনুযায়ী"}]
+    
+    # যদি কল ১-এ কোনো এআই কাজ না করে (অর্থাৎ সব প্রোভাইডার বর্তমানে ডাউন/অকার্যকর)
+    if not verified_data or not isinstance(verified_data, dict):
+        print("⚠️ All AI models currently unavailable. Using fast instant article text fallback!")
+        raw_script = build_script_from_article_text(clean_title, article_text, "অনলাইনে আবেদন")
+        voiceover_script = convert_all_numbers_in_script(raw_script)
+        thumb_meta = {
+            "top_text": clean_org,
+            "row1_text": "জরুরি নিয়োগ",
+            "row2_text": "বিশাল নিয়োগ",
+            "sub_text": clean_org,
+            "bot_text": "অনলাইনে আবেদন ও বিস্তারিত"
         }
+        return clean_title[:100], voiceover_script, thumb_meta, clean_title, DEFAULT_BASE_TAGS
 
+    if not verified_data.get("posts"):
+        verified_data["posts"] = [{"post_name": "বিভিন্ন পদে নিয়োগ", "vacancy_count": "", "salary_scale": "সরকারি স্কেল", "educational_qualification": "বিজ্ঞপ্তি অনুযায়ী"}]
+
+    # ২. কল ২: পূর্ণাঙ্গ গভীর স্ক্রিপ্ট সরাসরি টেক্সট মোডে
     raw_script = generate_script_from_verified_data(verified_data, clean_title, article_text)
     
     if not raw_script or len(raw_script.split()) < 50:
@@ -480,12 +493,14 @@ def generate_job_content(title, article_text, img_paths=None):
 
     voiceover_script = convert_all_numbers_in_script(raw_script)
 
+    # ৩. কল ৩: এসইও মেটাডাটা
     seo_res = generate_seo_metadata(verified_data, clean_title)
     opt_title = seo_res.get("optimized_title", clean_title)[:100] if seo_res and isinstance(seo_res, dict) else clean_title[:100]
     video_desc = seo_res.get("video_description", clean_title) if seo_res and isinstance(seo_res, dict) else clean_title
     raw_tags = seo_res.get("specific_tags", []) if seo_res and isinstance(seo_res, dict) else []
     video_tags = sanitize_youtube_tags(raw_tags + DEFAULT_BASE_TAGS)
 
+    # ৪. কল ৪: থাম্বনেইল টেক্সট
     thumb_res = generate_thumbnail_metadata(verified_data, clean_title)
     if not thumb_res or not isinstance(thumb_res, dict): thumb_res = {}
     
