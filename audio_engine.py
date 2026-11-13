@@ -1,301 +1,138 @@
 # -*- coding: utf-8 -*-
-import os, re, time, base64, requests, json, io, wave
-import concurrent.futures
+import asyncio
+import os
+import re
+import shutil
+import subprocess
+import time
+from pathlib import Path
 
-WORKSPACE_DIR = "workspace"
-TRACKER_FILE = "api_key_tracker.json"
-WORKSPACE_TRACKER = os.path.join(WORKSPACE_DIR, "api_key_tracker.json")
-
-def parse_multiline_keys(raw_text):
-    if not raw_text: return []
-    lines = re.split(r'[\r\n,;]+', str(raw_text))
-    return [k.strip() for k in lines if k.strip() and not k.strip().startswith('#')]
-
-def mask_key(k):
-    if not k or len(k) <= 8: return "****"
-    return k[:4] + "..." + k[-4:]
 
 def clean_script_for_speech(raw_text):
-    if not raw_text: return ""
-    text = re.sub(r'[\*\_\|\#\~]', '', raw_text)
+    if not raw_text:
+        return ""
+    text = re.sub(r'[\*\_\|\#\~]', '', str(raw_text))
     text = re.sub(r'\[.*?\]', '', text)
     text = re.sub(r'https?://\S+|wa\.me/\S+', '', text)
     text = re.sub(r'[\<\>\{\}\(\)\@\$\^\&\+\=\_\\\/]', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-def split_text_into_chunks(text, max_chars=450):
-    raw_parts = re.split(r'([।\?\!\n]+)', text)
-    chunks = []
-    current = ""
-    for p in raw_parts:
-        current += p
-        if any(sym in p for sym in ['।', '?', '!', '\n']) or len(current) >= max_chars:
-            if current.strip(): chunks.append(current.strip())
-            current = ""
-    if current.strip(): chunks.append(current.strip())
-    return chunks
-
-def combine_wav_bytes(wav_bytes_list):
-    if not wav_bytes_list: return b""
-    if len(wav_bytes_list) == 1: return wav_bytes_list[0]
-    out_buf = io.BytesIO()
-    with wave.open(io.BytesIO(wav_bytes_list[0]), 'rb') as first_wav:
-        params = first_wav.getparams()
-        with wave.open(out_buf, 'wb') as merged_wav:
-            merged_wav.setparams(params)
-            merged_wav.writeframes(first_wav.readframes(first_wav.getnframes()))
-            for wb in wav_bytes_list[1:]:
-                with wave.open(io.BytesIO(wb), 'rb') as w:
-                    merged_wav.writeframes(w.readframes(w.getnframes()))
-    return out_buf.getvalue()
-
-def load_tracker():
-    for p in [WORKSPACE_TRACKER, TRACKER_FILE]:
-        if os.path.exists(p):
-            try:
-                with open(p, "r", encoding="utf-8") as f: return json.load(f)
-            except Exception: pass
-    return {}
-
-def save_tracker_index(service_name, index, total_keys):
-    if total_keys == 0: return
-    data = load_tracker()
-    if service_name not in data: data[service_name] = {}
-    data[service_name]["current_index"] = index % total_keys
-
-    for p in [WORKSPACE_TRACKER, TRACKER_FILE]:
-        try:
-            os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-            with open(p, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception: pass
-
-def get_keys_in_cyclic_order(service_name, raw_keys_str):
-    keys = parse_multiline_keys(raw_keys_str)
-    if not keys: return []
-    total = len(keys)
-    data = load_tracker()
-    saved_idx = data.get(service_name, {}).get("current_index", 0) % total
-    return [((saved_idx + i) % total, keys[(saved_idx + i) % total]) for i in range(total)]
-
-# =========================================================================
-# 🌟 ১. Gemini 3.8 Flash TTS (২৫ সেকেন্ড হার্ড টাইমআউট সহ)
-# =========================================================================
-
-def _call_gemini_single_chunk(client, chunk, voice_id, delivery_style):
-    try:
-        return client.interactions.create(
-            model="gemini-3.8-flash-tts",
-            input=[{"type": "user_input", "content": [{"type": "text", "text": chunk, "annotations": [{"type": "speech_metadata", "style": delivery_style}]}]}],
-            response_format={"type": "audio"},
-            generation_config={"speech_config": [{"voice": voice_id}]}
-        )
-    except Exception as e:
-        if "404" in str(e) or "not found" in str(e).lower():
-            # কাস্টম ভয়েস না পেলে স্ট্যান্ডার্ড জেমিনি ভয়েসে রিকভারি
-            return client.interactions.create(
-                model="gemini-3.8-flash-tts",
-                input=[{"type": "user_input", "content": [{"type": "text", "text": chunk}]}],
-                response_format={"type": "audio"}
-            )
-        raise e
-
-def synthesize_with_gemini_tts(speech_text, output_audio_path):
-    print("\n--- [AUDIO TIER 1] Gemini 3.8 Flash TTS ---")
-    raw_gemini = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", "")).strip()
-    gemini_order = get_keys_in_cyclic_order("gemini_tts", raw_gemini)
-    total_gemini = len(parse_multiline_keys(raw_gemini))
-
-    if not gemini_order:
-        print("  ⚠️ No 'GEMINI_API_KEYS' configured. Moving to Tier 2...")
-        return False
-
-    voice_id = "voice_z3e67k0f8p8c"
-    delivery_style = "Natural, calm, warm and articulate Bengali pronunciation"
-
-    try:
-        from google import genai
-    except ImportError:
-        return False
-
-    chunks = split_text_into_chunks(speech_text, max_chars=400)
-    print(f"🔑 Loaded {total_gemini} Gemini Key(s). Resuming from Key #{gemini_order[0][0] + 1}...")
-
-    for actual_idx, api_key in gemini_order:
-        key_num = actual_idx + 1
-        masked = mask_key(api_key)
-        print(f"\n  🚀 [Gemini Key #{key_num}/{total_gemini}] ({masked})")
-        start_t = time.time()
-        key_failed = False
-        audio_chunks_bytes = []
-
-        try:
-            client = genai.Client(api_key=api_key)
-            for chunk in chunks:
-                # 🌟 ২৫ সেকেন্ডের হার্ড টাইমআউট থ্রেড (কোনোভাবেই হ্যাং হতে পারবে না)
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(_call_gemini_single_chunk, client, chunk, voice_id, delivery_style)
-                    try:
-                        interaction = future.result(timeout=25)
-                    except concurrent.futures.TimeoutError:
-                        print(f"  ⚠️ Gemini Key #{key_num} timed out after 25s! Moving to next key...")
-                        key_failed = True
-                        break
-
-                if hasattr(interaction, 'output_audio') and hasattr(interaction.output_audio, 'data'):
-                    audio_bytes = base64.b64decode(interaction.output_audio.data)
-                    audio_chunks_bytes.append(audio_bytes)
-                else:
-                    key_failed = True
-                    break
-
-            if not key_failed and len(audio_chunks_bytes) == len(chunks):
-                merged_wav = combine_wav_bytes(audio_chunks_bytes)
-                with open(output_audio_path, "wb") as f:
-                    f.write(merged_wav)
-                save_tracker_index("gemini_tts", actual_idx, total_gemini)
-                audio_mb = round(os.path.getsize(output_audio_path) / (1024 * 1024), 2)
-                print(f"  ✅ [SUCCESS] Generated via Gemini 3.8 Flash TTS! ({audio_mb} MB in {round(time.time() - start_t, 2)}s)")
-                return True
-            else:
-                save_tracker_index("gemini_tts", actual_idx + 1, total_gemini)
-
-        except Exception as e:
-            print(f"  ⚠️ Gemini Key #{key_num} failed: {e}")
-            save_tracker_index("gemini_tts", actual_idx + 1, total_gemini)
-
-    return False
-
-# =========================================================================
-# 🌟 ২. ElevenLabs API (সার্কিট ব্রেকার সহ)
-# =========================================================================
-
-def synthesize_with_elevenlabs(speech_text, output_audio_path):
-    print("\n--- [AUDIO TIER 2] ElevenLabs API (eleven_v3) ---")
-    raw_eleven = os.environ.get("ELEVENLABS_API_KEYS", os.environ.get("ELEVENLABS_API_KEY", "")).strip()
-    eleven_order = get_keys_in_cyclic_order("elevenlabs", raw_eleven)
-    total_eleven = len(parse_multiline_keys(raw_eleven))
-
-    if not eleven_order:
-        print("  ⚠️ No 'ELEVENLABS_API_KEYS' configured. Moving to Tier 3...")
-        return False
-
-    voice_id = "JBFqnCBsd6RMkjVDRZzb"
-    tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-    chunks = split_text_into_chunks(speech_text, max_chars=400)
-
-    print(f"🔑 Loaded {total_eleven} ElevenLabs Key(s). Resuming from Key #{eleven_order[0][0] + 1}...")
-
-    consecutive_fails = 0
-
-    for actual_idx, api_key in eleven_order:
-        if consecutive_fails >= 5:
-            print(f"  ⚡ [CIRCUIT BREAKER] 5 consecutive ElevenLabs keys failed quota. Jumping to Tier 3!")
-            break
-
-        key_num = actual_idx + 1
-        masked = mask_key(api_key)
-        headers = {"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": api_key}
-        start_t = time.time()
-        key_failed = False
-        audio_mp3_chunks = []
-
-        print(f"  🚀 [ElevenLabs Key #{key_num}/{total_eleven}] ({masked})")
-        for chunk in chunks:
-            payload = {"text": chunk, "model_id": "eleven_v3", "language_code": "bn", "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}
-            try:
-                resp = requests.post(tts_url, json=payload, headers=headers, timeout=25)
-                if resp.status_code == 200 and len(resp.content) > 1000:
-                    audio_mp3_chunks.append(resp.content)
-                else:
-                    key_failed = True
-                    break
-            except Exception:
-                key_failed = True
-                break
-
-        if not key_failed and len(audio_mp3_chunks) == len(chunks):
-            with open(output_audio_path, "wb") as f:
-                for b in audio_mp3_chunks: f.write(b)
-            save_tracker_index("elevenlabs", actual_idx, total_eleven)
-            audio_mb = round(len(resp.content) / (1024 * 1024), 2)
-            print(f"  ✅ [SUCCESS] Generated via ElevenLabs Key #{key_num}! ({audio_mb} MB in {round(time.time() - start_t, 2)}s)")
-            return True
-        else:
-            consecutive_fails += 1
-            save_tracker_index("elevenlabs", actual_idx + 1, total_eleven)
-
-    return False
-
-# =========================================================================
-# 🌟 ৩. Microsoft Edge Neural ব্যাকআপ (০.৭৯ সেকেন্ড)
-# =========================================================================
 
 def synthesize_with_edge_fallback(speech_text, output_audio_path):
-    print("\n--- [AUDIO TIER 3] Microsoft Edge Neural Backup (bn-BD-PradeepNeural) ---")
+    """ব্যাকআপ: Microsoft Edge TTS (bn-BD-PradeepNeural)"""
+    print("\n--- [BACKUP AUDIO] Microsoft Edge TTS (bn-BD-PradeepNeural) ---")
+    if not speech_text:
+        return False
+
+    raw_mp3 = str(output_audio_path) + ".edge.mp3"
     try:
-        import asyncio, edge_tts
+        import edge_tts
+
+        voice_name = os.environ.get("EDGE_TTS_VOICE", "bn-BD-PradeepNeural").strip() or "bn-BD-PradeepNeural"
         start_t = time.time()
+
         async def _make():
-            c = edge_tts.Communicate(speech_text, "bn-BD-PradeepNeural", rate="+0%", pitch="+0Hz")
-            await c.save(output_audio_path)
+            communicate = edge_tts.Communicate(speech_text, voice_name, rate="+0%", pitch="+0Hz")
+            await communicate.save(raw_mp3)
+
         asyncio.run(_make())
-        if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
+
+        if os.path.exists(raw_mp3) and os.path.getsize(raw_mp3) > 1000:
+            if str(output_audio_path).lower().endswith(".wav") and shutil.which("ffmpeg"):
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", raw_mp3, "-ar", "24000", "-ac", "1", str(output_audio_path)],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                os.remove(raw_mp3)
+            else:
+                os.replace(raw_mp3, output_audio_path)
+
             audio_mb = round(os.path.getsize(output_audio_path) / (1024 * 1024), 2)
-            print(f"  ✅ [SUCCESS] Generated via Microsoft Edge Backup! ({audio_mb} MB in {round(time.time() - start_t, 2)}s)")
+            print(f"  ✅ [SUCCESS] Generated via Edge TTS Backup! ({audio_mb} MB in {round(time.time() - start_t, 2)}s)")
             return True
     except Exception as e:
-        print(f"  ⚠️ Edge fallback notice: {e}")
+        print(f"  ⚠️ Edge TTS backup failed: {e}")
+    finally:
+        if os.path.exists(raw_mp3):
+            try:
+                os.remove(raw_mp3)
+            except Exception:
+                pass
+
     return False
 
-# =========================================================================
-# 🌟 ৪. লোকাল অডিও ফেইল-সেফ
-# =========================================================================
 
-def synthesize_with_local_music(output_audio_path):
-    candidates = ["sample_voice.mp3", "sample_voice.wav", "Music/bg_music.mp3", "Photos/sample_voice.mp3"]
-    for m in candidates:
-        if os.path.exists(m) and os.path.getsize(m) > 2000:
-            import shutil
-            shutil.copyfile(m, output_audio_path)
-            return True
-    return False
+def generate_voiceover_batch_pipeline(batch_items, batch_work_dir):
+    """
+    ১. প্রাইমারি: Kaggle IndicF5_Bangladeshi (সবগুলো অডিও মাত্র ১টি ব্যাচ রিকোয়েস্টে)
+    ২. ব্যাকআপ: Microsoft Edge TTS (যদি কোনো কারণে Kaggle ব্যর্থ হয়)
+    """
+    if not batch_items:
+        return {}
 
-# =========================================================================
-# 🌟 মূল মাস্টার পাইপলাইন
-# =========================================================================
+    os.makedirs(batch_work_dir, exist_ok=True)
+    cleaned_tasks = []
+    for item in batch_items:
+        sp_text = clean_script_for_speech(item["text"])
+        cleaned_tasks.append({
+            "filename": item["filename"],
+            "text": sp_text,
+            "target_path": item["target_path"],
+        })
+
+    print("\n" + "=" * 65)
+    print("🎙️ [AUDIO ENGINE] Primary: Kaggle IndicF5_Bangladeshi | Backup: Edge TTS")
+    print(f"📦 Total Scripts Queued: {len(cleaned_tasks)}")
+    for idx, t in enumerate(cleaned_tasks, 1):
+        print(f"  #{idx}: {t['filename']} | {len(t['text'].split())} words | {len(t['text'])} chars")
+    print("=" * 65)
+
+    results = {}
+
+    # ১. প্রাইমারি: Kaggle IndicF5_Bangladeshi (১ বারের ব্যাচ রিকোয়েস্ট)
+    try:
+        from kaggle_tts import generate_voices_batch
+        default_voice = os.environ.get("KAGGLE_DEFAULT_VOICE", "male").strip().lower()
+        generated_map = generate_voices_batch(
+            tasks=[{"filename": t["filename"], "text": t["text"]} for t in cleaned_tasks],
+            output_dir=batch_work_dir,
+            default_voice=default_voice,
+        )
+        for t in cleaned_tasks:
+            src = generated_map.get(t["filename"])
+            dst = Path(t["target_path"])
+            if src and Path(src).exists() and Path(src).stat().st_size > 1000:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dst))
+                results[t["filename"]] = str(dst)
+                print(f"  🎵 Saved '{t['filename']}' -> {dst}")
+
+        if len(results) == len(cleaned_tasks):
+            return results
+    except Exception as e:
+        print(f"\n⚠️ [Kaggle TTS Failed] ({e}) — Switching to Microsoft Edge TTS backup...")
+
+    # ২. ব্যাকআপ: শুধু যেগুলো Kaggle থেকে আসেনি সেগুলোর জন্য Edge TTS
+    for t in cleaned_tasks:
+        if t["filename"] in results:
+            continue
+        dst = t["target_path"]
+        os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
+        if synthesize_with_edge_fallback(t["text"], dst):
+            if os.path.exists(dst) and os.path.getsize(dst) > 1000:
+                results[t["filename"]] = dst
+
+    return results
+
 
 def generate_voiceover_audio_pipeline(text, output_audio_path):
-    speech_text = clean_script_for_speech(text)
-    clean_chars = len(speech_text)
-    words = len(speech_text.split())
-
-    print("\n" + "="*65)
-    print("🎙️ [AUDIO ENGINE] Multi-Tier Cascade Active (With 25s Timeout Protection)")
-    print(f"📊 [Text Stats] Chars: {clean_chars} | Words: {words}")
-    print(f"📝 [Preview]: \"{speech_text[:120]}...\"")
-    print("="*65)
-
-    # ১. Gemini 3.8 TTS (২৫ সেকেন্ড হার্ড টাইমআউট সহ)
-    if synthesize_with_gemini_tts(speech_text, output_audio_path):
-        if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
-            return True
-
-    # ২. ElevenLabs (সার্কিট ব্রেকার সহ)
-    if synthesize_with_elevenlabs(speech_text, output_audio_path):
-        if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
-            return True
-
-    # ৩. Microsoft Edge Neural
-    if synthesize_with_edge_fallback(speech_text, output_audio_path):
-        if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
-            return True
-
-    # ৪. লোকাল অডিও
-    if synthesize_with_local_music(output_audio_path):
-        if os.path.exists(output_audio_path) and os.path.getsize(output_audio_path) > 1000:
-            return True
-
-    print("\n❌ [CRITICAL] All 4 audio tiers failed.")
-    return False
+    """একক অডিও জেনারেশনের হেল্পার ফাংশন"""
+    fname = os.path.basename(output_audio_path)
+    res = generate_voiceover_batch_pipeline(
+        [{"filename": fname, "text": text, "target_path": output_audio_path}],
+        batch_work_dir=os.path.join("temp_assets", "single_audio"),
+    )
+    return fname in res
