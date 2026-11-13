@@ -2,8 +2,8 @@ name: RSS Video Automation System
 
 on:
   repository_dispatch:
-    types: [rss_video_check] 
-  workflow_dispatch: 
+    types: [rss_video_check]
+  workflow_dispatch:
 
 # 🌟 কাজ চলার সময় মাঝপথে ক্যানসেল হবে না (নিরাপদ কিউ সিস্টেম)
 concurrency:
@@ -69,7 +69,7 @@ jobs:
           CEREBRAS_API_KEYS: ${{ secrets.CEREBRAS_API_KEYS }}
           OLLAMA_API_KEYS: ${{ secrets.OLLAMA_API_KEYS }}
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
-          ELEVENLABS_API_KEYS: ${{ secrets.ELEVENLABS_API_KEYS }}
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: python -u main.py
 
       - name: Commit & Push Trackers to Repository
