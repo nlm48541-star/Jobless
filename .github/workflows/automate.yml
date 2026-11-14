@@ -16,7 +16,7 @@ permissions:
 jobs:
   run-automation:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 100
 
     steps:
       - name: Checkout repository
