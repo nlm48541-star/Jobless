@@ -11,18 +11,46 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 KAGGLE_USERNAME = os.environ.get("KAGGLE_USERNAME", "yusufadnan").strip() or "yusufadnan"
-KERNEL_SLUG = "indicf5-tts-worker"
+KERNEL_SLUG_BASE = "indicf5-tts-worker"
 DATASET_SLUG = "yusufadnan/indicf5-bd-bundle"
 
 
-def _run_kaggle(args: List[str]) -> str:
+def _run_kaggle(args: List[str], stdin_text: Optional[str] = None) -> str:
     if not os.environ.get("KAGGLE_API_TOKEN") and not (Path.home() / ".kaggle" / "kaggle.json").exists():
         raise RuntimeError("KAGGLE_API_TOKEN সেট করা নেই! GitHub Secrets-এ KAGGLE_API_TOKEN যোগ করুন।")
     cmd = [sys.executable, "-m", "kaggle", *args]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.run(
+        cmd,
+        input=stdin_text,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
     if proc.returncode != 0:
         raise RuntimeError(f"Kaggle CLI ত্রুটি ({' '.join(args)}):\n{proc.stdout}")
     return proc.stdout
+
+
+def _delete_kernel_safely(kernel_id: str):
+    """আটকে থাকা বা পুরনো জব ডিলিট করে GPU স্লট ফ্রি করে"""
+    try:
+        _run_kaggle(["kernels", "delete", kernel_id, "-y"], stdin_text="yes\n")
+        print(f"🧹 [Kaggle Cleanup] Deleted kernel '{kernel_id}' to free GPU slot.")
+        time.sleep(5)
+    except Exception:
+        pass
+
+
+def _cleanup_stale_workers():
+    """আগের কোনো রানে জব QUEUED হয়ে থাকলে সেটি পরিষ্কার করে"""
+    for suffix in ("", "-r2", "-r3"):
+        kid = f"{KAGGLE_USERNAME}/{KERNEL_SLUG_BASE}{suffix}"
+        try:
+            st = _run_kaggle(["kernels", "status", kid]).lower()
+            if any(x in st for x in ("queued", "running", "error", "cancel")):
+                _delete_kernel_safely(kid)
+        except Exception:
+            pass
 
 
 def _find_repo_reference_voice() -> tuple[Optional[Path], str]:
@@ -257,14 +285,51 @@ print("✅ Batch synthesis complete!")
 '''
 
 
+def _push_with_fallback_slug(job_dir: Path, base_script: str, run_timeout_sec: int) -> str:
+    """কোনো কারণে স্লাগ আটকে থাকলে বিকল্প স্লাগে পুশ করে"""
+    suffixes = ("", "-r2", "-r3")
+    last_err = None
+    for suffix in suffixes:
+        slug = f"{KERNEL_SLUG_BASE}{suffix}"
+        kernel_id = f"{KAGGLE_USERNAME}/{slug}"
+        metadata = {
+            "id": kernel_id,
+            "title": f"IndicF5 TTS Worker{suffix.upper()}",
+            "code_file": "tts_job.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": True,
+            "enable_gpu": True,
+            "enable_tpu": False,
+            "enable_internet": False,
+            "machine_shape": "NvidiaTeslaT4",
+            "dataset_sources": [DATASET_SLUG],
+            "competition_sources": [],
+            "kernel_sources": [],
+            "model_sources": [],
+        }
+        (job_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        (job_dir / "tts_job.py").write_text(base_script, encoding="utf-8")
+        try:
+            push_out = _run_kaggle(["kernels", "push", "-p", str(job_dir), "-t", str(run_timeout_sec + 1200)])
+            print("  ", push_out.strip())
+            return kernel_id
+        except Exception as exc:
+            last_err = exc
+            print(f"⚠️ Slug '{kernel_id}' push failed ({exc}). Trying next slug...")
+    raise RuntimeError(f"Kaggle push failed on all slugs: {last_err}")
+
+
 def generate_voices_batch(
     tasks: List[Dict[str, str]],
     output_dir: str | Path,
     ref_audio_path: Optional[str | Path] = None,
     ref_text: str = "",
     default_voice: str = "male",
-    poll_interval: int = 15,
-    timeout_sec: int = 1800,
+    poll_interval: int = 20,
+    max_attempts: int = 3,
+    retry_interval_sec: int = 1200,  # ২০ মিনিট = ১২০০ সেকেন্ড
+    run_timeout_sec: int = 900,      # GPU চালু হলে সর্বোচ্চ ১৫ মিনিট
 ) -> Dict[str, Path]:
     if not tasks:
         return {}
@@ -287,76 +352,86 @@ def generate_voices_batch(
             ref_b64 = base64.b64encode(rp.read_bytes()).decode("ascii")
             ref_ext = rp.suffix.lower() or ".wav"
 
-    kernel_id = f"{KAGGLE_USERNAME}/{KERNEL_SLUG}"
+    script_code = _build_worker_script(tasks, ref_b64, ref_ext, ref_text, default_voice)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        job_dir = tmp_path / "job"
-        dl_dir = tmp_path / "out"
-        job_dir.mkdir()
-        dl_dir.mkdir()
+    # শুরুর আগে পুরনো কোনো আটকে থাকা জব পরিষ্কার করা
+    _cleanup_stale_workers()
 
-        metadata = {
-            "id": kernel_id,
-            "title": "IndicF5 TTS Worker",
-            "code_file": "tts_job.py",
-            "language": "python",
-            "kernel_type": "script",
-            "is_private": True,
-            "enable_gpu": True,
-            "enable_tpu": False,
-            "enable_internet": False,
-            "machine_shape": "NvidiaTeslaT4",
-            "dataset_sources": [DATASET_SLUG],
-            "competition_sources": [],
-            "kernel_sources": [],
-            "model_sources": [],
-        }
-        (job_dir / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-        script_code = _build_worker_script(tasks, ref_b64, ref_ext, ref_text, default_voice)
-        (job_dir / "tts_job.py").write_text(script_code, encoding="utf-8")
+    for attempt in range(1, max_attempts + 1):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            job_dir = tmp_path / "job"
+            dl_dir = tmp_path / "out"
+            job_dir.mkdir()
+            dl_dir.mkdir()
 
-        print(f"🚀 [Kaggle TTS] Pushing {len(tasks)} audio script(s) in 1 batch request...")
-        push_out = _run_kaggle(["kernels", "push", "-p", str(job_dir), "-t", str(timeout_sec)])
-        print("  ", push_out.strip())
+            print(f"\n🚀 [Kaggle TTS | Attempt {attempt}/{max_attempts}] Pushing {len(tasks)} audio script(s)...")
+            attempt_start = time.time()
+            active_kernel_id = _push_with_fallback_slug(job_dir, script_code, run_timeout_sec)
 
-        start_time = time.time()
-        time.sleep(10)
+            running_started_at = None
+            time.sleep(10)
 
-        while True:
-            status_out = _run_kaggle(["kernels", "status", kernel_id]).strip()
-            print(f"⏳ [Kaggle Status | {int(time.time() - start_time)}s]: {status_out}")
-            lower = status_out.lower()
+            while True:
+                status_out = _run_kaggle(["kernels", "status", active_kernel_id]).strip()
+                elapsed = int(time.time() - attempt_start)
+                print(f"⏳ [Attempt {attempt}/{max_attempts} | {elapsed}s]: {status_out}")
+                lower = status_out.lower()
 
-            if "complete" in lower:
-                break
-            if "error" in lower or "cancel" in lower:
-                try:
-                    _run_kaggle(["kernels", "output", kernel_id, "-p", str(dl_dir)])
-                    log_files = list(dl_dir.glob("*.log"))
-                    log_txt = log_files[0].read_text(encoding="utf-8", errors="ignore")[-2000:] if log_files else ""
-                except Exception:
+                if "complete" in lower:
+                    print("📥 [Kaggle TTS] Downloading generated audio bundle...")
+                    _run_kaggle(["kernels", "output", active_kernel_id, "-p", str(dl_dir)])
+
+                    zip_path = dl_dir / "audio_bundle.zip"
+                    if not zip_path.exists():
+                        raise FileNotFoundError(
+                            f"audio_bundle.zip পাওয়া যায়নি! ফাইলসমূহ: {[p.name for p in dl_dir.iterdir()]}"
+                        )
+
+                    result_paths: Dict[str, Path] = {}
+                    with zipfile.ZipFile(zip_path, "r") as zf:
+                        zf.extractall(out_dir)
+                        for item in tasks:
+                            fname = item["filename"]
+                            result_paths[fname] = out_dir / fname
+
+                    print(f"✅ [Kaggle TTS] All {len(tasks)} audio file(s) ready on Attempt #{attempt}!")
+                    return result_paths
+
+                if "error" in lower or "cancel" in lower:
                     log_txt = ""
-                raise RuntimeError(f"Kaggle রান ব্যর্থ হয়েছে: {status_out}\n{log_txt}")
+                    try:
+                        _run_kaggle(["kernels", "output", active_kernel_id, "-p", str(dl_dir)])
+                        log_files = list(dl_dir.glob("*.log"))
+                        log_txt = log_files[0].read_text(encoding="utf-8", errors="ignore")[-1500:] if log_files else ""
+                    except Exception:
+                        pass
+                    print(f"❌ [Attempt {attempt} Error]: {status_out}\n{log_txt}")
+                    _delete_kernel_safely(active_kernel_id)
+                    break
 
-            if time.time() - start_time > timeout_sec:
-                raise TimeoutError("Kaggle জব নির্ধারিত সময়ের মধ্যে শেষ হয়নি।")
+                if "running" in lower:
+                    if running_started_at is None:
+                        running_started_at = time.time()
+                        print(f"⚡ [Attempt {attempt}] GPU RUNNING শুরু হয়েছে!")
+                    if time.time() - running_started_at > run_timeout_sec:
+                        print(f"⏰ [Attempt {attempt}] Running timeout ({run_timeout_sec}s) পার হয়েছে।")
+                        _delete_kernel_safely(active_kernel_id)
+                        break
+                else:
+                    # QUEUED অবস্থায় সর্বোচ্চ ২০ মিনিট অপেক্ষা
+                    if time.time() - attempt_start >= retry_interval_sec:
+                        print(f"⏰ [Attempt {attempt}] ২০ মিনিট ধরে QUEUED অবস্থায় আছে। বাতিল করে পরের চেষ্টা করা হচ্ছে...")
+                        _delete_kernel_safely(active_kernel_id)
+                        break
 
-            time.sleep(poll_interval)
+                time.sleep(poll_interval)
 
-        print("📥 [Kaggle TTS] Downloading generated audio bundle...")
-        _run_kaggle(["kernels", "output", kernel_id, "-p", str(dl_dir)])
+        # যদি কোনো জব দ্রুত (২০ মিনিটের আগে) এরর খেয়ে ভেঙে যায়, তবে বাকি সময় অপেক্ষা করে ২০ মিনিট পর পরের চেষ্টা করবে
+        if attempt < max_attempts:
+            remaining_wait = int(retry_interval_sec - (time.time() - attempt_start))
+            if remaining_wait > 10:
+                print(f"⏱️ পরবর্তী চেষ্টার আগে {remaining_wait} সেকেন্ড (২০ মিনিটের বিরতি) অপেক্ষা করা হচ্ছে...")
+                time.sleep(remaining_wait)
 
-        zip_path = dl_dir / "audio_bundle.zip"
-        if not zip_path.exists():
-            raise FileNotFoundError(f"audio_bundle.zip পাওয়া যায়নি! ফাইলসমূহ: {[p.name for p in dl_dir.iterdir()]}")
-
-        result_paths: Dict[str, Path] = {}
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(out_dir)
-            for item in tasks:
-                fname = item["filename"]
-                result_paths[fname] = out_dir / fname
-
-        print(f"✅ [Kaggle TTS] All {len(tasks)} audio file(s) ready!")
-        return result_paths
+    raise RuntimeError(f"Kaggle {max_attempts} বার (২০ মিনিট পরপর) চেষ্টা করেও GPU পায়নি।")
