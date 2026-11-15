@@ -80,6 +80,7 @@ def _build_worker_script(
     ref_ext: str,
     ref_text: str,
     default_voice: str,
+    speech_speed: float = 0.93,
 ) -> str:
     tasks_json = json.dumps(tasks, ensure_ascii=False)
     ref_text_json = json.dumps(ref_text, ensure_ascii=False)
@@ -151,6 +152,7 @@ REF_AUDIO_B64 = {json.dumps(ref_audio_b64)}
 REF_EXT = {json.dumps(ref_ext)}
 CUSTOM_REF_TEXT = json.loads({json.dumps(ref_text_json)})
 DEFAULT_VOICE = {json.dumps(default_voice)}
+SPEECH_SPEED = {float(speech_speed)}
 
 
 def split_bengali_for_indicf5(text: str, max_chars: int = 160):
@@ -223,7 +225,7 @@ else:
 
 # ৪. মডেল ও Vocos মাত্র ১ বার লোড করা
 device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Using device: {{device}} | Total Audio Jobs: {{len(TASKS)}}")
+print(f"Using device: {{device}} | Total Audio Jobs: {{len(TASKS)}} | Speed: {{SPEECH_SPEED}}")
 
 vmap, vsize = get_tokenizer(str(BUNDLE_DIR / "vocab.txt"), "custom")
 model = CFM(
@@ -270,7 +272,7 @@ with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for c_idx, ch in enumerate(chunks):
             wav_seg, sr_final, _ = infer_process(
                 clean_ref, clean_ref_txt, ch, model, vocoder,
-                mel_spec_type="vocos", device=device,
+                mel_spec_type="vocos", speed=SPEECH_SPEED, device=device,
             )
             wav_parts.append(np.asarray(wav_seg, dtype=np.float32).reshape(-1))
             if c_idx < len(chunks) - 1:
@@ -326,6 +328,7 @@ def generate_voices_batch(
     ref_audio_path: Optional[str | Path] = None,
     ref_text: str = "",
     default_voice: str = "male",
+    speech_speed: float = 0.93,
     poll_interval: int = 20,
     max_attempts: int = 3,
     retry_interval_sec: int = 1200,  # ২০ মিনিট = ১২০০ সেকেন্ড
@@ -352,7 +355,9 @@ def generate_voices_batch(
             ref_b64 = base64.b64encode(rp.read_bytes()).decode("ascii")
             ref_ext = rp.suffix.lower() or ".wav"
 
-    script_code = _build_worker_script(tasks, ref_b64, ref_ext, ref_text, default_voice)
+    script_code = _build_worker_script(
+        tasks, ref_b64, ref_ext, ref_text, default_voice, speech_speed=speech_speed
+    )
 
     # শুরুর আগে পুরনো কোনো আটকে থাকা জব পরিষ্কার করা
     _cleanup_stale_workers()
@@ -365,7 +370,7 @@ def generate_voices_batch(
             job_dir.mkdir()
             dl_dir.mkdir()
 
-            print(f"\n🚀 [Kaggle TTS | Attempt {attempt}/{max_attempts}] Pushing {len(tasks)} audio script(s)...")
+            print(f"\n🚀 [Kaggle TTS | Attempt {attempt}/{max_attempts}] Pushing {len(tasks)} audio script(s) (speed={speech_speed})...")
             attempt_start = time.time()
             active_kernel_id = _push_with_fallback_slug(job_dir, script_code, run_timeout_sec)
 
@@ -419,7 +424,6 @@ def generate_voices_batch(
                         _delete_kernel_safely(active_kernel_id)
                         break
                 else:
-                    # QUEUED অবস্থায় সর্বোচ্চ ২০ মিনিট অপেক্ষা
                     if time.time() - attempt_start >= retry_interval_sec:
                         print(f"⏰ [Attempt {attempt}] ২০ মিনিট ধরে QUEUED অবস্থায় আছে। বাতিল করে পরের চেষ্টা করা হচ্ছে...")
                         _delete_kernel_safely(active_kernel_id)
@@ -427,7 +431,6 @@ def generate_voices_batch(
 
                 time.sleep(poll_interval)
 
-        # যদি কোনো জব দ্রুত (২০ মিনিটের আগে) এরর খেয়ে ভেঙে যায়, তবে বাকি সময় অপেক্ষা করে ২০ মিনিট পর পরের চেষ্টা করবে
         if attempt < max_attempts:
             remaining_wait = int(retry_interval_sec - (time.time() - attempt_start))
             if remaining_wait > 10:
