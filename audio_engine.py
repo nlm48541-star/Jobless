@@ -93,16 +93,18 @@ def generate_voiceover_batch_pipeline(batch_items, batch_work_dir):
 
     results = {}
 
-    # ১. প্রাইমারি: Kaggle IndicF5_Bangladeshi (১ বারের ব্যাচ রিকোয়েস্ট, speed=0.93)
+    # ১. প্রাইমারি: Kaggle IndicF5_Bangladeshi (১ বারের ব্যাচ রিকোয়েস্ট, speed=0.93, nfe_step=16)
     try:
         from kaggle_tts import generate_voices_batch
         default_voice = os.environ.get("KAGGLE_DEFAULT_VOICE", "male").strip().lower()
         speech_speed = float(os.environ.get("KAGGLE_SPEECH_SPEED", "0.93"))
+        nfe_step = int(os.environ.get("KAGGLE_NFE_STEP", "16"))
         generated_map = generate_voices_batch(
             tasks=[{"filename": t["filename"], "text": t["text"]} for t in cleaned_tasks],
             output_dir=batch_work_dir,
             default_voice=default_voice,
             speech_speed=speech_speed,
+            nfe_step=nfe_step,
         )
         for t in cleaned_tasks:
             src = generated_map.get(t["filename"])
