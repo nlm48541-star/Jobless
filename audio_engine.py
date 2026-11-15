@@ -20,7 +20,7 @@ def clean_script_for_speech(raw_text):
 
 
 def synthesize_with_edge_fallback(speech_text, output_audio_path):
-    """ব্যাকআপ: Microsoft Edge TTS (bn-BD-PradeepNeural)"""
+    """ব্যাকআপ: Microsoft Edge TTS (bn-BD-PradeepNeural) — সামান্য ধীর ও স্পষ্ট গতি (-7%)"""
     print("\n--- [BACKUP AUDIO] Microsoft Edge TTS (bn-BD-PradeepNeural) ---")
     if not speech_text:
         return False
@@ -30,10 +30,11 @@ def synthesize_with_edge_fallback(speech_text, output_audio_path):
         import edge_tts
 
         voice_name = os.environ.get("EDGE_TTS_VOICE", "bn-BD-PradeepNeural").strip() or "bn-BD-PradeepNeural"
+        rate_str = os.environ.get("EDGE_TTS_RATE", "-7%").strip() or "-7%"
         start_t = time.time()
 
         async def _make():
-            communicate = edge_tts.Communicate(speech_text, voice_name, rate="+0%", pitch="+0Hz")
+            communicate = edge_tts.Communicate(speech_text, voice_name, rate=rate_str, pitch="+0Hz")
             await communicate.save(raw_mp3)
 
         asyncio.run(_make())
@@ -51,7 +52,7 @@ def synthesize_with_edge_fallback(speech_text, output_audio_path):
                 os.replace(raw_mp3, output_audio_path)
 
             audio_mb = round(os.path.getsize(output_audio_path) / (1024 * 1024), 2)
-            print(f"  ✅ [SUCCESS] Generated via Edge TTS Backup! ({audio_mb} MB in {round(time.time() - start_t, 2)}s)")
+            print(f"  ✅ [SUCCESS] Generated via Edge TTS Backup (rate={rate_str})! ({audio_mb} MB in {round(time.time() - start_t, 2)}s)")
             return True
     except Exception as e:
         print(f"  ⚠️ Edge TTS backup failed: {e}")
@@ -92,14 +93,16 @@ def generate_voiceover_batch_pipeline(batch_items, batch_work_dir):
 
     results = {}
 
-    # ১. প্রাইমারি: Kaggle IndicF5_Bangladeshi (১ বারের ব্যাচ রিকোয়েস্ট)
+    # ১. প্রাইমারি: Kaggle IndicF5_Bangladeshi (১ বারের ব্যাচ রিকোয়েস্ট, speed=0.93)
     try:
         from kaggle_tts import generate_voices_batch
         default_voice = os.environ.get("KAGGLE_DEFAULT_VOICE", "male").strip().lower()
+        speech_speed = float(os.environ.get("KAGGLE_SPEECH_SPEED", "0.93"))
         generated_map = generate_voices_batch(
             tasks=[{"filename": t["filename"], "text": t["text"]} for t in cleaned_tasks],
             output_dir=batch_work_dir,
             default_voice=default_voice,
+            speech_speed=speech_speed,
         )
         for t in cleaned_tasks:
             src = generated_map.get(t["filename"])
