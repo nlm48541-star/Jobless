@@ -12,22 +12,69 @@ WORKSPACE_DIR = "workspace"
 TRACKER_FILE = "api_key_tracker.json"
 WORKSPACE_TRACKER = os.path.join(WORKSPACE_DIR, "api_key_tracker.json")
 
-OPENROUTER_MODELS = [
-    "openrouter/free",
-    "google/gemma-4-26b-a4b-it:free",
+# =========================================================================
+# 🌟 মডেল কনফিগারেশন (শুধুমাত্র সচল ফ্রি/বড় মডেল — বড় থেকে ছোট ক্রমে)
+# =========================================================================
+
+# ১ম প্রায়োরিটি: OpenRouter (কেবল ফ্রি ও বড় মডেল: 550B -> 480B -> 120B -> 80B -> 70B -> 31B -> 26B)
+OPENROUTER_VISION_MODELS = [
+    "nvidia/nemotron-3.5-super-vl:free",      # 120B MoE Multimodal
+    "google/gemma-4-31b-it:free",             # 31B Dense Multimodal
+    "google/gemma-4-26b-a4b-it:free",         # 26B MoE Multimodal
 ]
 
+OPENROUTER_TEXT_MODELS = [
+    "nvidia/nemotron-3-ultra-550b-a55b:free", # 550B MoE
+    "qwen/qwen3-coder:free",                  # 480B MoE
+    "nvidia/nemotron-3.5-super-vl:free",      # 120B MoE
+    "nvidia/nemotron-3-super-120b-a12b:free", # 120B MoE
+    "openai/gpt-oss-120b:free",               # 120B MoE
+    "qwen/qwen3-next-80b-a3b-instruct:free",  # 80B MoE
+    "meta-llama/llama-3.3-70b-instruct:free", # 70B Dense
+    "google/gemma-4-31b-it:free",             # 31B Dense
+    "google/gemma-4-26b-a4b-it:free",         # 26B MoE
+    "openrouter/free",                        # Free Auto Router
+]
+
+# ২য় প্রায়োরিটি: Ollama Cloud (https://ollama.com/api/chat — 1.04T -> 753B -> 675B -> 552B -> 397B -> 120B -> 31B)
+OLLAMA_VISION_MODELS = [
+    "kimi-k2.6",                              # 1.04T Multimodal
+    "mistral-large-3:675b",                   # 675B Multimodal
+    "deepseek-v4.1-flash",                    # 552B Multimodal
+    "glm-5.3-flash",                          # Multimodal Flagship
+    "gemma4:31b",                             # 31B Multimodal
+]
+
+OLLAMA_TEXT_MODELS = [
+    "kimi-k2.6",                              # 1.04T
+    "glm-5.2",                                # 753B
+    "mistral-large-3:675b",                   # 675B
+    "deepseek-v4.1-flash",                    # 552B
+    "deepseek-v4-pro",                        # Frontier MoE
+    "qwen3.5:397b",                           # 397B
+    "minimax-m3",                             # Flagship
+    "glm-5.3-flash",                          # Multimodal
+    "gpt-oss:120b",                           # 120B
+    "nemotron-3-super",                       # 120B
+    "gemma4:31b",                             # 31B
+]
+
+# ৩য় প্রায়োরিটি: Groq (120B -> 70B, ছোট 8B মডেল বাদ)
+GROQ_MODELS = [
+    "openai/gpt-oss-120b",                    # 120B
+    "llama-3.3-70b-versatile",                # 70B
+]
+
+# ৪র্থ প্রায়োরিটি (ঐচ্ছিক, যদি Cerebras Key দেওয়া থাকে)
+CEREBRAS_MODELS = [
+    "llama-3.3-70b",                          # 70B
+]
+
+# ৫ম ও শেষ প্রায়োরিটি: Google Gemini
 GEMINI_TEXT_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-3.5-flash-lite",
-]
-
-GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
-CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.1-8b"]
-OLLAMA_MODELS = [
-    "glm-5.3-flash:cloud", "glm-5.2:cloud", "deepseek-v3.1:671b-cloud",
-    "gemma4", "gemma4:31b", "gpt-oss:20b", "kimi-k3", "minimax-m3"
 ]
 
 
@@ -245,10 +292,10 @@ def _clean_text_response(raw_text):
     return cleaned.strip()
 
 
-def _encode_images_for_gemini(img_paths, max_images=3):
-    parts = []
+def _encode_images_base64(img_paths, max_images=3):
+    b64_list = []
     if not img_paths:
-        return parts
+        return b64_list
     for p in img_paths[:max_images]:
         if not p or not os.path.exists(p):
             continue
@@ -260,14 +307,215 @@ def _encode_images_for_gemini(img_paths, max_images=3):
                     rgb = rgb.resize((1600, new_h), Image.LANCZOS)
                 buf = io.BytesIO()
                 rgb.save(buf, format="JPEG", quality=85)
-                b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-                parts.append({"inline_data": {"mime_type": "image/jpeg", "data": b64}})
+                b64_list.append(base64.b64encode(buf.getvalue()).decode("ascii"))
         except Exception:
             pass
-    return parts
+    return b64_list
 
 
-def _call_gemini(prompt, json_mode=True, img_paths=None):
+# =========================================================================
+# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে
+# ক্রম: ১. OpenRouter -> ২. Ollama Cloud -> ৩. Groq -> ৪. Cerebras -> ৫. Gemini (সবার শেষে)
+# =========================================================================
+
+def _call_openrouter(prompt, json_mode=True, b64_images=None):
+    raw_openrouter = os.environ.get("OPENROUTER_API_KEYS", os.environ.get("OPENROUTER_API_KEY", "")).strip()
+    or_order = get_keys_in_cyclic_order("openrouter", raw_openrouter)
+    total_or = len(parse_multiline_keys(raw_openrouter))
+    if not or_order:
+        return None
+
+    for actual_idx, or_key in or_order:
+        headers = {
+            "Authorization": f"Bearer {or_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com",
+            "X-Title": "YouTube Automation",
+        }
+
+        # ছবি থাকলে আগে OpenRouter-এর বড় Vision ফ্রি মডেলগুলো চেষ্টা করবে
+        if b64_images:
+            vision_content = [{"type": "text", "text": prompt}]
+            for b64 in b64_images:
+                vision_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+
+            for v_model in OPENROUTER_VISION_MODELS:
+                payload = {
+                    "model": v_model,
+                    "messages": [{"role": "user", "content": vision_content}],
+                    "temperature": 0.35,
+                    "max_tokens": 4500,
+                }
+                try:
+                    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60)
+                    if resp.status_code == 200:
+                        content_txt = resp.json()['choices'][0]['message']['content']
+                        save_tracker_index("openrouter", actual_idx, total_or)
+                        res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
+                        if res:
+                            print(f"  ✨ [OpenRouter Vision] Success with Key #{actual_idx+1} ({v_model})")
+                            return res
+                    elif resp.status_code in [401, 402]:
+                        break
+                except Exception:
+                    pass
+
+        # টেক্সট মডেলগুলো (বড় থেকে ছোট ক্রমে: 550B -> 480B -> 120B -> 80B -> 70B -> 31B -> 26B)
+        for model_name in OPENROUTER_TEXT_MODELS:
+            payload = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.4,
+                "max_tokens": 4500,
+            }
+            try:
+                resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60)
+                if resp.status_code == 200:
+                    content_txt = resp.json()['choices'][0]['message']['content']
+                    save_tracker_index("openrouter", actual_idx, total_or)
+                    res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
+                    if res:
+                        print(f"  ✨ [OpenRouter] Success with Key #{actual_idx+1} ({model_name})")
+                        return res
+                elif resp.status_code in [401, 402]:
+                    break
+            except Exception:
+                pass
+        save_tracker_index("openrouter", actual_idx + 1, total_or)
+    return None
+
+
+def _call_ollama_cloud(prompt, json_mode=True, b64_images=None):
+    raw_ollama = os.environ.get("OLLAMA_API_KEYS", os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", ""))).strip()
+    ollama_order = get_keys_in_cyclic_order("ollama", raw_ollama)
+    total_ollama = len(parse_multiline_keys(raw_ollama))
+    if not ollama_order:
+        return None
+
+    for actual_idx, o_key in ollama_order:
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
+        consecutive_402 = 0
+
+        # ছবি থাকলে আগে Ollama-র বড় Vision মডেলগুলো (1.04T -> 675B -> 552B -> 31B)
+        if b64_images:
+            for v_model in OLLAMA_VISION_MODELS:
+                payload = {
+                    "model": v_model,
+                    "messages": [{"role": "user", "content": prompt, "images": b64_images}],
+                    "stream": False,
+                    "options": {"temperature": 0.35, "num_predict": 4500},
+                }
+                try:
+                    resp = requests.post("https://ollama.com/api/chat", headers=headers, json=payload, timeout=65)
+                    if resp.status_code == 200:
+                        content_txt = resp.json().get("message", {}).get("content", "").strip()
+                        save_tracker_index("ollama", actual_idx, total_ollama)
+                        res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
+                        if res:
+                            print(f"  ✨ [Ollama Vision] Success with Key #{actual_idx+1} ({v_model})")
+                            return res
+                    elif resp.status_code in [401, 402]:
+                        consecutive_402 += 1
+                        if consecutive_402 >= 2:
+                            break
+                except Exception:
+                    pass
+
+        # টেক্সট মডেলগুলো (বড় থেকে ছোট ক্রমে: 1.04T -> 753B -> 675B -> 552B -> 397B -> 120B -> 31B)
+        for model_name in OLLAMA_TEXT_MODELS:
+            payload = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "options": {"temperature": 0.4, "num_predict": 4500},
+            }
+            try:
+                resp = requests.post("https://ollama.com/api/chat", headers=headers, json=payload, timeout=65)
+                if resp.status_code == 200:
+                    content_txt = resp.json().get("message", {}).get("content", "").strip()
+                    save_tracker_index("ollama", actual_idx, total_ollama)
+                    res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
+                    if res:
+                        print(f"  ✨ [Ollama Cloud] Success with Key #{actual_idx+1} ({model_name})")
+                        return res
+                elif resp.status_code in [401, 402]:
+                    consecutive_402 += 1
+                    if consecutive_402 >= 2:
+                        break
+            except Exception:
+                pass
+        save_tracker_index("ollama", actual_idx + 1, total_ollama)
+    return None
+
+
+def _call_groq(prompt, json_mode=True):
+    raw_groq = os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API", "")).strip()
+    groq_order = get_keys_in_cyclic_order("groq", raw_groq)
+    total_groq = len(parse_multiline_keys(raw_groq))
+    if not groq_order:
+        return None
+
+    for actual_idx, g_key in groq_order:
+        headers = {"Authorization": f"Bearer {g_key}", "Content-Type": "application/json"}
+        for g_model in GROQ_MODELS:
+            sys_msg = "You are a Bengali job circular specialist. Return valid JSON." if json_mode else "You are a professional Bengali YouTube presenter."
+            payload = {
+                "model": g_model,
+                "messages": [{"role": "system", "content": sys_msg}, {"role": "user", "content": prompt}],
+                "temperature": 0.4,
+                "max_tokens": 4500,
+            }
+            if json_mode:
+                payload["response_format"] = {"type": "json_object"}
+            try:
+                resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=55)
+                if resp.status_code == 200:
+                    content_txt = resp.json()['choices'][0]['message']['content']
+                    save_tracker_index("groq", actual_idx, total_groq)
+                    res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
+                    if res:
+                        print(f"  ✨ [Groq] Success with Key #{actual_idx+1} ({g_model})")
+                        return res
+                elif "restricted" in resp.text.lower() or resp.status_code in [401, 403]:
+                    break
+            except Exception:
+                pass
+        save_tracker_index("groq", actual_idx + 1, total_groq)
+    return None
+
+
+def _call_cerebras(prompt, json_mode=True):
+    raw_cerebras = os.environ.get("CEREBRAS_API_KEYS", os.environ.get("CEREBRAS_API_KEY", "")).strip()
+    cerebras_order = get_keys_in_cyclic_order("cerebras", raw_cerebras)
+    total_cerebras = len(parse_multiline_keys(raw_cerebras))
+    if not cerebras_order:
+        return None
+
+    for actual_idx, c_key in cerebras_order:
+        headers = {"Authorization": f"Bearer {c_key}", "Content-Type": "application/json"}
+        for c_model in CEREBRAS_MODELS:
+            payload = {
+                "model": c_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.4,
+                "max_tokens": 4500,
+            }
+            try:
+                resp = requests.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload, timeout=50)
+                if resp.status_code == 200:
+                    content_txt = resp.json()['choices'][0]['message']['content']
+                    save_tracker_index("cerebras", actual_idx, total_cerebras)
+                    res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
+                    if res:
+                        print(f"  ✨ [Cerebras] Success with Key #{actual_idx+1} ({c_model})")
+                        return res
+            except Exception:
+                pass
+        save_tracker_index("cerebras", actual_idx + 1, total_cerebras)
+    return None
+
+
+def _call_gemini(prompt, json_mode=True, b64_images=None):
     raw_gemini = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", "")).strip()
     gemini_order = get_keys_in_cyclic_order("gemini_text", raw_gemini)
     total_gemini = len(parse_multiline_keys(raw_gemini))
@@ -275,8 +523,9 @@ def _call_gemini(prompt, json_mode=True, img_paths=None):
         return None
 
     parts = [{"text": prompt}]
-    if img_paths:
-        parts.extend(_encode_images_for_gemini(img_paths, max_images=3))
+    if b64_images:
+        for b64 in b64_images:
+            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": b64}})
 
     for actual_idx, g_key in gemini_order:
         for g_model in GEMINI_TEXT_MODELS:
@@ -301,146 +550,33 @@ def _call_gemini(prompt, json_mode=True, img_paths=None):
     return None
 
 
-# =========================================================================
-# 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে
-# =========================================================================
-
 def execute_ai_query(prompt, json_mode=True, img_paths=None):
-    # ছবি থাকলে আগে Gemini Vision দিয়ে ছবির ভেতরের টেবিল ও তথ্য পড়া হবে
-    if img_paths:
-        vis_res = _call_gemini(prompt, json_mode=json_mode, img_paths=img_paths)
-        if vis_res:
-            return vis_res
+    b64_images = _encode_images_base64(img_paths, max_images=3) if img_paths else None
 
-    # ১. OpenRouter
-    raw_openrouter = os.environ.get("OPENROUTER_API_KEYS", os.environ.get("OPENROUTER_API_KEY", "")).strip()
-    or_order = get_keys_in_cyclic_order("openrouter", raw_openrouter)
-    total_or = len(parse_multiline_keys(raw_openrouter))
+    # ১. প্রথম প্রায়োরিটি: OpenRouter (ফ্রি ও বড় মডেল)
+    res = _call_openrouter(prompt, json_mode=json_mode, b64_images=b64_images)
+    if res:
+        return res
 
-    if or_order:
-        for actual_idx, or_key in or_order:
-            headers = {
-                "Authorization": f"Bearer {or_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com",
-                "X-Title": "YouTube Automation",
-            }
-            for model_name in OPENROUTER_MODELS:
-                payload = {
-                    "model": model_name,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.4,
-                    "max_tokens": 4500,
-                }
-                try:
-                    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=55)
-                    if resp.status_code == 200:
-                        content_txt = resp.json()['choices'][0]['message']['content']
-                        save_tracker_index("openrouter", actual_idx, total_or)
-                        res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
-                        if res:
-                            print(f"  ✨ [OpenRouter] Success with Key #{actual_idx+1} ({model_name})")
-                            return res
-                    elif resp.status_code in [401, 402]:
-                        break
-                except Exception:
-                    pass
-            save_tracker_index("openrouter", actual_idx + 1, total_or)
+    # ২. দ্বিতীয় প্রায়োরিটি: Ollama Cloud API
+    res = _call_ollama_cloud(prompt, json_mode=json_mode, b64_images=b64_images)
+    if res:
+        return res
 
-    # ২. Google Gemini Text
-    if not img_paths:
-        gem_res = _call_gemini(prompt, json_mode=json_mode, img_paths=None)
-        if gem_res:
-            return gem_res
+    # ৩. তৃতীয় প্রায়োরিটি: Groq
+    res = _call_groq(prompt, json_mode=json_mode)
+    if res:
+        return res
 
-    # ৩. Groq Cloud
-    raw_groq = os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API", "")).strip()
-    groq_order = get_keys_in_cyclic_order("groq", raw_groq)
-    total_groq = len(parse_multiline_keys(raw_groq))
+    # ৪. চতুর্থ (ঐচ্ছিক): Cerebras
+    res = _call_cerebras(prompt, json_mode=json_mode)
+    if res:
+        return res
 
-    if groq_order:
-        for actual_idx, g_key in groq_order:
-            headers = {"Authorization": f"Bearer {g_key}", "Content-Type": "application/json"}
-            for g_model in GROQ_MODELS:
-                sys_msg = "You are a Bengali job circular specialist. Return valid JSON." if json_mode else "You are a professional Bengali YouTube presenter."
-                payload = {
-                    "model": g_model,
-                    "messages": [{"role": "system", "content": sys_msg}, {"role": "user", "content": prompt}],
-                    "temperature": 0.4,
-                    "max_tokens": 4500,
-                }
-                if json_mode:
-                    payload["response_format"] = {"type": "json_object"}
-                try:
-                    resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=50)
-                    if resp.status_code == 200:
-                        content_txt = resp.json()['choices'][0]['message']['content']
-                        save_tracker_index("groq", actual_idx, total_groq)
-                        res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
-                        if res:
-                            print(f"  ✨ [Groq] Success with Key #{actual_idx+1} ({g_model})")
-                            return res
-                    elif "restricted" in resp.text.lower() or resp.status_code in [401, 403]:
-                        break
-                except Exception:
-                    pass
-            save_tracker_index("groq", actual_idx + 1, total_groq)
-
-    # ৪. Cerebras Cloud
-    raw_cerebras = os.environ.get("CEREBRAS_API_KEYS", os.environ.get("CEREBRAS_API_KEY", "")).strip()
-    cerebras_order = get_keys_in_cyclic_order("cerebras", raw_cerebras)
-    total_cerebras = len(parse_multiline_keys(raw_cerebras))
-
-    if cerebras_order:
-        for actual_idx, c_key in cerebras_order:
-            headers = {"Authorization": f"Bearer {c_key}", "Content-Type": "application/json"}
-            for c_model in CEREBRAS_MODELS:
-                payload = {
-                    "model": c_model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.4,
-                    "max_tokens": 4500,
-                }
-                try:
-                    resp = requests.post("https://api.cerebras.ai/v1/chat/completions", headers=headers, json=payload, timeout=50)
-                    if resp.status_code == 200:
-                        content_txt = resp.json()['choices'][0]['message']['content']
-                        save_tracker_index("cerebras", actual_idx, total_cerebras)
-                        res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
-                        if res:
-                            print(f"  ✨ [Cerebras] Success with Key #{actual_idx+1} ({c_model})")
-                            return res
-                except Exception:
-                    pass
-            save_tracker_index("cerebras", actual_idx + 1, total_cerebras)
-
-    # ৫. Ollama Cloud
-    raw_ollama = os.environ.get("OLLAMA_API_KEYS", os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", ""))).strip()
-    ollama_order = get_keys_in_cyclic_order("ollama", raw_ollama)
-    total_ollama = len(parse_multiline_keys(raw_ollama))
-
-    if ollama_order:
-        for actual_idx, o_key in ollama_order:
-            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
-            consecutive_402 = 0
-            for model_name in OLLAMA_MODELS:
-                payload = {"model": model_name, "messages": [{"role": "user", "content": prompt}], "stream": False, "options": {"temperature": 0.4}}
-                try:
-                    resp = requests.post("https://api.ollama.com/api/chat", headers=headers, json=payload, timeout=55)
-                    if resp.status_code == 200:
-                        content_txt = resp.json().get("message", {}).get("content", "").strip()
-                        save_tracker_index("ollama", actual_idx, total_ollama)
-                        res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
-                        if res:
-                            print(f"  ✨ [Ollama] Success with Key #{actual_idx+1} ({model_name})")
-                            return res
-                    elif resp.status_code == 402:
-                        consecutive_402 += 1
-                        if consecutive_402 >= 2:
-                            break
-                except Exception:
-                    pass
-            save_tracker_index("ollama", actual_idx + 1, total_ollama)
+    # ৫. সবার শেষে: Google Gemini
+    res = _call_gemini(prompt, json_mode=json_mode, b64_images=b64_images)
+    if res:
+        return res
 
     return None
 
@@ -579,7 +715,7 @@ STRICT SCRIPT STRUCTURE (FOLLOW THIS EXACT FLOW):
    *Formatting rule*: Write continuous natural spoken paragraphs (NO bullet points, NO headings, NO markdown symbols). Transition naturally like: "প্রথমেই এক নম্বর যে পদটি রয়েছে...", "এরপর দুই নম্বর পদটি হলো...".
 4. [সাধারণ শর্ত ও সুযোগ-সুবিধা — সংক্ষিপ্ত]: Mention age limit, eligible districts, and key job benefits/allowances (PF, bonus, TA/DA, etc.).
 5. [শেষ কথা — ONLY WhatsApp Message CTA]: End with ONLY this style:
-   "এই পদগুলোতে আবেদন করতে আগ্রহীরা আবেদন করার জন্য ভিডিওর স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা আমাদের হোয়াটসঅ্যাপ নম্বরে সরাসরি মেসেজ করুন। আমাদের অভিজ্ঞ টিম আপনার হয়ে সঠিক নিয়মে আবেদন সম্পন্ন করে দেবে। নিয়মিত চাকরির আপডেট পেতে চ্যানেলটি সাবস্ক্রাইব করে সাথেই থাকুন, ধন্যবাদ।"
+   "এই পদগুলোতে আবেদন করতে আগ্রহীরা আবেদন করার জন্য ভিডিওর স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা আমাদের হোয়াটসঅ্যাপ নম্বরে সরাসরি মেসেজ করুন। আমাদের অভিজ্ঞ টিম আপনার হয়ে সঠিক নিয়মে আবেদন সম্পন্ন করে দেবে। নিয়মিত চাকরির খবর পেতে চ্যানেলটি সাবস্ক্রাইব করে সাথেই থাকুন, ধন্যবাদ।"
 
 STRICT NEGATIVE CONSTRAINTS (MUST OBEY):
 - DO NOT mention ANY application procedure (NO postal address, NO courier/email steps, NO website URLs, NO form-filling steps, NO photo/attestation instructions).
