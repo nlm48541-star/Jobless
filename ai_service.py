@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
-import os, json, re, requests
+import base64
+import io
+import json
+import os
+import re
+import requests
 from datetime import datetime
+from PIL import Image
 
 WORKSPACE_DIR = "workspace"
 TRACKER_FILE = "api_key_tracker.json"
@@ -146,7 +152,7 @@ def convert_all_numbers_in_script(text):
     text = re.sub(r'<think>.*?</think>', '', str(text), flags=re.DOTALL)
     text = re.sub(r'https?://\S+|wa\.me/\S+', '', text)
 
-    # কমা-যুক্ত সংখ্যা স্বাভাবিক করা (যেমন ১৮,১৮০ -> ১৮১৮০)
+    # কমা-যুক্ত সংখ্যা স্বাভাবিক করা (যেমন ৭০,০০০ -> ৭০০০০)
     text = re.sub(r'([0-9০-৯]),([0-9০-৯])', r'\1\2', text)
 
     # ভুলবশত কোনো ফোন নাম্বার এলে তা সংখ্যা ধরে না পড়ে হোয়াটসঅ্যাপ নম্বর বলবে
@@ -160,7 +166,7 @@ def convert_all_numbers_in_script(text):
     # রেঞ্জ (যেমন ১৮-৩০ বা ১৮–৩২ -> ১৮ থেকে ৩০)
     text = re.sub(r'([0-9০-৯]+)\s*[-–—]\s*([0-9০-৯]+)', r'\1 থেকে \2', text)
 
-    # দশমিক সংখ্যা (যেমন ৩.৫ -> তিন দশমিক পাঁচ)
+    # দশমিক সংখ্যা
     def dec_repl(m):
         try:
             left = number_to_bangla_words(en_bn_to_int(m.group(1)))
@@ -171,7 +177,7 @@ def convert_all_numbers_in_script(text):
 
     text = re.sub(r'([0-9০-৯]+)\.([0-9০-৯]+)', dec_repl, text)
 
-    # সাধারণ পূর্ণসংখ্যা (৯ ডিজিটের বড় কোড বাদে)
+    # সাধারণ পূর্ণসংখ্যা (৮ ডিজিটের বড় কোড বাদে)
     def num_repl(m):
         num_str = m.group(0)
         if len(num_str) > 8:
@@ -239,12 +245,74 @@ def _clean_text_response(raw_text):
     return cleaned.strip()
 
 
+def _encode_images_for_gemini(img_paths, max_images=3):
+    parts = []
+    if not img_paths:
+        return parts
+    for p in img_paths[:max_images]:
+        if not p or not os.path.exists(p):
+            continue
+        try:
+            with Image.open(p) as im:
+                rgb = im.convert("RGB")
+                if rgb.width > 1600:
+                    new_h = int((1600 / rgb.width) * rgb.height)
+                    rgb = rgb.resize((1600, new_h), Image.LANCZOS)
+                buf = io.BytesIO()
+                rgb.save(buf, format="JPEG", quality=85)
+                b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+                parts.append({"inline_data": {"mime_type": "image/jpeg", "data": b64}})
+        except Exception:
+            pass
+    return parts
+
+
+def _call_gemini(prompt, json_mode=True, img_paths=None):
+    raw_gemini = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", "")).strip()
+    gemini_order = get_keys_in_cyclic_order("gemini_text", raw_gemini)
+    total_gemini = len(parse_multiline_keys(raw_gemini))
+    if not gemini_order:
+        return None
+
+    parts = [{"text": prompt}]
+    if img_paths:
+        parts.extend(_encode_images_for_gemini(img_paths, max_images=3))
+
+    for actual_idx, g_key in gemini_order:
+        for g_model in GEMINI_TEXT_MODELS:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={g_key}"
+            body = {
+                "contents": [{"parts": parts}],
+                "generationConfig": {"temperature": 0.35, "maxOutputTokens": 4500},
+            }
+            try:
+                resp = requests.post(url, headers={"Content-Type": "application/json"}, json=body, timeout=55)
+                if resp.status_code == 200:
+                    text_res = resp.json()['candidates'][0]['content']['parts'][0]['text']
+                    save_tracker_index("gemini_text", actual_idx, total_gemini)
+                    res = parse_json_safely(text_res) if json_mode else _clean_text_response(text_res)
+                    if res:
+                        tag = "Vision" if len(parts) > 1 else "AI"
+                        print(f"  ✨ [Gemini {tag}] Success with Key #{actual_idx+1} ({g_model})")
+                        return res
+            except Exception:
+                pass
+        save_tracker_index("gemini_text", actual_idx + 1, total_gemini)
+    return None
+
+
 # =========================================================================
 # 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে
 # =========================================================================
 
-def execute_ai_query(prompt, json_mode=True):
-    # ১. OpenRouter (অটো ফ্রি রাউটার + সক্রিয় ফ্রি মডেল)
+def execute_ai_query(prompt, json_mode=True, img_paths=None):
+    # ছবি থাকলে আগে Gemini Vision দিয়ে ছবির ভেতরের টেবিল ও তথ্য পড়া হবে
+    if img_paths:
+        vis_res = _call_gemini(prompt, json_mode=json_mode, img_paths=img_paths)
+        if vis_res:
+            return vis_res
+
+    # ১. OpenRouter
     raw_openrouter = os.environ.get("OPENROUTER_API_KEYS", os.environ.get("OPENROUTER_API_KEY", "")).strip()
     or_order = get_keys_in_cyclic_order("openrouter", raw_openrouter)
     total_or = len(parse_multiline_keys(raw_openrouter))
@@ -279,30 +347,11 @@ def execute_ai_query(prompt, json_mode=True):
                     pass
             save_tracker_index("openrouter", actual_idx + 1, total_or)
 
-    # ২. Google Gemini (সাইক্লিক কী রোটেশন সহ)
-    raw_gemini = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", "")).strip()
-    gemini_order = get_keys_in_cyclic_order("gemini_text", raw_gemini)
-    total_gemini = len(parse_multiline_keys(raw_gemini))
-    if gemini_order:
-        for actual_idx, g_key in gemini_order:
-            for g_model in GEMINI_TEXT_MODELS:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={g_key}"
-                body = {
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0.4, "maxOutputTokens": 4500},
-                }
-                try:
-                    resp = requests.post(url, headers={"Content-Type": "application/json"}, json=body, timeout=50)
-                    if resp.status_code == 200:
-                        text_res = resp.json()['candidates'][0]['content']['parts'][0]['text']
-                        save_tracker_index("gemini_text", actual_idx, total_gemini)
-                        res = parse_json_safely(text_res) if json_mode else _clean_text_response(text_res)
-                        if res:
-                            print(f"  ✨ [Gemini AI] Success with Key #{actual_idx+1} ({g_model})")
-                            return res
-                except Exception:
-                    pass
-            save_tracker_index("gemini_text", actual_idx + 1, total_gemini)
+    # ২. Google Gemini Text
+    if not img_paths:
+        gem_res = _call_gemini(prompt, json_mode=json_mode, img_paths=None)
+        if gem_res:
+            return gem_res
 
     # ৩. Groq Cloud
     raw_groq = os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API", "")).strip()
@@ -415,71 +464,79 @@ def build_script_from_verified_data(verified_data, title, article_text):
         p_vac = p.get("vacancy_count", "নির্ধারিত সংখ্যক")
         p_qual = p.get("educational_qualification", "বিজ্ঞপ্তি অনুযায়ী শিক্ষাগত যোগ্যতা")
         p_sal = p.get("salary_scale", "নির্ধারিত বেতন স্কেল")
-        p_fee = p.get("application_fee", "বিজ্ঞপ্তি অনুযায়ী নির্ধারিত")
+        p_fee = p.get("application_fee", "বিজ্ঞপ্তিতে উল্লেখ নেই")
         p_duties = p.get("key_duties", "প্রতিষ্ঠানের সংশ্লিষ্ট দাপ্তরিক ও প্রাতিষ্ঠানিক দায়িত্ব পালন করা")
+
+        fee_sentence = (
+            "এই পদে আবেদন করতে কোনো আবেদন ফি লাগবে না।"
+            if any(w in p_fee for w in ["নেই", "ফ্রি", "বিনামূল্যে", "লাগবে না"])
+            else f"এই পদে আবেদন করতে আবেদন ফি লাগবে {p_fee}।"
+        )
 
         para = (
             f"{idx} নম্বর যে পদটি রয়েছে, সেটি হলো {p_name}। "
-            f"এই পদে {p_vac} লোক নিয়োগ দেওয়া হবে। "
+            f"এই পদে {p_vac} লোক নেওয়া হবে। "
             f"এই পদে চাকরি পেলে মূলত {p_duties}। "
             f"আবেদনের জন্য শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা হিসেবে থাকতে হবে {p_qual}। "
-            f"পদটির জন্য বেতন নির্ধারণ করা হয়েছে {p_sal} এবং আবেদন ফি হিসেবে লাগবে {p_fee}।"
+            f"পদটির জন্য বেতন নির্ধারণ করা হয়েছে {p_sal} এবং {fee_sentence}"
         )
         post_paragraphs.append(para)
 
     posts_block = "\n\n".join(post_paragraphs)
 
-    return f"""আসসালামু আলাইকুম প্রিয় চাকরিপ্রার্থী ভাই ও বোনেরা। আজকের ভিডিওতে আপনাদের সবাইকে স্বাগতম। সম্প্রতি {org} থেকে একটি অত্যন্ত গুরুত্বপূর্ণ নিয়োগ বিজ্ঞপ্তি প্রকাশিত হয়েছে, যেখানে {vac_line} {dl_line}
+    return f"""আসসালামু আলাইকুম প্রিয় চাকরিপ্রার্থী ভাই ও বোনেরা। আজকের ভিডিওতে আপনাদের সবাইকে স্বাগতম। সম্প্রতি {org} থেকে একটি গুরুত্বপূর্ণ নিয়োগ বিজ্ঞপ্তি প্রকাশিত হয়েছে, যেখানে {vac_line} {dl_line}
 
-প্রথমেই প্রতিষ্ঠানটি সম্পর্কে সংক্ষেপে বলে নিই। {org} দেশের নিজস্ব কর্মক্ষেত্রে অত্যন্ত সুনাম ও মর্যাদার সাথে কাজ করে যাচ্ছে। এখানে চাকরি করার মাধ্যমে যেমন একটি সম্মানজনক ও স্থায়ী ক্যারিয়ার গড়ে তোলা সম্ভব, তেমনি প্রতিষ্ঠানের কার্যক্রমে সরাসরি অবদান রাখার সুযোগ রয়েছে।
+প্রথমেই প্রতিষ্ঠানটি সম্পর্কে সংক্ষেপে বলে নিই। {org} দেশের নিজস্ব কর্মক্ষেত্রে অত্যন্ত সুনাম ও মর্যাদার সাথে কাজ করে যাচ্ছে। এখানে চাকরি করার মাধ্যমে যেমন একটি সম্মানজনক ক্যারিয়ার গড়ে তোলা সম্ভব, তেমনি প্রতিষ্ঠানের কার্যক্রমে সরাসরি অবদান রাখার সুযোগ রয়েছে।
 
 এবার চলুন বিজ্ঞপ্তিতে থাকা প্রতিটি আলাদা আলাদা পদের নাম, পদ সংখ্যা, দায়িত্ব, শিক্ষাগত যোগ্যতা এবং আবেদন ফি সম্পর্কে এক এক করে বিস্তারিত জেনে নেওয়া যাক।
 
 {posts_block}
 
-সাধারণ শর্ত হিসেবে সরকারি বা প্রাতিষ্ঠানিক নিয়ম অনুযায়ী নির্ধারিত বয়সসীমার মধ্যে থাকা দেশের যোগ্য নাগরিকরা আবেদন করতে পারবেন এবং নিয়ম অনুযায়ী প্রাপ্য বেতন ও অন্যান্য সুযোগ-সুবিধা পাবেন।
+সাধারণ শর্ত হিসেবে নির্ধারিত বয়সসীমার মধ্যে থাকা দেশের যোগ্য নাগরিকরা আবেদন করতে পারবেন এবং নিয়ম অনুযায়ী প্রাপ্য বেতন ও অন্যান্য সুযোগ-সুবিধা পাবেন।
 
 আপনারা যারা এই পদগুলোতে আবেদন করতে আগ্রহী, তারা আবেদন করার জন্য ভিডিওর স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা আমাদের হোয়াটসঅ্যাপ নম্বরে সরাসরি মেসেজ করুন। আমাদের অভিজ্ঞ টিম আপনার হয়ে সঠিক নিয়মে আবেদন সম্পন্ন করে দেবে। নিয়মিত চাকরির খবর পেতে চ্যানেলটি সাবস্ক্রাইব করে সাথেই থাকুন। ধন্যবাদ।"""
 
 
 # =========================================================================
-# 🌟 ৪টি পৃথক মডুলার কল (নতুন স্ক্রিপ্ট ও প্রো-থাম্বনেইল ম্যাপিং সহ)
+# 🌟 ৪টি পৃথক মডুলার কল (ছবি + আর্টিকেল পড়ে নিখুঁত তথ্য সংগ্রহ)
 # =========================================================================
 
-def extract_verified_job_data(title, article_text):
-    print("\n🔍 [STEP 1] Extracting accurate job category, posts, qualifications & fees...")
-    prompt = f"""Analyze this Bengali job circular article text carefully and extract ALL posts and facts strictly in JSON.
+def extract_verified_job_data(title, article_text, img_paths=None):
+    print("\n🔍 [STEP 1] Extracting accurate category, ALL posts, qualifications & fees (Text + Images)...")
+    prompt = f"""Analyze BOTH the attached job circular image(s) (if present) AND the article text below.
+Extract EVERY SINGLE separate post and accurate facts strictly in JSON.
+NEVER invent or hallucinate post names that are not in the images/text!
 ---
 TITLE: {title}
-TEXT:
+ARTICLE TEXT:
 {article_text[:8000]}
 ---
 
 IMPORTANT RULES:
 1. "job_category": Accurately classify from content/organization:
    - "সরকারি চাকরি" (Ministry, Govt Directorate, Police, Army, NACTAR, BANBEIS, Parliament, Divisional Commissioner, etc.)
-   - "স্বায়ত্তশাসিত প্রতিষ্ঠান" (University, Autonomous Board, Corp)
-   - "বেসরকারি চাকরি" (Private Limited Company, Pharma like Radiant, Group of Companies, Factory, NGO/Microfinance like Palli Bikash Kendra, etc.)
+   - "স্বায়ত্তশাসিত প্রতিষ্ঠান" (Public University, Autonomous Board, Govt Corp)
+   - "বেসরকারি চাকরি" (Private Limited Company, Pharma like Radiant, Group of Companies, NGO/Microfinance like Palli Bikash Kendra, TMSS, ASA, etc.)
    - "ব্যাংক চাকরি" (Bank/Financial institution)
-2. "org_short": Very clean, complete short Bengali name of the organization (2 to 4 words MAX, NEVER cut mid-word. E.g. "নেকটার (NACTAR)", "ব্যানবেইস (BANBEIS)", "পল্লী বিকাশ কেন্দ্র", "রেডিয়েন্ট ফার্মা", "জাতীয় সংসদ সচিবালয়").
-3. "posts": List EVERY SINGLE separate post mentioned in the circular (do NOT merge distinct posts if they are listed separately!). For EACH post extract:
-   - "post_name": Exact post name and grade if given.
-   - "vacancy_count": Exact count for that post (e.g. "০১টি", "০৬টি", "১২৩ জন").
-   - "educational_qualification": Degree/pass + required subject/computer/experience for that post.
-   - "salary_scale": Exact salary or pay grade for that post.
-   - "application_fee": Exact application fee in Taka for THAT specific post (e.g. "২২৩ টাকা", "১১২ টাকা", "৫৬ টাকা", "বিনামূল্যে", or "উল্লেখ নেই" if truly not written in the text).
-   - "key_duties": Brief 1-sentence realistic description of what this post does on the job.
+2. "org_short": Clean complete short Bengali name (2 to 4 words MAX, NEVER cut mid-word. E.g. "পল্লী বিকাশ কেন্দ্র", "নেকটার (NACTAR)", "ব্যানবেইস (BANBEIS)", "রেডিয়েন্ট ফার্মা").
+3. "posts": List EVERY SINGLE separate post in the circular table/text (1st post to last post, do NOT skip or merge!). For EACH post extract:
+   - "post_name": Exact post name (e.g. "জোনাল ম্যানেজার (ক্ষুদ্রঋণ)", "এরিয়া ম্যানেজার", etc.) and grade if any.
+   - "vacancy_count": Exact vacancy count for that post (e.g. "০৫ জন", "১০ জন", "০১টি").
+   - "educational_qualification": Degree/pass + required experience/computer/driving license for THAT specific post.
+   - "salary_scale": Exact salary/pay grade for THAT specific post (e.g. "৭০,০০০ থেকে ৭৫,৫০০ টাকা").
+   - "application_fee": Exact application fee in Taka for THAT specific post (read the bottom/fee section of the image/text carefully! E.g. "২২৩ টাকা", "১১২ টাকা", "কোনো আবেদন ফি নেই", or "উল্লেখ নেই" if truly absent).
+   - "key_duties": Brief 1-sentence realistic description of this post's work & responsibilities.
 
 Return strictly valid JSON:
 {{
-  "organization": "Full Bengali organization/ministry name",
+  "organization": "Full Bengali organization/company/ministry name",
   "org_short": "2-4 word clean name",
   "job_category": "সরকারি চাকরি" | "স্বায়ত্তশাসিত প্রতিষ্ঠান" | "বেসরকারি চাকরি" | "ব্যাংক চাকরি",
-  "total_vacancies": "e.g. ২৭৩টি or ১৪টি or বিভিন্ন পদ",
-  "eligibility_summary": "Short 2-4 word range e.g. অষ্টম থেকে স্নাতক পাশ",
-  "application_fee_summary": "e.g. ১১২ থেকে ২২৩ টাকা or উল্লেখ নেই",
+  "total_vacancies": "e.g. ৪০ জন or ২৭৩টি or ১৪টি",
+  "eligibility_summary": "Short 2-4 word range e.g. স্নাতক/স্নাতকোত্তর পাশ",
+  "application_fee_summary": "e.g. আবেদন ফি নেই or ১১২ থেকে ২২৩ টাকা or উল্লেখ নেই",
   "deadline": "Last date in Bengali if found, else empty string",
-  "district_eligibility": "e.g. ৬৪ জেলা or নির্দিষ্ট জেলা",
+  "district_eligibility": "e.g. ৬৪ জেলা or ঢাকা, গাজীপুর ও পার্শ্ববর্তী জেলা",
   "posts": [
     {{
       "post_name": "...",
@@ -491,7 +548,7 @@ Return strictly valid JSON:
     }}
   ]
 }}"""
-    return execute_ai_query(prompt, json_mode=True)
+    return execute_ai_query(prompt, json_mode=True, img_paths=img_paths)
 
 
 def generate_script_from_verified_data(verified_data, title, article_text):
@@ -499,36 +556,35 @@ def generate_script_from_verified_data(verified_data, title, article_text):
     data_str = json.dumps(verified_data, ensure_ascii=False, indent=2)
 
     prompt = f"""You are an expert Bangladeshi job circular YouTube presenter.
-Write a complete, natural, engaging spoken Bengali voiceover script based strictly on the circular data below.
+Write a natural, crisp, informative spoken Bengali voiceover script using ONLY the verified data below.
 
 Title: "{title}"
-Extracted Structured Job Data:
+Verified Structured Job Data (Every single post):
 {data_str}
 
-Full Article Context:
-{article_text[:6000]}
+Article Reference Context:
+{article_text[:5000]}
 
-STRICT SCRIPT MAPPING (FOLLOW THIS EXACT STRUCTURE):
-1. [ইন্ট্রো]: Start with "আসসালামু আলাইকুম প্রিয় চাকরিপ্রার্থী ভাই ও বোনেরা।". Briefly introduce which organization/ministry/company published the circular, total vacancies, district eligibility, and application deadline (if mentioned).
-2. [প্রতিষ্ঠান পরিচিতি]: Briefly discuss the organization, company, or ministry (what it does, its reputation, career stability, and why this opportunity matters).
-3. [প্রতিটি পদের আলাদা বিস্তারিত বিবরণ — MOST IMPORTANT SECTION]:
-   Go through EVERY SINGLE post in the circular ONE BY ONE in order (from the 1st post to the last post, without skipping any!).
-   For EACH individual post, smoothly explain in spoken Bengali:
+STRICT SCRIPT STRUCTURE (FOLLOW THIS EXACT FLOW):
+1. [সংক্ষিপ্ত ইন্ট্রো — সর্বোচ্চ ২০-২৫ সেকেন্ড]: Start with "আসসালামু আলাইকুম প্রিয় চাকরিপ্রার্থী ভাই ও বোনেরা।". Quickly tell which organization/company/ministry published the circular, total vacancies, and deadline (if any). Do NOT drag out a generic 1-minute filler intro!
+2. [প্রতিষ্ঠান/মন্ত্রণালয় পরিচিতি — ২-৩ বাক্য]: Briefly discuss the organization, company, or ministry (what it does, its work environment, and career value).
+3. [প্রতিটি আলাদা আলাদা পদের বিস্তারিত আলোচনা — মূল অংশ]:
+   Go through EVERY SINGLE post in "posts" ONE BY ONE in exact order (from post #1 to the last post, NEVER skip any post!).
+   For EACH individual post, clearly speak in smooth conversational Bengali:
    - পদের নাম ও গ্রেড/বেতন স্কেল,
-   - এই পদে কতজন লোক নেওয়া হবে,
-   - এই পদের কাজ বা দায়িত্ব কী (১-২ বাক্যে বাস্তবসম্মতভাবে),
+   - ওই পদে কতজন লোক নেওয়া হবে,
+   - পদটির দায়িত্ব ও কাজ কী,
    - কী কী শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা লাগবে,
-   - এবং এই পদে আবেদন করতে কত টাকা আবেদন ফি লাগবে (যদি বিজ্ঞপ্তিতে আলাদা ক্যাটাগরি/গ্রেড অনুযায়ী ফি দেওয়া থাকে তবে প্রতিটি পদের সাথেই স্পষ্টভাবে ফি উল্লেখ করবেন; আর বিজ্ঞপ্তিতে ফি উল্লেখ না থাকলে অনুমান না করে জানাবেন যে মূল বিজ্ঞপ্তিতে আবেদন ফি আলাদাভাবে উল্লেখ করা হয়নি)।
-   *NOTE*: Do NOT use bullet points, markdown headings, asterisks, or robotic formatting! Connect each post naturally in spoken narrative like: "প্রথমেই যে পদটি রয়েছে...", "এরপর দুই নম্বর পদটি হলো...", "পরবর্তী আকর্ষণীয় পদটি হচ্ছে...".
-4. [সাধারণ শর্ত ও সুযোগ-সুবিধা]: Briefly cover age limits (general and quota) and job benefits/allowances.
-5. [শেষ কথা / WhatsApp CTA]: End cleanly with ONLY this message style:
-   "এই পদগুলোতে আবেদন করতে আগ্রহীরা সরাসরি আবেদন করার জন্য ভিডিওর স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা আমাদের হোয়াটসঅ্যাপ নম্বরে মেসেজ করুন। আমাদের অভিজ্ঞ টিম আপনার হয়ে সঠিক নিয়মে আবেদনটি সম্পন্ন করে দেবে। নিয়মিত চাকরির খবর পেতে চ্যানেলটি সাবস্ক্রাইব করে পাশে থাকবেন, ধন্যবাদ।"
+   - এবং ওই পদে আবেদন করতে কত টাকা আবেদন ফি লাগবে (বিনামূল্যে বা ফি না লাগলে তা স্পষ্ট বলবেন; ভিন্ন ভিন্ন ফি হলে প্রতিটি পদের ফি আলাদা বলবেন; আর বিজ্ঞপ্তিতে উল্লেখ না থাকলে অনুমান না করে জানাবেন যে বিজ্ঞপ্তিতে আলাদা ফি উল্লেখ করা হয়নি)।
+   *Formatting rule*: Write continuous natural spoken paragraphs (NO bullet points, NO headings, NO markdown symbols). Transition naturally like: "প্রথমেই এক নম্বর যে পদটি রয়েছে...", "এরপর দুই নম্বর পদটি হলো...".
+4. [সাধারণ শর্ত ও সুযোগ-সুবিধা — সংক্ষিপ্ত]: Mention age limit, eligible districts, and key job benefits/allowances (PF, bonus, TA/DA, etc.).
+5. [শেষ কথা — ONLY WhatsApp Message CTA]: End with ONLY this style:
+   "এই পদগুলোতে আবেদন করতে আগ্রহীরা আবেদন করার জন্য ভিডিওর স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা আমাদের হোয়াটসঅ্যাপ নম্বরে সরাসরি মেসেজ করুন। আমাদের অভিজ্ঞ টিম আপনার হয়ে সঠিক নিয়মে আবেদন সম্পন্ন করে দেবে। নিয়মিত চাকরির আপডেট পেতে চ্যানেলটি সাবস্ক্রাইব করে সাথেই থাকুন, ধন্যবাদ।"
 
 STRICT NEGATIVE CONSTRAINTS (MUST OBEY):
-- DO NOT explain how to apply (NO website URLs, NO online form-filling instructions, NO postal address, NO courier steps, NO attestation/photo rules, NO QR codes).
-- DO NOT write or say ANY phone number digits anywhere in the script (not in Bangla words, not in digits!).
-- DO NOT mention any year number awkwardly unless part of a deadline date.
-- Output ONLY pure spoken Bengali plain text (no JSON, no markdown, no brackets, no stage cues)."""
+- DO NOT mention ANY application procedure (NO postal address, NO courier/email steps, NO website URLs, NO form-filling steps, NO photo/attestation instructions).
+- DO NOT write or speak ANY phone number digits anywhere in the script (neither digits nor Bengali words like জিরো ওয়ান ফাইভ!).
+- Output ONLY pure spoken Bengali plain text (no JSON, no markdown, no brackets)."""
 
     res_text = execute_ai_query(prompt, json_mode=False)
     return res_text if res_text and isinstance(res_text, str) else ""
@@ -551,7 +607,7 @@ Total Vacancies: "{total_vac}"
 Return strictly valid JSON:
 {{
   "optimized_title": "High-CTR Bengali YouTube Title under 95 chars featuring organization and total vacancies (with 🔥 or 🚨)",
-  "video_description": "Helpful Bengali description summarizing posts, eligibility, fee info, deadline, and WhatsApp contact for application help: wa.me/8801540503092",
+  "video_description": "Helpful Bengali description summarizing all posts, qualifications, fee info, deadline, and WhatsApp contact to apply: wa.me/8801540503092",
   "specific_tags": ["8 to 12 relevant Bengali & English SEO tags without commas"]
 }}"""
     return execute_ai_query(prompt, json_mode=True)
@@ -583,9 +639,9 @@ RULES:
 - Every field MUST be short, natural, complete Bengali words (never cut mid-word!).
 - Do NOT put 'সরকারি চাকরি' if Category is বেসরকারি চাকরি!
 - Do NOT use ৳ symbol (write 'টাকা' if mentioning fee).
-- "main_red" should be 2-3 bold words (e.g. "২৭৩ পদে নিয়োগ" or "ফিল্ড অফিসার নিয়োগ" or "বিভিন্ন পদে নিয়োগ").
-- "main_dark" should be 2-4 crisp words (e.g. "অষ্টম থেকে স্নাতক পাশ" or "শিক্ষা মন্ত্রণালয়ের অধীন" or "স্নাতক ও এইচএসসি পাশ").
-- "bot_text" must be 3-5 words max (e.g. "পদ, যোগ্যতা ও আবেদন ফি" or "বিস্তারিত তথ্য ও আবেদন সহায়তা").
+- "main_red" must be 2-3 bold words (e.g. "৪০ পদে নিয়োগ" or "২৭৩ পদে নিয়োগ" or "বিশাল নিয়োগ বিজ্ঞপ্তি").
+- "main_dark" must be 2-4 crisp words (e.g. "স্নাতক ও স্নাতকোত্তর পাশ" or "অষ্টম থেকে স্নাতক পাশ").
+- "bot_text" must be 3-5 words max (e.g. "প্রতিটি পদের যোগ্যতা ও ফি").
 
 Return JSON:
 {{
@@ -595,7 +651,7 @@ Return JSON:
   "main_dark": "2-4 crisp words qualification or ministry hook",
   "pill_1": "Short 2-3 words e.g. {district}",
   "pill_2": "Short 2-3 words e.g. যোগ্যতা বা শেষ তারিখ",
-  "pill_3": "Short 2-3 words e.g. আবেদন ফি বা গ্রেড",
+  "pill_3": "Short 2-3 words e.g. আবেদন ফি বা বেতন",
   "bot_text": "3-5 words bottom CTA"
 }}"""
     return execute_ai_query(prompt, json_mode=True)
@@ -608,11 +664,11 @@ Return JSON:
 def generate_job_content(title, article_text, img_paths=None):
     clean_title = clean_title_for_display(title)
 
-    # ১. কল ১: পুরো সার্কুলার পড়ে সঠিক ক্যাটাগরি ও প্রতিটি আলাদা পদের তথ্য এক্সট্রাকশন
-    verified_data = extract_verified_job_data(clean_title, article_text)
+    # ১. কল ১: ছবি ও টেক্সট পড়ে সঠিক ক্যাটাগরি ও প্রতিটি আলাদা পদের তথ্য এক্সট্রাকশন
+    verified_data = extract_verified_job_data(clean_title, article_text, img_paths=img_paths)
     if not verified_data or not isinstance(verified_data, dict) or not verified_data.get("posts"):
         clean_org = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else clean_title[:30]
-        is_priv = any(k in clean_title.lower() for k in ["লিমিটেড", "ফার্মা", "গ্রুপ", "কোম্পানি", "বেসরকারি", "বিকাশ", "ফাউন্ডেশন", "ltd", "limited"])
+        is_priv = any(k in clean_title.lower() for k in ["লিমিটেড", "ফার্মা", "গ্রুপ", "কোম্পানি", "বেসরকারি", "বিকাশ", "ফাউন্ডেশন", "এনজিও", "ltd", "limited"])
         verified_data = {
             "organization": clean_org,
             "org_short": " ".join(clean_org.split()[:3]),
@@ -635,7 +691,7 @@ def generate_job_content(title, article_text, img_paths=None):
     # ২. কল ২: প্রতিটি পদের বিবরণসহ পূর্ণাঙ্গ কথ্য স্ক্রিপ্ট
     raw_script = generate_script_from_verified_data(verified_data, clean_title, article_text)
 
-    if not raw_script or len(raw_script.split()) < 180:
+    if not raw_script or len(raw_script.split()) < 160:
         print(f"⚠️ Generated script was short ({len(raw_script.split()) if raw_script else 0} words). Using structured post-by-post builder...")
         raw_script = build_script_from_verified_data(verified_data, clean_title, article_text)
 
