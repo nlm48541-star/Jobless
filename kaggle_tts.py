@@ -332,7 +332,7 @@ def generate_voices_batch(
     poll_interval: int = 20,
     max_attempts: int = 3,
     retry_interval_sec: int = 1200,  # ২০ মিনিট = ১২০০ সেকেন্ড
-    run_timeout_sec: int = 900,      # GPU চালু হলে সর্বোচ্চ ১৫ মিনিট
+    run_timeout_sec: int = 1800,      # GPU চালু হলে সর্বোচ্চ ৩০ মিনিট
 ) -> Dict[str, Path]:
     if not tasks:
         return {}
