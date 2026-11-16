@@ -11,8 +11,310 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 KAGGLE_USERNAME = os.environ.get("KAGGLE_USERNAME", "yusufadnan").strip() or "yusufadnan"
-KERNEL_SLUG_BASE = "indicf5-tts-worker"
-DATASET_SLUG = "yusufadnan/indicf5-bd-bundle"
+KERNEL_SLUG_BASE = os.environ.get("KAGGLE_WORKER_SLUG", "indicf5-tts-worker").strip() or "indicf5-tts-worker"
+DATASET_SLUG = os.environ.get("KAGGLE_DATASET_SLUG", "yusufadnan/indicf5-bd-fast").strip() or "yusufadnan/indicf5-bd-fast"
+
+
+_GPU_WORKER_TEMPLATE = r'''import json
+import os
+import sys
+from pathlib import Path
+
+os.environ["MPLBACKEND"] = "Agg"
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+bundle_dir = Path(sys.argv[1])
+ref_wav = sys.argv[2]
+ref_text = sys.argv[3]
+jobs_path = sys.argv[4]
+worker_id = int(sys.argv[5])
+num_workers = int(sys.argv[6])
+speech_speed = float(sys.argv[7])
+nfe_step = int(sys.argv[8])
+
+sys.path.insert(0, str(bundle_dir))
+import numpy as np
+import soundfile as sf
+import torch
+import torchaudio
+
+torch.backends.cudnn.benchmark = True
+
+
+def _patched_load(fp, **kw):
+    d, sr = sf.read(str(fp), dtype="float32")
+    d = d[np.newaxis, :] if d.ndim == 1 else d.T
+    return torch.from_numpy(d), sr
+
+
+torchaudio.load = _patched_load
+
+from safetensors.torch import load_file
+from f5_tts.infer.utils_infer import (
+    get_tokenizer,
+    infer_process,
+    load_vocoder,
+    n_mel_channels,
+    preprocess_ref_audio_text,
+)
+from f5_tts.model import CFM, DiT
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+vmap, vsize = get_tokenizer(str(bundle_dir / "vocab.txt"), "custom")
+model = CFM(
+    transformer=DiT(
+        dim=1024, depth=22, heads=16, ff_mult=2,
+        text_dim=512, conv_layers=4, text_num_embeds=vsize, mel_dim=n_mel_channels,
+    ),
+    mel_spec_kwargs=dict(
+        n_fft=1024, hop_length=256, win_length=1024,
+        n_mel_channels=n_mel_channels, target_sample_rate=24000, mel_spec_type="vocos",
+    ),
+    odeint_kwargs=dict(method="euler"),
+    vocab_char_map=vmap,
+)
+
+st_path = bundle_dir / "indicf5_bd_ema.safetensors"
+if st_path.exists():
+    cleaned = load_file(str(st_path))
+else:
+    ckpt = torch.load(str(bundle_dir / "model_40000.pt"), map_location="cpu", weights_only=False)
+    raw_sd = ckpt.get("ema_model_state_dict", ckpt.get("model_state_dict", ckpt))
+    cleaned = {
+        (k[10:] if k.startswith("ema_model.") else (k[7:] if k.startswith("module.") else k)): v
+        for k, v in raw_sd.items()
+        if k not in ("initted", "step")
+    }
+
+model.load_state_dict(cleaned, strict=False)
+model = model.float().to(device).eval()
+
+vocoder = load_vocoder(vocoder_name="vocos", is_local=True, local_path=str(bundle_dir / "vocos"), device=device)
+clean_ref, clean_ref_txt = preprocess_ref_audio_text(ref_wav, ref_text)
+
+all_jobs = json.loads(Path(jobs_path).read_text(encoding="utf-8"))
+my_jobs = [job for idx, job in enumerate(all_jobs) if idx % num_workers == worker_id]
+print(f"[Worker {worker_id}] Assigned {len(my_jobs)} / {len(all_jobs)} chunks on {device} (nfe={nfe_step}, speed={speech_speed})")
+
+for job in my_jobs:
+    wav_seg, sr_final, _ = infer_process(
+        clean_ref, clean_ref_txt, job["text"], model, vocoder,
+        mel_spec_type="vocos", nfe_step=nfe_step, speed=speech_speed, device=device,
+    )
+    sf.write(job["out_path"], np.asarray(wav_seg, dtype=np.float32).reshape(-1), sr_final)
+
+print(f"[Worker {worker_id}] Done!")
+'''
+
+
+_MAIN_RUNNER_TEMPLATE = r'''import base64
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import zipfile
+from pathlib import Path
+
+os.environ["MPLBACKEND"] = "Agg"
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+t_boot = time.time()
+
+# ১. প্রাইভেট ডাটাসেট পাথ খুঁজে বের করা (safetensors বা pt উভয়ই সাপোর্ট করে)
+BUNDLE_DIR = None
+for fname in ("indicf5_bd_ema.safetensors", "model_40000.pt"):
+    for p in Path("/kaggle/input").rglob(fname):
+        BUNDLE_DIR = p.parent
+        break
+    if BUNDLE_DIR is not None:
+        break
+
+if BUNDLE_DIR is None:
+    raise FileNotFoundError("indicf5-bd-fast / indicf5-bd-bundle ডাটাসেট খুঁজে পাওয়া যায়নি!")
+
+# ২. অফলাইন wheels ইনস্টল
+wheels = sorted(str(p) for p in (BUNDLE_DIR / "wheels").glob("*.whl"))
+if wheels:
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "--no-index", "--no-deps", *wheels],
+        check=True,
+    )
+
+sys.path.insert(0, str(BUNDLE_DIR))
+
+import numpy as np
+import soundfile as sf
+import torch
+
+TASKS = json.loads(__TASKS_JSON__)
+REF_AUDIO_B64 = __REF_AUDIO_B64__
+REF_EXT = __REF_EXT__
+CUSTOM_REF_TEXT = json.loads(__REF_TEXT_JSON__)
+DEFAULT_VOICE = __DEFAULT_VOICE__
+SPEECH_SPEED = __SPEECH_SPEED__
+NFE_STEP = __NFE_STEP__
+GPU_WORKER_CODE = base64.b64decode(__GPU_WORKER_B64__).decode("utf-8")
+
+# ৩. রেফারেন্স অডিও সেটআপ
+if REF_AUDIO_B64:
+    raw_ref = Path(f"/tmp/custom_ref_raw{REF_EXT}")
+    raw_ref.write_bytes(base64.b64decode(REF_AUDIO_B64))
+    ref_wav = Path("/tmp/custom_ref_24k.wav")
+    if shutil.which("ffmpeg"):
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(raw_ref), "-ar", "24000", "-ac", "1", str(ref_wav)],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    else:
+        from pydub import AudioSegment
+        AudioSegment.from_file(str(raw_ref)).set_frame_rate(24000).set_channels(1).export(str(ref_wav), format="wav")
+    ref_text = CUSTOM_REF_TEXT.strip()
+else:
+    voice_file = "ref_female.wav" if DEFAULT_VOICE == "female" else "ref_male.wav"
+    ref_wav = BUNDLE_DIR / "ref_voice" / voice_file
+    ref_text = (BUNDLE_DIR / "ref_voice" / "ref_text.txt").read_text(encoding="utf-8").strip()
+
+# রেফারেন্স অডিওর দৈর্ঘ্য অনুযায়ী নিরাপদ সর্বোচ্চ চাংক সাইজ
+ref_dur = sf.info(str(ref_wav)).duration
+avail_sec = max(10.0, 26.0 - ref_dur)
+MAX_CHARS = int(min(240, max(140, avail_sec * 13)))
+
+
+def split_bengali_for_indicf5(text: str, max_chars: int = MAX_CHARS):
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return []
+    raw_sents = [s.strip() for s in re.split(r"(?<=[।\.\?\!\n])\s*", text) if s.strip()]
+    pieces = []
+    for s in raw_sents:
+        if len(s) <= max_chars:
+            pieces.append(s)
+        else:
+            sub_parts = [p.strip() for p in re.split(r"(?<=[,;—\-])\s*", s) if p.strip()]
+            for sp in sub_parts:
+                if len(sp) <= max_chars:
+                    pieces.append(sp)
+                else:
+                    words = sp.split()
+                    cur = ""
+                    for w in words:
+                        if len(cur) + len(w) + 1 <= max_chars:
+                            cur = f"{cur} {w}".strip()
+                        else:
+                            if cur:
+                                pieces.append(cur)
+                            cur = w
+                    if cur:
+                        pieces.append(cur)
+
+    merged = []
+    buf = ""
+    for p in pieces:
+        if not buf:
+            buf = p
+        elif len(buf) + len(p) + 1 <= max_chars:
+            buf = f"{buf} {p}"
+        else:
+            if len(buf) < 28:
+                buf = f"{buf} {p}"
+            else:
+                merged.append(buf)
+                buf = p
+    if buf:
+        if merged and len(buf) < 28 and len(merged[-1]) + len(buf) + 1 <= max_chars + 35:
+            merged[-1] = f"{merged[-1]} {buf}"
+        else:
+            merged.append(buf)
+    return merged
+
+
+# ৪. সব ভিডিওর সবগুলো চাংক একটি প্যারালাল তালিকায় সাজানো
+CHUNKS_DIR = Path("/tmp/all_chunks")
+CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
+flat_jobs = []
+task_chunk_map = {}
+
+for t_idx, item in enumerate(TASKS):
+    chunks = split_bengali_for_indicf5(item["text"].strip(), max_chars=MAX_CHARS)
+    chunk_paths = []
+    for c_idx, ch in enumerate(chunks):
+        c_path = str(CHUNKS_DIR / f"t{t_idx}_c{c_idx:04d}.wav")
+        flat_jobs.append({"text": ch, "out_path": c_path})
+        chunk_paths.append(c_path)
+    task_chunk_map[item["filename"]] = chunk_paths
+
+jobs_file = Path("/tmp/flat_jobs.json")
+jobs_file.write_text(json.dumps(flat_jobs, ensure_ascii=False), encoding="utf-8")
+
+worker_py = Path("/tmp/gpu_chunk_worker.py")
+worker_py.write_text(GPU_WORKER_CODE, encoding="utf-8")
+
+# ৫. ডুয়াল-GPU প্যারালাল রান (আলাদা TMPDIR যাতে jieba ক্যাশে কোনো সংঘর্ষ না হয়)
+num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
+num_workers = 2 if (num_gpus >= 2 and len(flat_jobs) >= 2) else 1
+print(f"⚡ Boot & Setup: {round(time.time() - t_boot, 1)}s | GPUs: {num_gpus} | Workers: {num_workers} | Chunks: {len(flat_jobs)} | nfe_step: {NFE_STEP}")
+
+procs = []
+for wid in range(num_workers):
+    env = os.environ.copy()
+    w_tmp = Path(f"/tmp/w_{wid}_tmp")
+    w_tmp.mkdir(parents=True, exist_ok=True)
+    env["TMPDIR"] = str(w_tmp)
+    env["TEMP"] = str(w_tmp)
+    env["TMP"] = str(w_tmp)
+    if torch.cuda.is_available():
+        env["CUDA_VISIBLE_DEVICES"] = str(wid)
+    p = subprocess.Popen(
+        [
+            sys.executable, str(worker_py),
+            str(BUNDLE_DIR), str(ref_wav), ref_text, str(jobs_file),
+            str(wid), str(num_workers), str(SPEECH_SPEED), str(NFE_STEP),
+        ],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    procs.append((wid, p))
+
+for wid, p in procs:
+    out, _ = p.communicate()
+    print(f"--- Worker {wid} Log ---")
+    print(out)
+    if p.returncode != 0:
+        raise RuntimeError(f"GPU Worker {wid} failed with exit code {p.returncode}")
+
+# ৬. সবগুলো চাংক জোড়া লাগিয়ে মূল অডিও ফাইল ও ZIP তৈরি
+out_dir = Path("/tmp/generated_wavs")
+out_dir.mkdir(parents=True, exist_ok=True)
+zip_path = Path("/kaggle/working/audio_bundle.zip")
+
+with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+    for item in TASKS:
+        fname = item["filename"]
+        chunk_paths = task_chunk_map[fname]
+        sr_final = 24000
+        parts = []
+        pause = np.zeros(int(sr_final * 0.14), dtype=np.float32)
+
+        for idx_c, cp in enumerate(chunk_paths):
+            seg, sr_final = sf.read(cp, dtype="float32")
+            parts.append(np.asarray(seg, dtype=np.float32).reshape(-1))
+            if idx_c < len(chunk_paths) - 1:
+                parts.append(pause)
+
+        final_wav = np.concatenate(parts) if len(parts) > 1 else parts[0]
+        wav_path = out_dir / fname
+        sf.write(str(wav_path), final_wav, sr_final)
+        zf.write(wav_path, arcname=fname)
+
+print(f"✅ Total Dual-GPU Wall Time: {round(time.time() - t_boot, 1)}s")
+'''
 
 
 def _run_kaggle(args: List[str], stdin_text: Optional[str] = None) -> str:
@@ -81,210 +383,22 @@ def _build_worker_script(
     ref_text: str,
     default_voice: str,
     speech_speed: float = 0.93,
+    nfe_step: int = 16,
 ) -> str:
     tasks_json = json.dumps(tasks, ensure_ascii=False)
     ref_text_json = json.dumps(ref_text, ensure_ascii=False)
+    gpu_worker_b64 = base64.b64encode(_GPU_WORKER_TEMPLATE.encode("utf-8")).decode("ascii")
 
-    return f'''import base64
-import json
-import os
-import re
-import shutil
-import subprocess
-import sys
-import zipfile
-from pathlib import Path
-
-os.environ["MPLBACKEND"] = "Agg"
-os.environ["HF_HUB_OFFLINE"] = "1"
-os.environ["TRANSFORMERS_OFFLINE"] = "1"
-
-# ১. প্রাইভেট ডাটাসেট পাথ খুঁজে বের করা
-BUNDLE_DIR = None
-for candidate in [
-    Path("/kaggle/input/indicf5-bd-bundle"),
-    Path("/kaggle/input/datasets/yusufadnan/indicf5-bd-bundle"),
-]:
-    if (candidate / "model_40000.pt").exists():
-        BUNDLE_DIR = candidate
-        break
-
-if BUNDLE_DIR is None:
-    for p in Path("/kaggle/input").rglob("model_40000.pt"):
-        BUNDLE_DIR = p.parent
-        break
-
-if BUNDLE_DIR is None:
-    raise FileNotFoundError("indicf5-bd-bundle ডাটাসেট পাওয়া যায়নি!")
-
-# ২. অফলাইন wheels ইনস্টল
-wheels = sorted(str(p) for p in (BUNDLE_DIR / "wheels").glob("*.whl"))
-if wheels:
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-q", "--no-index", "--no-deps", *wheels],
-        check=True,
-    )
-
-sys.path.insert(0, str(BUNDLE_DIR))
-
-import numpy as np
-import soundfile as sf
-import torch
-import torchaudio
-
-def _patched_load(fp, **kw):
-    d, sr = sf.read(str(fp), dtype="float32")
-    d = d[np.newaxis, :] if d.ndim == 1 else d.T
-    return torch.from_numpy(d), sr
-torchaudio.load = _patched_load
-
-from f5_tts.infer.utils_infer import (
-    get_tokenizer,
-    infer_process,
-    load_vocoder,
-    n_mel_channels,
-    preprocess_ref_audio_text,
-)
-from f5_tts.model import CFM, DiT
-
-TASKS = json.loads({json.dumps(tasks_json)})
-REF_AUDIO_B64 = {json.dumps(ref_audio_b64)}
-REF_EXT = {json.dumps(ref_ext)}
-CUSTOM_REF_TEXT = json.loads({json.dumps(ref_text_json)})
-DEFAULT_VOICE = {json.dumps(default_voice)}
-SPEECH_SPEED = {float(speech_speed)}
-
-
-def split_bengali_for_indicf5(text: str, max_chars: int = 160):
-    """লম্বা বাংলা স্ক্রিপ্টকে বাংলা দাঁড়ি (।) অনুযায়ী নিরাপদ ছোট অংশে ভাগ করে"""
-    text = re.sub(r"\\s+", " ", text).strip()
-    if not text:
-        return []
-    raw_sents = [s.strip() for s in re.split(r"(?<=[।\\.\\?\\!\\n])\\s*", text) if s.strip()]
-    pieces = []
-    for s in raw_sents:
-        if len(s) <= max_chars:
-            pieces.append(s)
-        else:
-            sub_parts = [p.strip() for p in re.split(r"(?<=[,;—\\-])\\s*", s) if p.strip()]
-            for sp in sub_parts:
-                if len(sp) <= max_chars:
-                    pieces.append(sp)
-                else:
-                    words = sp.split()
-                    cur = ""
-                    for w in words:
-                        if len(cur) + len(w) + 1 <= max_chars:
-                            cur = f"{{cur}} {{w}}".strip()
-                        else:
-                            if cur:
-                                pieces.append(cur)
-                            cur = w
-                    if cur:
-                        pieces.append(cur)
-
-    merged = []
-    buf = ""
-    for p in pieces:
-        if not buf:
-            buf = p
-        elif len(buf) + len(p) + 1 <= max_chars:
-            buf = f"{{buf}} {{p}}"
-        else:
-            if len(buf) < 25:
-                buf = f"{{buf}} {{p}}"
-            else:
-                merged.append(buf)
-                buf = p
-    if buf:
-        if merged and len(buf) < 25 and len(merged[-1]) + len(buf) + 1 <= max_chars + 40:
-            merged[-1] = f"{{merged[-1]}} {{buf}}"
-        else:
-            merged.append(buf)
-    return merged
-
-
-# ৩. রেফারেন্স অডিও সেটআপ
-if REF_AUDIO_B64:
-    raw_ref = Path(f"/tmp/custom_ref_raw{{REF_EXT}}")
-    raw_ref.write_bytes(base64.b64decode(REF_AUDIO_B64))
-    ref_wav = Path("/tmp/custom_ref_24k.wav")
-    if shutil.which("ffmpeg"):
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", str(raw_ref), "-ar", "24000", "-ac", "1", str(ref_wav)],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-    else:
-        from pydub import AudioSegment
-        AudioSegment.from_file(str(raw_ref)).set_frame_rate(24000).set_channels(1).export(str(ref_wav), format="wav")
-    ref_text = CUSTOM_REF_TEXT.strip()
-else:
-    voice_file = "ref_female.wav" if DEFAULT_VOICE == "female" else "ref_male.wav"
-    ref_wav = BUNDLE_DIR / "ref_voice" / voice_file
-    ref_text = (BUNDLE_DIR / "ref_voice" / "ref_text.txt").read_text(encoding="utf-8").strip()
-
-# ৪. মডেল ও Vocos মাত্র ১ বার লোড করা
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Using device: {{device}} | Total Audio Jobs: {{len(TASKS)}} | Speed: {{SPEECH_SPEED}}")
-
-vmap, vsize = get_tokenizer(str(BUNDLE_DIR / "vocab.txt"), "custom")
-model = CFM(
-    transformer=DiT(
-        dim=1024, depth=22, heads=16, ff_mult=2,
-        text_dim=512, conv_layers=4, text_num_embeds=vsize, mel_dim=n_mel_channels,
-    ),
-    mel_spec_kwargs=dict(
-        n_fft=1024, hop_length=256, win_length=1024,
-        n_mel_channels=n_mel_channels, target_sample_rate=24000, mel_spec_type="vocos",
-    ),
-    odeint_kwargs=dict(method="euler"),
-    vocab_char_map=vmap,
-)
-
-ckpt = torch.load(str(BUNDLE_DIR / "model_40000.pt"), map_location="cpu", weights_only=False)
-raw_sd = ckpt.get("ema_model_state_dict", ckpt.get("model_state_dict", ckpt))
-cleaned = {{
-    (k[10:] if k.startswith("ema_model.") else (k[7:] if k.startswith("module.") else k)): v
-    for k, v in raw_sd.items()
-    if k not in ("initted", "step")
-}}
-model.load_state_dict(cleaned, strict=False)
-model = model.float().to(device).eval()
-
-vocoder = load_vocoder(vocoder_name="vocos", is_local=True, local_path=str(BUNDLE_DIR / "vocos"), device=device)
-clean_ref, clean_ref_txt = preprocess_ref_audio_text(str(ref_wav), ref_text)
-
-# ৫. প্রতিটি স্ক্রিপ্ট স্মার্ট চাংকিং করে আলাদা আলাদা .wav তৈরি ও ZIP করা
-out_dir = Path("/tmp/generated_wavs")
-out_dir.mkdir(parents=True, exist_ok=True)
-zip_path = Path("/kaggle/working/audio_bundle.zip")
-
-with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-    for idx, item in enumerate(TASKS, 1):
-        fname = item["filename"]
-        txt = item["text"].strip()
-        chunks = split_bengali_for_indicf5(txt, max_chars=160)
-        print(f"[{{idx}}/{{len(TASKS)}}] Synthesizing {{fname}} ({{len(chunks)}} chunks)...")
-
-        sr_final = 24000
-        pause = np.zeros(int(sr_final * 0.16), dtype=np.float32)
-        wav_parts = []
-        for c_idx, ch in enumerate(chunks):
-            wav_seg, sr_final, _ = infer_process(
-                clean_ref, clean_ref_txt, ch, model, vocoder,
-                mel_spec_type="vocos", speed=SPEECH_SPEED, device=device,
-            )
-            wav_parts.append(np.asarray(wav_seg, dtype=np.float32).reshape(-1))
-            if c_idx < len(chunks) - 1:
-                wav_parts.append(pause)
-
-        final_wav = np.concatenate(wav_parts) if len(wav_parts) > 1 else wav_parts[0]
-        wav_path = out_dir / fname
-        sf.write(str(wav_path), final_wav, sr_final)
-        zf.write(wav_path, arcname=fname)
-
-print("✅ Batch synthesis complete!")
-'''
+    script = _MAIN_RUNNER_TEMPLATE
+    script = script.replace("__TASKS_JSON__", json.dumps(tasks_json))
+    script = script.replace("__REF_AUDIO_B64__", json.dumps(ref_audio_b64))
+    script = script.replace("__REF_EXT__", json.dumps(ref_ext))
+    script = script.replace("__REF_TEXT_JSON__", json.dumps(ref_text_json))
+    script = script.replace("__DEFAULT_VOICE__", json.dumps(default_voice))
+    script = script.replace("__SPEECH_SPEED__", repr(float(speech_speed)))
+    script = script.replace("__NFE_STEP__", repr(int(nfe_step)))
+    script = script.replace("__GPU_WORKER_B64__", json.dumps(gpu_worker_b64))
+    return script
 
 
 def _push_with_fallback_slug(job_dir: Path, base_script: str, run_timeout_sec: int) -> str:
@@ -329,10 +443,11 @@ def generate_voices_batch(
     ref_text: str = "",
     default_voice: str = "male",
     speech_speed: float = 0.93,
-    poll_interval: int = 20,
+    nfe_step: int = 16,
+    poll_interval: int = 15,
     max_attempts: int = 3,
     retry_interval_sec: int = 1200,  # ২০ মিনিট = ১২০০ সেকেন্ড
-    run_timeout_sec: int = 1800,      # GPU চালু হলে সর্বোচ্চ ৩০ মিনিট
+    run_timeout_sec: int = 1800,     # GPU চালু হলে সর্বোচ্চ ৩০ মিনিট
 ) -> Dict[str, Path]:
     if not tasks:
         return {}
@@ -356,10 +471,10 @@ def generate_voices_batch(
             ref_ext = rp.suffix.lower() or ".wav"
 
     script_code = _build_worker_script(
-        tasks, ref_b64, ref_ext, ref_text, default_voice, speech_speed=speech_speed
+        tasks, ref_b64, ref_ext, ref_text, default_voice,
+        speech_speed=speech_speed, nfe_step=nfe_step,
     )
 
-    # শুরুর আগে পুরনো কোনো আটকে থাকা জব পরিষ্কার করা
     _cleanup_stale_workers()
 
     for attempt in range(1, max_attempts + 1):
@@ -370,7 +485,7 @@ def generate_voices_batch(
             job_dir.mkdir()
             dl_dir.mkdir()
 
-            print(f"\n🚀 [Kaggle TTS | Attempt {attempt}/{max_attempts}] Pushing {len(tasks)} audio script(s) (speed={speech_speed})...")
+            print(f"\n🚀 [Kaggle TTS | Attempt {attempt}/{max_attempts}] Pushing {len(tasks)} script(s) (T4 x2 | nfe={nfe_step} | speed={speech_speed})...")
             attempt_start = time.time()
             active_kernel_id = _push_with_fallback_slug(job_dir, script_code, run_timeout_sec)
 
@@ -434,7 +549,7 @@ def generate_voices_batch(
         if attempt < max_attempts:
             remaining_wait = int(retry_interval_sec - (time.time() - attempt_start))
             if remaining_wait > 10:
-                print(f"⏱️ পরবর্তী চেষ্টার আগে {remaining_wait} সেকেন্ড (২০ মিনিটের বিরতি) অপেক্ষা করা হচ্ছে...")
+                print(f"⏱️ পরবর্তী চেষ্টার আগে {remaining_wait} সেকেন্ড অপেক্ষা করা হচ্ছে...")
                 time.sleep(remaining_wait)
 
     raise RuntimeError(f"Kaggle {max_attempts} বার (২০ মিনিট পরপর) চেষ্টা করেও GPU পায়নি।")
