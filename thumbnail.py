@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import hashlib
 import os
 import re
 import random
@@ -31,34 +30,75 @@ ORG_LOGO_RULES = [
     (['গণপূর্ত', 'pwd', 'গণপূর্ত অধিদপ্তর'], ['PWD.jpeg', 'PWD.png', 'pwd.jpeg', 'pwd.png', 'PWD.jpg', 'pwd.jpg']),
 ]
 
-# ৫টি মার্জিত, প্রফেশনাল ও হাই-কনট্রাস্ট কালার থিম
-PRO_THEMES = [
+# ১০টি ভিন্ন ভিন্ন প্রফেশনাল কালার থিম (৭টি লাইট + ৩টি ডার্ক — প্রতিটিতে ব্যাকগ্রাউন্ড ও লেখার রঙ আলাদা)
+LIGHT_THEMES = [
     {
-        "bar_bg": "#064E3B", "accent": "#FACC15", "canvas": "#F8FAFC", "grid": "#E2E8F0",
-        "org_pill": "#0F172A", "org_text": "#FACC15", "red": "#D90429", "dark": "#0F172A",
-        "chip_bg": "#ECFDF5", "chip_border": "#059669", "chip_text": "#064E3B", "bot_text": "#FACC15",
+        "is_dark": False, "bar_bg": "#064E3B", "bar_text": "#FFFFFF", "bot_bg": "#064E3B", "bot_text": "#FACC15",
+        "accent": "#FACC15", "canvas": "#F8FAFC", "grid": "#E2E8F0", "shadow": "#CBD5E1",
+        "org_pill": "#0F172A", "org_text": "#FACC15", "hero_color": "#D90429", "sub_color": "#0F172A",
+        "chip_bg": "#ECFDF5", "chip_border": "#059669", "chip_text": "#064E3B",
     },
     {
-        "bar_bg": "#0F172A", "accent": "#F59E0B", "canvas": "#F8FAFC", "grid": "#E2E8F0",
-        "org_pill": "#B91C1C", "org_text": "#FFFFFF", "red": "#DC2626", "dark": "#0F172A",
-        "chip_bg": "#FEF3C7", "chip_border": "#D97706", "chip_text": "#78350F", "bot_text": "#FDE047",
+        "is_dark": False, "bar_bg": "#0F172A", "bar_text": "#FFFFFF", "bot_bg": "#1E293B", "bot_text": "#FDE047",
+        "accent": "#F59E0B", "canvas": "#F8FAFC", "grid": "#E2E8F0", "shadow": "#CBD5E1",
+        "org_pill": "#DC2626", "org_text": "#FFFFFF", "hero_color": "#1D4ED8", "sub_color": "#111827",
+        "chip_bg": "#FEF3C7", "chip_border": "#D97706", "chip_text": "#78350F",
     },
     {
-        "bar_bg": "#7F1D1D", "accent": "#FDE047", "canvas": "#FFFDF9", "grid": "#F3E8E2",
-        "org_pill": "#0F172A", "org_text": "#FFFFFF", "red": "#B91C1C", "dark": "#1E293B",
-        "chip_bg": "#FEF2F2", "chip_border": "#DC2626", "chip_text": "#7F1D1D", "bot_text": "#FDE047",
+        "is_dark": False, "bar_bg": "#7F1D1D", "bar_text": "#FFFFFF", "bot_bg": "#7F1D1D", "bot_text": "#FDE047",
+        "accent": "#FDE047", "canvas": "#FFFDF7", "grid": "#F3E8E2", "shadow": "#E2D5CE",
+        "org_pill": "#0F172A", "org_text": "#FFFFFF", "hero_color": "#B91C1C", "sub_color": "#1E293B",
+        "chip_bg": "#FEF2F2", "chip_border": "#DC2626", "chip_text": "#7F1D1D",
     },
     {
-        "bar_bg": "#115E59", "accent": "#FACC15", "canvas": "#F8FAFC", "grid": "#E2E8F0",
-        "org_pill": "#1E293B", "org_text": "#FDE047", "red": "#D90429", "dark": "#0F172A",
-        "chip_bg": "#F0FDFA", "chip_border": "#0D9488", "chip_text": "#115E59", "bot_text": "#FACC15",
+        "is_dark": False, "bar_bg": "#115E59", "bar_text": "#FFFFFF", "bot_bg": "#0F766E", "bot_text": "#FEF08A",
+        "accent": "#FACC15", "canvas": "#F4FBF9", "grid": "#D7EFEA", "shadow": "#C4E2DC",
+        "org_pill": "#1E293B", "org_text": "#FDE047", "hero_color": "#EA580C", "sub_color": "#0F172A",
+        "chip_bg": "#F0FDFA", "chip_border": "#0D9488", "chip_text": "#115E59",
     },
     {
-        "bar_bg": "#1E1B4B", "accent": "#FBBF24", "canvas": "#F8FAFC", "grid": "#E2E8F0",
-        "org_pill": "#DC2626", "org_text": "#FFFFFF", "red": "#DC2626", "dark": "#0F172A",
-        "chip_bg": "#EEF2FF", "chip_border": "#4F46E5", "chip_text": "#1E1B4B", "bot_text": "#FDE047",
+        "is_dark": False, "bar_bg": "#1E1B4B", "bar_text": "#FFFFFF", "bot_bg": "#312E81", "bot_text": "#FDE047",
+        "accent": "#FBBF24", "canvas": "#F5F7FF", "grid": "#E0E7FF", "shadow": "#C7D2FE",
+        "org_pill": "#BE123C", "org_text": "#FFFFFF", "hero_color": "#4338CA", "sub_color": "#0F172A",
+        "chip_bg": "#EEF2FF", "chip_border": "#4F46E5", "chip_text": "#1E1B4B",
+    },
+    {
+        "is_dark": False, "bar_bg": "#4C1D95", "bar_text": "#FFFFFF", "bot_bg": "#5B21B6", "bot_text": "#FDE047",
+        "accent": "#F59E0B", "canvas": "#FAF7FF", "grid": "#EDE9FE", "shadow": "#DDD6FE",
+        "org_pill": "#0F172A", "org_text": "#FDE047", "hero_color": "#9D174D", "sub_color": "#1E1B4B",
+        "chip_bg": "#FDF2F8", "chip_border": "#DB2777", "chip_text": "#831843",
+    },
+    {
+        "is_dark": False, "bar_bg": "#14532D", "bar_text": "#FEF9C3", "bot_bg": "#0F172A", "bot_text": "#4ADE80",
+        "accent": "#22C55E", "canvas": "#F9FAFB", "grid": "#E5E7EB", "shadow": "#D1D5DB",
+        "org_pill": "#EA580C", "org_text": "#FFFFFF", "hero_color": "#15803D", "sub_color": "#0F172A",
+        "chip_bg": "#FFF7ED", "chip_border": "#EA580C", "chip_text": "#9A3412",
     },
 ]
+
+DARK_THEMES = [
+    {
+        "is_dark": True, "bar_bg": "#020617", "bar_text": "#FACC15", "bot_bg": "#1D4ED8", "bot_text": "#FFFFFF",
+        "accent": "#38BDF8", "canvas": "#0F172A", "grid": "#1E293B", "shadow": "#020617",
+        "org_pill": "#DC2626", "org_text": "#FFFFFF", "hero_color": "#FACC15", "sub_color": "#E2E8F0",
+        "chip_bg": "#1E293B", "chip_border": "#38BDF8", "chip_text": "#F8FAFC",
+    },
+    {
+        "is_dark": True, "bar_bg": "#18181B", "bar_text": "#FFFFFF", "bot_bg": "#B91C1C", "bot_text": "#FEF08A",
+        "accent": "#10B981", "canvas": "#111827", "grid": "#1F2937", "shadow": "#030712",
+        "org_pill": "#FACC15", "org_text": "#0F172A", "hero_color": "#34D399", "sub_color": "#F8FAFC",
+        "chip_bg": "#1F2937", "chip_border": "#10B981", "chip_text": "#ECFDF5",
+    },
+    {
+        "is_dark": True, "bar_bg": "#450A0A", "bar_text": "#FDE047", "bot_bg": "#0F172A", "bot_text": "#38BDF8",
+        "accent": "#F59E0B", "canvas": "#1C0F13", "grid": "#331820", "shadow": "#090406",
+        "org_pill": "#FDE047", "org_text": "#111827", "hero_color": "#FB7185", "sub_color": "#F1F5F9",
+        "chip_bg": "#2D151C", "chip_border": "#F59E0B", "chip_text": "#FEF3C7",
+    },
+]
+
+ALL_THEMES = LIGHT_THEMES + DARK_THEMES
+VALID_LAYOUTS = ["poster_classic", "split_impact", "headline_first", "dark_bold", "stat_cards"]
 
 
 def find_matched_org_logo(title_text):
@@ -171,7 +211,7 @@ def measure_mixed_text(text, bn_font_path, font_size):
     return total_w, max_h
 
 
-def get_best_fitted_mixed_font_size(text, max_w, max_h, bn_font_path, start_size=260, min_size=40):
+def get_best_fitted_mixed_font_size(text, max_w, max_h, bn_font_path, start_size=260, min_size=36):
     for fs in range(start_size, min_size - 1, -4):
         w, h = measure_mixed_text(text, bn_font_path, fs)
         if w <= max_w and h <= max_h:
@@ -213,33 +253,48 @@ def draw_mixed_text_centered(draw, center_x, center_y, text, bn_font_path, font_
         cur_x += w
 
 
-def draw_subtle_grid_background(draw, W, H, y_start, y_end, canvas_color, grid_color):
-    draw.rectangle([0, y_start, W, y_end], fill=canvas_color)
+def wrap_two_lines(text):
+    words = str(text).split()
+    if len(words) <= 2:
+        return text, ""
+    mid = (len(words) + 1) // 2
+    return " ".join(words[:mid]), " ".join(words[mid:])
+
+
+def draw_subtle_grid_background(draw, x1, y1, x2, y2, canvas_color, grid_color):
+    draw.rectangle([x1, y1, x2, y2], fill=canvas_color)
     step = 60
-    for x in range(0, W, step):
-        draw.line([(x, y_start), (x, y_end)], fill=grid_color, width=1)
-    for y in range(y_start, y_end, step):
-        draw.line([(0, y), (W, y)], fill=grid_color, width=1)
+    for x in range(x1, x2, step):
+        draw.line([(x, y1), (x, y2)], fill=grid_color, width=1)
+    for y in range(y1, y2, step):
+        draw.line([(x1, y), (x2, y)], fill=grid_color, width=1)
 
 
-def draw_pill(draw, cx, cy, text, font_path, max_w, max_h, bg_color, text_color, border_color=None, border_w=0, pad_x=44, pad_y=20, start_fs=76, min_fs=34, shadow=False):
-    fs, tw, th = get_best_fitted_mixed_font_size(text, max_w=max_w - 2 * pad_x, max_h=max_h - 2 * pad_y, bn_font_path=font_path, start_size=start_fs, min_size=min_fs)
+def draw_pill(draw, cx, cy, text, font_path, max_w, max_h, bg_color, text_color, border_color=None, border_w=0, pad_x=48, pad_y=14, start_fs=112, min_fs=34, shadow_color=None):
+    fs, tw, th = get_best_fitted_mixed_font_size(
+        text,
+        max_w=max_w - 2 * pad_x,
+        max_h=max_h - 2 * pad_y,
+        bn_font_path=font_path,
+        start_size=start_fs,
+        min_size=min_fs,
+    )
     pw = min(max_w, tw + 2 * pad_x)
-    ph = max(th + 2 * pad_y, int(fs * 1.45))
+    ph = min(max_h, max(th + 2 * pad_y, int(fs * 1.38)))
     x1, y1 = int(cx - pw // 2), int(cy - ph // 2)
     x2, y2 = int(cx + pw // 2), int(cy + ph // 2)
     radius = ph // 2
 
-    if shadow:
-        draw.rounded_rectangle([x1 + 5, y1 + 6, x2 + 5, y2 + 6], radius=radius, fill="#CBD5E1")
+    if shadow_color:
+        draw.rounded_rectangle([x1 + 5, y1 + 6, x2 + 5, y2 + 6], radius=radius, fill=shadow_color)
     draw.rounded_rectangle([x1, y1, x2, y2], radius=radius, fill=bg_color, outline=border_color, width=border_w)
     draw_mixed_text_centered(draw, cx, cy, text, font_path, fs, text_color)
     return pw, ph
 
 
-def render_logo_card(img, draw, logo_path, rect, border_color):
+def render_logo_card(img, draw, logo_path, rect, border_color, shadow_color="#CBD5E1"):
     x1, y1, x2, y2 = rect
-    draw.rounded_rectangle([x1 + 6, y1 + 8, x2 + 6, y2 + 8], radius=28, fill="#CBD5E1")
+    draw.rounded_rectangle([x1 + 6, y1 + 8, x2 + 6, y2 + 8], radius=28, fill=shadow_color)
     draw.rounded_rectangle([x1, y1, x2, y2], radius=28, fill="#FFFFFF", outline=border_color, width=5)
 
     box_w, box_h = x2 - x1, y2 - y1
@@ -258,11 +313,371 @@ def render_logo_card(img, draw, logo_path, rect, border_color):
         return False
 
 
+def draw_header_emblems(img, draw, W, center_y, size, is_private, accent_color):
+    if not is_private:
+        gov_logo_p = os.path.join(PHOTOS_DIR, "Govbd.png")
+        if os.path.exists(gov_logo_p):
+            try:
+                with Image.open(gov_logo_p) as gl:
+                    gl_rgba = gl.convert("RGBA").resize((size, size), Image.LANCZOS)
+                    img.paste(gl_rgba, (44, center_y - size // 2), gl_rgba)
+                    img.paste(gl_rgba, (W - 44 - size, center_y - size // 2), gl_rgba)
+                    return
+            except Exception:
+                pass
+    for cx in (96, W - 96):
+        r = 24
+        draw.polygon([(cx, center_y - r), (cx + r, center_y), (cx, center_y + r), (cx - r, center_y)], fill=accent_color)
+
+
 def _detect_is_private(title_text, job_cat):
     combined = f"{title_text} {job_cat}".lower()
     if any(k in combined for k in ["বেসরকারি", "প্রাইভেট", "লিমিটেড", "ফার্মা", "গ্রুপ", "ফাউন্ডেশন", "বিকাশ কেন্দ্র", "এনজিও", "ltd"]):
         return True
     return False
+
+
+def _extract_highlights(thumb_meta):
+    hl = thumb_meta.get("highlights")
+    out = []
+    if isinstance(hl, list):
+        for item in hl[:3]:
+            if isinstance(item, dict):
+                lbl = strip_unwanted_chars(item.get("label", ""))
+                val = strip_unwanted_chars(item.get("value", ""))
+                if val:
+                    out.append({"label": lbl or "তথ্য", "value": val})
+            elif isinstance(item, str) and item.strip():
+                out.append({"label": "তথ্য", "value": strip_unwanted_chars(item)})
+    if not out:
+        for k in ("pill_1", "pill_2", "pill_3"):
+            v = strip_unwanted_chars(thumb_meta.get(k, ""))
+            if v:
+                out.append({"label": "তথ্য", "value": v})
+    while len(out) < 3:
+        defaults = [
+            {"label": "যোগ্যতা", "value": "বিজ্ঞপ্তি অনুযায়ী"},
+            {"label": "আবেদন", "value": "সকল জেলা"},
+            {"label": "বিস্তারিত", "value": "বেতন ও ফি"},
+        ]
+        out.append(defaults[len(out)])
+    return out[:3]
+
+
+def _chip_text(h):
+    lbl, val = h["label"], h["value"]
+    if lbl in ("তথ্য", "") or lbl in val:
+        return val
+    return f"{lbl}: {val}" if len(f"{lbl}: {val}") <= 24 else val
+
+
+# =========================================================================
+# 🌟 ৫টি ডাইনামিক লেআউট ইঞ্জিন
+# =========================================================================
+
+def _render_poster_classic(img, draw, W, H, theme, data, fonts, matched_logo, is_private):
+    bar_font, font1, font2 = fonts
+    draw.rectangle([0, 0, W, 145], fill=theme["bar_bg"])
+    draw.rectangle([0, 145, W, 154], fill=theme["accent"])
+    draw_header_emblems(img, draw, W, 72, 110, is_private, theme["accent"])
+
+    fs_top, _, _ = get_best_fitted_mixed_font_size(data["top_tag"], max_w=W - 440, max_h=108, bn_font_path=bar_font, start_size=108, min_size=50)
+    draw_mixed_text_centered(draw, W // 2, 72, data["top_tag"], bar_font, fs_top, theme["bar_text"])
+
+    draw_subtle_grid_background(draw, 0, 154, W, 900, theme["canvas"], theme["grid"])
+    draw.rectangle([0, 154, 18, 900], fill=theme["bar_bg"])
+    draw.rectangle([W - 18, 154, W, 900], fill=theme["bar_bg"])
+
+    cx = 635 if matched_logo else W // 2
+    max_w = 1160 if matched_logo else 1740
+
+    if matched_logo:
+        render_logo_card(img, draw, matched_logo, (1270, 185, 1865, 875), theme["bar_bg"], shadow_color=theme["shadow"])
+
+    draw_pill(
+        draw, cx, 246, data["org_short"], bar_font,
+        max_w=max_w, max_h=148, bg_color=theme["org_pill"], text_color=theme["org_text"],
+        pad_x=52, pad_y=14, start_fs=112, min_fs=50, shadow_color=theme["shadow"],
+    )
+
+    fs1, _, _ = get_best_fitted_mixed_font_size(data["hero_text"], max_w=max_w, max_h=205, bn_font_path=font1, start_size=230, min_size=80)
+    draw_mixed_text_centered(draw, cx, 445, data["hero_text"], font1, fs1, theme["hero_color"], shadow_color=theme["shadow"], shadow_offset=5)
+
+    fs2, _, _ = get_best_fitted_mixed_font_size(data["sub_text"], max_w=max_w, max_h=155, bn_font_path=font2, start_size=165, min_size=62)
+    draw_mixed_text_centered(draw, cx, 635, data["sub_text"], font2, fs2, theme["sub_color"])
+
+    chips = [_chip_text(h) for h in data["highlights"][: (2 if matched_logo else 3)]]
+    chip_w = 545 if matched_logo else 550
+    gap = 34
+    total_span = len(chips) * chip_w + (len(chips) - 1) * gap
+    first_cx = cx - total_span // 2 + chip_w // 2
+    for idx, ch_txt in enumerate(chips):
+        draw_pill(
+            draw, first_cx + idx * (chip_w + gap), 815, ch_txt, bar_font,
+            max_w=chip_w, max_h=108, bg_color=theme["chip_bg"], text_color=theme["chip_text"],
+            border_color=theme["chip_border"], border_w=4, pad_x=24, pad_y=12, start_fs=62, min_fs=32,
+        )
+
+    draw.rectangle([0, 900, W, 910], fill=theme["accent"])
+    draw.rectangle([0, 910, W, H], fill=theme["bot_bg"])
+    fs_bot, _, _ = get_best_fitted_mixed_font_size(data["bot_text"], max_w=1440, max_h=125, bn_font_path=bar_font, start_size=112, min_size=50)
+    draw_mixed_text_centered(draw, 840, 995, data["bot_text"], bar_font, fs_bot, theme["bot_text"])
+
+
+def _render_split_impact(img, draw, W, H, theme, data, fonts, matched_logo, is_private):
+    bar_font, font1, font2 = fonts
+    split_x = 730
+
+    # বাম রঙিন প্যানেল (0 .. 730)
+    draw.rectangle([0, 0, split_x, H], fill=theme["bar_bg"])
+    draw.rectangle([split_x, 0, split_x + 12, H], fill=theme["accent"])
+
+    # ডান ক্যানভাস (742 .. 1920)
+    draw_subtle_grid_background(draw, split_x + 12, 0, W, H, theme["canvas"], theme["grid"])
+
+    # বাম প্যানেলে: টপ ট্যাগ পিল + বড় ২-লাইনের প্রতিষ্ঠানের নাম + লোগো/হাইলাইট
+    left_cx = split_x // 2
+    draw_pill(
+        draw, left_cx, 110, data["top_tag"], bar_font,
+        max_w=640, max_h=92, bg_color=theme["org_pill"], text_color=theme["org_text"],
+        pad_x=32, pad_y=10, start_fs=58, min_fs=32,
+    )
+
+    l1, l2 = wrap_two_lines(data["org_short"])
+    if matched_logo:
+        if l2:
+            fs_o1, _, _ = get_best_fitted_mixed_font_size(l1, max_w=650, max_h=115, bn_font_path=bar_font, start_size=110, min_size=54)
+            fs_o2, _, _ = get_best_fitted_mixed_font_size(l2, max_w=650, max_h=115, bn_font_path=bar_font, start_size=110, min_size=54)
+            fs_o = min(fs_o1, fs_o2)
+            draw_mixed_text_centered(draw, left_cx, 255, l1, bar_font, fs_o, theme["bar_text"])
+            draw_mixed_text_centered(draw, left_cx, 365, l2, bar_font, fs_o, theme["bar_text"])
+        else:
+            fs_o, _, _ = get_best_fitted_mixed_font_size(l1, max_w=650, max_h=140, bn_font_path=bar_font, start_size=120, min_size=56)
+            draw_mixed_text_centered(draw, left_cx, 300, l1, bar_font, fs_o, theme["bar_text"])
+        render_logo_card(img, draw, matched_logo, (165, 455, 565, 815), theme["accent"], shadow_color=theme["shadow"])
+    else:
+        if l2:
+            fs_o1, _, _ = get_best_fitted_mixed_font_size(l1, max_w=650, max_h=150, bn_font_path=bar_font, start_size=130, min_size=60)
+            fs_o2, _, _ = get_best_fitted_mixed_font_size(l2, max_w=650, max_h=150, bn_font_path=bar_font, start_size=130, min_size=60)
+            fs_o = min(fs_o1, fs_o2)
+            draw_mixed_text_centered(draw, left_cx, 360, l1, bar_font, fs_o, theme["bar_text"])
+            draw_mixed_text_centered(draw, left_cx, 495, l2, bar_font, fs_o, theme["bar_text"])
+        else:
+            fs_o, _, _ = get_best_fitted_mixed_font_size(l1, max_w=650, max_h=180, bn_font_path=bar_font, start_size=140, min_size=64)
+            draw_mixed_text_centered(draw, left_cx, 420, l1, bar_font, fs_o, theme["bar_text"])
+
+        if not is_private:
+            gov_logo_p = os.path.join(PHOTOS_DIR, "Govbd.png")
+            if os.path.exists(gov_logo_p):
+                try:
+                    with Image.open(gov_logo_p) as gl:
+                        gl_rgba = gl.convert("RGBA").resize((150, 150), Image.LANCZOS)
+                        img.paste(gl_rgba, (left_cx - 75, 620), gl_rgba)
+                except Exception:
+                    pass
+
+    # বাম প্যানেলের নিচে ১ম হাইলাইট
+    h0 = _chip_text(data["highlights"][0])
+    draw_pill(
+        draw, left_cx, 945, h0, bar_font,
+        max_w=650, max_h=110, bg_color=theme["accent"], text_color="#0F172A",
+        pad_x=32, pad_y=14, start_fs=62, min_fs=34,
+    )
+
+    # ডান ক্যানভাসে: হিরো + সাব + ২টি চিপ + টাইমস্ট্যাম্প-সেফ CTA
+    right_cx = 1330
+    fs1, _, _ = get_best_fitted_mixed_font_size(data["hero_text"], max_w=1080, max_h=240, bn_font_path=font1, start_size=230, min_size=82)
+    draw_mixed_text_centered(draw, right_cx, 275, data["hero_text"], font1, fs1, theme["hero_color"], shadow_color=theme["shadow"], shadow_offset=5)
+
+    fs2, _, _ = get_best_fitted_mixed_font_size(data["sub_text"], max_w=1080, max_h=170, bn_font_path=font2, start_size=165, min_size=62)
+    draw_mixed_text_centered(draw, right_cx, 505, data["sub_text"], font2, fs2, theme["sub_color"])
+
+    c1 = _chip_text(data["highlights"][1])
+    c2 = _chip_text(data["highlights"][2])
+    draw_pill(draw, 1055, 710, c1, bar_font, max_w=510, max_h=108, bg_color=theme["chip_bg"], text_color=theme["chip_text"], border_color=theme["chip_border"], border_w=4, pad_x=22, pad_y=12, start_fs=58, min_fs=30)
+    draw_pill(draw, 1605, 710, c2, bar_font, max_w=510, max_h=108, bg_color=theme["chip_bg"], text_color=theme["chip_text"], border_color=theme["chip_border"], border_w=4, pad_x=22, pad_y=12, start_fs=58, min_fs=30)
+
+    # বটম CTA পিল (ডান কোণার 3:35 টাইমস্ট্যাম্প থেকে নিরাপদ)
+    draw_pill(
+        draw, 1160, 935, data["bot_text"], bar_font,
+        max_w=780, max_h=118, bg_color=theme["bot_bg"], text_color=theme["bot_text"],
+        pad_x=40, pad_y=14, start_fs=72, min_fs=38, shadow_color=theme["shadow"],
+    )
+
+
+def _render_headline_first(img, draw, W, H, theme, data, fonts, matched_logo, is_private):
+    bar_font, font1, font2 = fonts
+    draw_subtle_grid_background(draw, 0, 0, W, 910, theme["canvas"], theme["grid"])
+    draw.rectangle([0, 0, W, 14], fill=theme["bar_bg"])
+
+    cx = 635 if matched_logo else W // 2
+    max_w = 1160 if matched_logo else 1740
+
+    if matched_logo:
+        render_logo_card(img, draw, matched_logo, (1270, 50, 1865, 865), theme["bar_bg"], shadow_color=theme["shadow"])
+
+    # সবার আগে ছোট ট্যাগ ও বিশাল হিরো হেডলাইন
+    draw_pill(
+        draw, cx, 78, data["top_tag"], bar_font,
+        max_w=720, max_h=82, bg_color=theme["chip_bg"], text_color=theme["chip_text"],
+        border_color=theme["chip_border"], border_w=3, pad_x=34, pad_y=10, start_fs=52, min_fs=30,
+    )
+    if not matched_logo:
+        draw_header_emblems(img, draw, W, 78, 96, is_private, theme["bar_bg"])
+
+    fs1, _, _ = get_best_fitted_mixed_font_size(data["hero_text"], max_w=max_w, max_h=190, bn_font_path=font1, start_size=225, min_size=78)
+    draw_mixed_text_centered(draw, cx, 228, data["hero_text"], font1, fs1, theme["hero_color"], shadow_color=theme["shadow"], shadow_offset=5)
+
+    # মাঝখানে ফুল-রিবনে বিশাল প্রতিষ্ঠানের নাম (345 .. 530)
+    rib_x2 = 1235 if matched_logo else W
+    draw.rectangle([0, 345, rib_x2, 354], fill=theme["accent"])
+    draw.rectangle([0, 354, rib_x2, 524], fill=theme["bar_bg"])
+    draw.rectangle([0, 524, rib_x2, 533], fill=theme["accent"])
+
+    fs_org, _, _ = get_best_fitted_mixed_font_size(data["org_short"], max_w=max_w, max_h=140, bn_font_path=bar_font, start_size=132, min_size=56)
+    draw_mixed_text_centered(draw, cx, 439, data["org_short"], bar_font, fs_org, theme["bar_text"])
+
+    # নিচে সাব-হেডলাইন + ইনফো চিপস
+    fs2, _, _ = get_best_fitted_mixed_font_size(data["sub_text"], max_w=max_w, max_h=145, bn_font_path=font2, start_size=155, min_size=58)
+    draw_mixed_text_centered(draw, cx, 628, data["sub_text"], font2, fs2, theme["sub_color"])
+
+    chips = [_chip_text(h) for h in data["highlights"][: (2 if matched_logo else 3)]]
+    chip_w = 545 if matched_logo else 550
+    gap = 32
+    total_span = len(chips) * chip_w + (len(chips) - 1) * gap
+    first_cx = cx - total_span // 2 + chip_w // 2
+    for idx, ch_txt in enumerate(chips):
+        draw_pill(
+            draw, first_cx + idx * (chip_w + gap), 800, ch_txt, bar_font,
+            max_w=chip_w, max_h=108, bg_color=theme["chip_bg"], text_color=theme["chip_text"],
+            border_color=theme["chip_border"], border_w=4, pad_x=24, pad_y=12, start_fs=62, min_fs=32,
+        )
+
+    # ফুটার
+    draw.rectangle([0, 905, W, 914], fill=theme["accent"])
+    draw.rectangle([0, 914, W, H], fill=theme["bot_bg"])
+    fs_bot, _, _ = get_best_fitted_mixed_font_size(data["bot_text"], max_w=1440, max_h=120, bn_font_path=bar_font, start_size=110, min_size=50)
+    draw_mixed_text_centered(draw, 840, 996, data["bot_text"], bar_font, fs_bot, theme["bot_text"])
+
+
+def _render_dark_bold(img, draw, W, H, theme, data, fonts, matched_logo, is_private):
+    bar_font, font1, font2 = fonts
+    # নিশ্চিতভাবে একটি ডার্ক থিম নেওয়া
+    if not theme["is_dark"]:
+        theme = random.choice(DARK_THEMES)
+
+    draw.rectangle([0, 0, W, 130], fill=theme["bar_bg"])
+    draw.rectangle([0, 130, W, 138], fill=theme["accent"])
+    draw_header_emblems(img, draw, W, 65, 98, is_private, theme["accent"])
+
+    fs_top, _, _ = get_best_fitted_mixed_font_size(data["top_tag"], max_w=W - 440, max_h=100, bn_font_path=bar_font, start_size=96, min_size=48)
+    draw_mixed_text_centered(draw, W // 2, 65, data["top_tag"], bar_font, fs_top, theme["bar_text"])
+
+    draw_subtle_grid_background(draw, 0, 138, W, 905, theme["canvas"], theme["grid"])
+
+    cx = 635 if matched_logo else W // 2
+    max_w = 1150 if matched_logo else 1740
+
+    if matched_logo:
+        render_logo_card(img, draw, matched_logo, (1270, 175, 1865, 870), theme["accent"], shadow_color=theme["shadow"])
+
+    # ডার্ক ক্যানভাসে বড় ও উজ্জ্বল প্রতিষ্ঠানের নাম
+    fs_org, _, _ = get_best_fitted_mixed_font_size(data["org_short"], max_w=max_w, max_h=145, bn_font_path=bar_font, start_size=128, min_size=56)
+    draw_mixed_text_centered(draw, cx, 238, data["org_short"], bar_font, fs_org, "#FFFFFF", shadow_color=theme["shadow"], shadow_offset=4)
+
+    # উজ্জ্বল রঙিন হাইলাইট বক্সের ভেতর মূল হিরো হুক
+    bx1 = 45 if matched_logo else 90
+    bx2 = 1225 if matched_logo else 1830
+    draw.rounded_rectangle([bx1, 340, bx2, 575], radius=30, fill=theme["org_pill"], outline=theme["accent"], width=5)
+    fs1, _, _ = get_best_fitted_mixed_font_size(data["hero_text"], max_w=(bx2 - bx1) - 80, max_h=190, bn_font_path=font1, start_size=215, min_size=76)
+    draw_mixed_text_centered(draw, cx, 458, data["hero_text"], font1, fs1, theme["org_text"])
+
+    fs2, _, _ = get_best_fitted_mixed_font_size(data["sub_text"], max_w=max_w, max_h=130, bn_font_path=font2, start_size=145, min_size=56)
+    draw_mixed_text_centered(draw, cx, 660, data["sub_text"], font2, fs2, theme["sub_color"])
+
+    chips = [_chip_text(h) for h in data["highlights"][: (2 if matched_logo else 3)]]
+    chip_w = 545 if matched_logo else 550
+    gap = 32
+    total_span = len(chips) * chip_w + (len(chips) - 1) * gap
+    first_cx = cx - total_span // 2 + chip_w // 2
+    for idx, ch_txt in enumerate(chips):
+        draw_pill(
+            draw, first_cx + idx * (chip_w + gap), 812, ch_txt, bar_font,
+            max_w=chip_w, max_h=108, bg_color=theme["chip_bg"], text_color=theme["chip_text"],
+            border_color=theme["chip_border"], border_w=4, pad_x=24, pad_y=12, start_fs=60, min_fs=32,
+        )
+
+    draw.rectangle([0, 905, W, 914], fill=theme["accent"])
+    draw.rectangle([0, 914, W, H], fill=theme["bot_bg"])
+    fs_bot, _, _ = get_best_fitted_mixed_font_size(data["bot_text"], max_w=1440, max_h=120, bn_font_path=bar_font, start_size=110, min_size=50)
+    draw_mixed_text_centered(draw, 840, 996, data["bot_text"], bar_font, fs_bot, theme["bot_text"])
+
+
+def _render_stat_cards(img, draw, W, H, theme, data, fonts, matched_logo, is_private):
+    bar_font, font1, font2 = fonts
+    draw.rectangle([0, 0, W, 138], fill=theme["bar_bg"])
+    draw.rectangle([0, 138, W, 146], fill=theme["accent"])
+    draw_header_emblems(img, draw, W, 69, 102, is_private, theme["accent"])
+
+    fs_top, _, _ = get_best_fitted_mixed_font_size(data["top_tag"], max_w=W - 440, max_h=105, bn_font_path=bar_font, start_size=102, min_size=48)
+    draw_mixed_text_centered(draw, W // 2, 69, data["top_tag"], bar_font, fs_top, theme["bar_text"])
+
+    draw_subtle_grid_background(draw, 0, 146, W, 905, theme["canvas"], theme["grid"])
+
+    cx = 635 if matched_logo else W // 2
+    max_w = 1160 if matched_logo else 1740
+
+    if matched_logo:
+        render_logo_card(img, draw, matched_logo, (1270, 180, 1865, 870), theme["bar_bg"], shadow_color=theme["shadow"])
+
+    draw_pill(
+        draw, cx, 232, data["org_short"], bar_font,
+        max_w=max_w, max_h=136, bg_color=theme["org_pill"], text_color=theme["org_text"],
+        pad_x=48, pad_y=12, start_fs=104, min_fs=48, shadow_color=theme["shadow"],
+    )
+
+    fs1, _, _ = get_best_fitted_mixed_font_size(data["hero_text"], max_w=max_w, max_h=168, bn_font_path=font1, start_size=190, min_size=72)
+    draw_mixed_text_centered(draw, cx, 392, data["hero_text"], font1, fs1, theme["hero_color"], shadow_color=theme["shadow"], shadow_offset=4)
+
+    # নিচে ২/৩টি ভিজ্যুয়াল স্ট্যাট কার্ড (প্রতিটিতে হেডার স্ট্রিপ + বড় লেখা)
+    cards = data["highlights"][: (2 if matched_logo else 3)]
+    card_w = 550 if matched_logo else 560
+    gap = 36
+    total_span = len(cards) * card_w + (len(cards) - 1) * gap
+    first_x1 = cx - total_span // 2
+    cy1, cy2 = 505, 860
+
+    card_body_bg = "#1F2937" if theme["is_dark"] else "#FFFFFF"
+    card_val_col = "#FFFFFF" if theme["is_dark"] else theme["sub_color"]
+
+    for idx, h in enumerate(cards):
+        x1 = first_x1 + idx * (card_w + gap)
+        x2 = x1 + card_w
+        draw.rounded_rectangle([x1 + 5, cy1 + 7, x2 + 5, cy2 + 7], radius=24, fill=theme["shadow"])
+        draw.rounded_rectangle([x1, cy1, x2, cy2], radius=24, fill=card_body_bg, outline=theme["bar_bg"], width=4)
+        # কার্ডের উপরের রঙিন হেডার স্ট্রিপ
+        draw.rounded_rectangle([x1, cy1, x2, cy1 + 105], radius=24, fill=theme["bar_bg"])
+        draw.rectangle([x1, cy1 + 75, x2, cy1 + 105], fill=theme["bar_bg"])
+
+        fs_lbl, _, _ = get_best_fitted_mixed_font_size(h["label"], max_w=card_w - 40, max_h=75, bn_font_path=bar_font, start_size=62, min_size=34)
+        draw_mixed_text_centered(draw, (x1 + x2) // 2, cy1 + 52, h["label"], bar_font, fs_lbl, theme["bot_text"])
+
+        fs_val, _, _ = get_best_fitted_mixed_font_size(h["value"], max_w=card_w - 48, max_h=180, bn_font_path=font2, start_size=90, min_size=40)
+        draw_mixed_text_centered(draw, (x1 + x2) // 2, cy1 + 230, h["value"], font2, fs_val, card_val_col)
+
+    draw.rectangle([0, 905, W, 914], fill=theme["accent"])
+    draw.rectangle([0, 914, W, H], fill=theme["bot_bg"])
+    fs_bot, _, _ = get_best_fitted_mixed_font_size(data["bot_text"], max_w=1440, max_h=120, bn_font_path=bar_font, start_size=110, min_size=50)
+    draw_mixed_text_centered(draw, 840, 996, data["bot_text"], bar_font, fs_bot, theme["bot_text"])
+
+
+LAYOUT_RENDERERS = {
+    "poster_classic": _render_poster_classic,
+    "split_impact": _render_split_impact,
+    "headline_first": _render_headline_first,
+    "dark_bold": _render_dark_bold,
+    "stat_cards": _render_stat_cards,
+}
 
 
 def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
@@ -276,131 +691,43 @@ def generate_dynamic_thumbnail(title, output_path, thumb_meta=None):
     job_cat = strip_unwanted_chars(thumb_meta.get("job_category", ""))
     is_private = _detect_is_private(title, job_cat)
 
-    if is_private:
-        header_title = "বেসরকারি চাকরির নিয়োগ"
-    elif "স্বায়ত্তশাসিত" in job_cat:
-        header_title = "স্বায়ত্তশাসিত চাকরির নিয়োগ"
-    else:
-        header_title = "সরকারি চাকরির নিয়োগ"
+    top_tag = strip_unwanted_chars(thumb_meta.get("top_tag") or "")
+    if not top_tag:
+        top_tag = "বেসরকারি চাকরির নিয়োগ" if is_private else "সরকারি চাকরির নিয়োগ"
+    if is_private and "সরকারি" in top_tag and "বেসরকারি" not in top_tag:
+        top_tag = "বেসরকারি চাকরির নিয়োগ"
 
     org_short = strip_unwanted_chars(thumb_meta.get("org_short") or thumb_meta.get("top_text") or "")
     if not org_short:
         clean_t = title.split('|')[0].split('-')[0].strip()
         org_short = " ".join((clean_t.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_t else clean_t).split()[:4])
 
-    main_red = strip_unwanted_chars(thumb_meta.get("main_red") or thumb_meta.get("row1_text") or "জরুরি নিয়োগ বিজ্ঞপ্তি")
-    main_dark = strip_unwanted_chars(thumb_meta.get("main_dark") or thumb_meta.get("row2_text") or "যোগ্যতা ও বিস্তারিত")
+    hero_text = strip_unwanted_chars(thumb_meta.get("hero_text") or thumb_meta.get("main_red") or thumb_meta.get("row1_text") or "জরুরি নিয়োগ বিজ্ঞপ্তি")
+    sub_text = strip_unwanted_chars(thumb_meta.get("sub_text") or thumb_meta.get("main_dark") or thumb_meta.get("row2_text") or "যোগ্যতা ও বিস্তারিত")
     bot_text = strip_unwanted_chars(thumb_meta.get("bot_text") or "প্রতিটি পদের যোগ্যতা, বেতন ও ফি")
+    highlights = _extract_highlights(thumb_meta)
 
-    chips = []
-    for k in ("pill_1", "pill_2", "pill_3"):
-        val = strip_unwanted_chars(thumb_meta.get(k, ""))
-        if val and val not in chips:
-            chips.append(val)
-    if not chips:
-        chips = ["৬৪ জেলা", "সব পদের তথ্য", "বিস্তারিত বেতন ও ফি"]
+    data = {
+        "top_tag": top_tag,
+        "org_short": org_short,
+        "hero_text": hero_text,
+        "sub_text": sub_text,
+        "highlights": highlights,
+        "bot_text": bot_text,
+    }
 
-    # টাইটেল অনুযায়ী কনসিস্টেন্ট কিন্তু বৈচিত্র্যময় প্রফেশনাল থিম নির্বাচন
-    theme_idx = int(hashlib.md5(title.encode("utf-8")).hexdigest(), 16) % len(PRO_THEMES)
-    theme = PRO_THEMES[theme_idx]
+    # সম্পূর্ণ র‍্যান্ডম লেআউট ও র‍্যান্ডম কালার থিম নির্বাচন
+    layout_style = str(thumb_meta.get("layout_style", "")).strip()
+    if layout_style not in LAYOUT_RENDERERS:
+        layout_style = random.choice(VALID_LAYOUTS)
 
+    theme = random.choice(ALL_THEMES)
     bar_font = get_fixed_bar_font()
     font_line1, font_line2 = get_two_distinct_middle_fonts()
     matched_logo = find_matched_org_logo(title) or find_matched_org_logo(org_short)
 
-    # ---------------- ১. টপ হেডার বার (0 .. 170px) ----------------
-    draw.rectangle([0, 0, W, 170], fill=theme["bar_bg"])
-    draw.rectangle([0, 170, W, 180], fill=theme["accent"])
-
-    if not is_private:
-        gov_logo_p = os.path.join(PHOTOS_DIR, "Govbd.png")
-        if os.path.exists(gov_logo_p):
-            try:
-                with Image.open(gov_logo_p) as gl:
-                    gl_rgba = gl.convert("RGBA").resize((124, 124), Image.LANCZOS)
-                    img.paste(gl_rgba, (44, 23), gl_rgba)
-                    img.paste(gl_rgba, (W - 168, 23), gl_rgba)
-            except Exception:
-                pass
-    else:
-        # বেসরকারি চাকরিতে ডেকোরেটিভ গোল্ডেন ডায়মন্ড ব্যাজ
-        for cx in (106, W - 106):
-            cy = 85
-            r = 26
-            draw.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], fill=theme["accent"])
-
-    fs_top, _, _ = get_best_fitted_mixed_font_size(header_title, max_w=W - 460, max_h=125, bn_font_path=bar_font, start_size=120, min_size=56)
-    draw_mixed_text_centered(draw, W // 2, 85, header_title, bar_font, fs_top, "#FFFFFF")
-
-    # ---------------- ২. মাঝের প্রফেশনাল ক্যানভাস (180 .. 905px) ----------------
-    draw_subtle_grid_background(draw, W, H, 180, 905, theme["canvas"], theme["grid"])
-    # বামে ও ডানে হালকা ব্র্যান্ড অ্যাকসেন্ট স্ট্রিপ
-    draw.rectangle([0, 180, 18, 905], fill=theme["bar_bg"])
-    draw.rectangle([W - 18, 180, W, 905], fill=theme["bar_bg"])
-
-    if matched_logo and os.path.exists(matched_logo):
-        # স্পেশাল অর্গানাইজেশন লোগো মোড (ডানে প্রিমিয়াম কার্ড)
-        left_cx = 635
-        render_logo_card(img, draw, matched_logo, (1270, 215, 1865, 870), theme["bar_bg"])
-
-        draw_pill(
-            draw, left_cx, 265, org_short, bar_font,
-            max_w=1140, max_h=95, bg_color=theme["org_pill"], text_color=theme["org_text"],
-            start_fs=66, min_fs=36, shadow=True,
-        )
-
-        fs1, _, _ = get_best_fitted_mixed_font_size(main_red, max_w=1160, max_h=190, bn_font_path=font_line1, start_size=210, min_size=75)
-        draw_mixed_text_centered(draw, left_cx, 440, main_red, font_line1, fs1, theme["red"], shadow_color="#E2E8F0", shadow_offset=5)
-
-        fs2, _, _ = get_best_fitted_mixed_font_size(main_dark, max_w=1160, max_h=150, bn_font_path=font_line2, start_size=155, min_size=62)
-        draw_mixed_text_centered(draw, left_cx, 625, main_dark, font_line2, fs2, theme["dark"])
-
-        # নিচে ২টি ইনফো চিপ
-        show_chips = chips[:2]
-        chip_w = 530
-        gap = 36
-        start_cx = left_cx - ((len(show_chips) - 1) * (chip_w + gap)) // 2
-        for idx, ch_txt in enumerate(show_chips):
-            draw_pill(
-                draw, start_cx + idx * (chip_w + gap), 805, ch_txt, bar_font,
-                max_w=chip_w, max_h=88, bg_color=theme["chip_bg"], text_color=theme["chip_text"],
-                border_color=theme["chip_border"], border_w=4, pad_x=28, pad_y=14, start_fs=48, min_fs=28,
-            )
-    else:
-        # স্ট্যান্ডার্ড ফুল-ওয়াইড্থ প্রো ডিজাইন
-        draw_pill(
-            draw, W // 2, 265, org_short, bar_font,
-            max_w=1460, max_h=102, bg_color=theme["org_pill"], text_color=theme["org_text"],
-            start_fs=74, min_fs=40, shadow=True,
-        )
-
-        fs1, _, _ = get_best_fitted_mixed_font_size(main_red, max_w=1720, max_h=210, bn_font_path=font_line1, start_size=240, min_size=85)
-        draw_mixed_text_centered(draw, W // 2, 445, main_red, font_line1, fs1, theme["red"], shadow_color="#E2E8F0", shadow_offset=5)
-
-        fs2, _, _ = get_best_fitted_mixed_font_size(main_dark, max_w=1700, max_h=160, bn_font_path=font_line2, start_size=170, min_size=65)
-        draw_mixed_text_centered(draw, W // 2, 645, main_dark, font_line2, fs2, theme["dark"])
-
-        # নিচে ৩টি ইনফো চিপ পিল
-        show_chips = chips[:3]
-        chip_w = 520
-        gap = 38
-        total_span = len(show_chips) * chip_w + (len(show_chips) - 1) * gap
-        first_cx = (W - total_span) // 2 + chip_w // 2
-        for idx, ch_txt in enumerate(show_chips):
-            draw_pill(
-                draw, first_cx + idx * (chip_w + gap), 815, ch_txt, bar_font,
-                max_w=chip_w, max_h=90, bg_color=theme["chip_bg"], text_color=theme["chip_text"],
-                border_color=theme["chip_border"], border_w=4, pad_x=28, pad_y=14, start_fs=50, min_fs=28,
-            )
-
-    # ---------------- ৩. বটম বার (905 .. 1080px — YouTube টাইমস্ট্যাম্প সেফ) ----------------
-    draw.rectangle([0, 905, W, 915], fill=theme["accent"])
-    draw.rectangle([0, 915, W, H], fill=theme["bar_bg"])
-
-    # ডানদিকের ৩২০ পিক্সেল (YouTube-এর 3:35 টাইমস্ট্যাম্প জোন) নিরাপদ রেখে বামে/মাঝে লেখা বসানো
-    safe_bot_cx = 840
-    fs_bot, _, _ = get_best_fitted_mixed_font_size(bot_text, max_w=1420, max_h=120, bn_font_path=bar_font, start_size=110, min_size=50)
-    draw_mixed_text_centered(draw, safe_bot_cx, 998, bot_text, bar_font, fs_bot, theme["bot_text"])
+    renderer = LAYOUT_RENDERERS[layout_style]
+    renderer(img, draw, W, H, theme, data, (bar_font, font_line1, font_line2), matched_logo, is_private)
 
     img.save(output_path, "JPEG", quality=100, subsampling=0)
-    print(f"✅ Pro Thumbnail Ready: [{header_title}] '{org_short}' -> '{main_red} | {main_dark}'")
+    print(f"✅ Pro Random Thumbnail [{layout_style}]: '{org_short}' | '{hero_text}' | '{sub_text}'")
