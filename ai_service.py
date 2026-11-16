@@ -3,6 +3,7 @@ import base64
 import io
 import json
 import os
+import random
 import re
 import requests
 from datetime import datetime
@@ -13,30 +14,25 @@ TRACKER_FILE = "api_key_tracker.json"
 WORKSPACE_TRACKER = os.path.join(WORKSPACE_DIR, "api_key_tracker.json")
 
 # =========================================================================
-# 🌟 মডেল কনফিগারেশন (শুধুমাত্র সচল ফ্রি/বড় মডেল — বড় থেকে ছোট ক্রমে)
+# 🌟 মডেল কনফিগারেশন (নভেম্বর ২০২৬ অনুযায়ী কেবল সচল ও বড় মডেল)
 # =========================================================================
 
-# ১ম প্রায়োরিটি: OpenRouter (কেবল ফ্রি ও বড় মডেল: 550B -> 480B -> 120B -> 80B -> 70B -> 31B -> 26B)
 OPENROUTER_VISION_MODELS = [
-    "nvidia/nemotron-3.5-super-vl:free",      # 120B MoE Multimodal
-    "google/gemma-4-31b-it:free",             # 31B Dense Multimodal
+    "google/gemma-4-31b-it:free",             # 31B Dense Multimodal (সেরা বাংলা OCR)
     "google/gemma-4-26b-a4b-it:free",         # 26B MoE Multimodal
+    "nvidia/nemotron-3.5-super-vl:free",      # 120B MoE Multimodal
 ]
 
 OPENROUTER_TEXT_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free", # 550B MoE
-    "qwen/qwen3-coder:free",                  # 480B MoE
     "nvidia/nemotron-3.5-super-vl:free",      # 120B MoE
-    "nvidia/nemotron-3-super-120b-a12b:free", # 120B MoE
-    "openai/gpt-oss-120b:free",               # 120B MoE
-    "qwen/qwen3-next-80b-a3b-instruct:free",  # 80B MoE
-    "meta-llama/llama-3.3-70b-instruct:free", # 70B Dense
     "google/gemma-4-31b-it:free",             # 31B Dense
     "google/gemma-4-26b-a4b-it:free",         # 26B MoE
     "openrouter/free",                        # Free Auto Router
 ]
 
-# ২য় প্রায়োরিটি: Ollama Cloud (https://ollama.com/api/chat — 1.04T -> 753B -> 675B -> 552B -> 397B -> 120B -> 31B)
+OLLAMA_CHAT_URL = "https://ollama.com/api/chat"
+
 OLLAMA_VISION_MODELS = [
     "kimi-k2.6",                              # 1.04T Multimodal
     "mistral-large-3:675b",                   # 675B Multimodal
@@ -59,22 +55,29 @@ OLLAMA_TEXT_MODELS = [
     "gemma4:31b",                             # 31B
 ]
 
-# ৩য় প্রায়োরিটি: Groq (120B -> 70B, ছোট 8B মডেল বাদ)
 GROQ_MODELS = [
     "openai/gpt-oss-120b",                    # 120B
     "llama-3.3-70b-versatile",                # 70B
 ]
 
-# ৪র্থ প্রায়োরিটি (ঐচ্ছিক, যদি Cerebras Key দেওয়া থাকে)
 CEREBRAS_MODELS = [
-    "llama-3.3-70b",                          # 70B
+    "zai-glm-4.7",                            # 355B
+    "qwen-3-235b-a22b-instruct-2507",         # 235B
+    "gpt-oss-120b",                           # 120B
 ]
 
-# ৫ম ও শেষ প্রায়োরিটি: Google Gemini
 GEMINI_TEXT_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-3.5-flash-lite",
+]
+
+LAYOUT_STYLES = [
+    "poster_classic",
+    "split_impact",
+    "headline_first",
+    "dark_bold",
+    "stat_cards",
 ]
 
 
@@ -198,22 +201,13 @@ def convert_all_numbers_in_script(text):
         return ""
     text = re.sub(r'<think>.*?</think>', '', str(text), flags=re.DOTALL)
     text = re.sub(r'https?://\S+|wa\.me/\S+', '', text)
-
-    # কমা-যুক্ত সংখ্যা স্বাভাবিক করা (যেমন ৭০,০০০ -> ৭০০০০)
     text = re.sub(r'([0-9০-৯]),([0-9০-৯])', r'\1\2', text)
-
-    # ভুলবশত কোনো ফোন নাম্বার এলে তা সংখ্যা ধরে না পড়ে হোয়াটসঅ্যাপ নম্বর বলবে
     text = re.sub(r'(\+?(?:88|৮৮)?[\s\-]*0?1[0-9০-৯][\s\-0-9০-৯]{7,11})', ' আমাদের হোয়াটসঅ্যাপ নম্বর ', text)
-
-    # টাকার চিহ্ন ও শতাংশ পরিষ্কার করা
     text = re.sub(r'([0-9০-৯]+)\s*(?:/=|/-|৳)', r'\1 টাকা', text)
     text = re.sub(r'৳\s*([0-9০-৯]+)', r'\1 টাকা', text)
     text = re.sub(r'([0-9০-৯]+(?:\.[0-9০-৯]+)?)\s*%', r'\1 শতাংশ', text)
-
-    # রেঞ্জ (যেমন ১৮-৩০ বা ১৮–৩২ -> ১৮ থেকে ৩০)
     text = re.sub(r'([0-9০-৯]+)\s*[-–—]\s*([0-9০-৯]+)', r'\1 থেকে \2', text)
 
-    # দশমিক সংখ্যা
     def dec_repl(m):
         try:
             left = number_to_bangla_words(en_bn_to_int(m.group(1)))
@@ -224,7 +218,6 @@ def convert_all_numbers_in_script(text):
 
     text = re.sub(r'([0-9০-৯]+)\.([0-9০-৯]+)', dec_repl, text)
 
-    # সাধারণ পূর্ণসংখ্যা (৮ ডিজিটের বড় কোড বাদে)
     def num_repl(m):
         num_str = m.group(0)
         if len(num_str) > 8:
@@ -267,7 +260,8 @@ def clean_title_for_display(title):
 
 
 def strip_unwanted_chars(text):
-    cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆|৳', '', str(text))
+    s = re.sub(r'\s*৳', ' টাকা', str(text))
+    cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆', '', s)
     return re.sub(r'\s+', ' ', cleaned).strip()
 
 
@@ -293,6 +287,7 @@ def _clean_text_response(raw_text):
 
 
 def _encode_images_base64(img_paths, max_images=3):
+    """২০৪৮ পিক্সেল শার্প কোয়ালিটিতে সার্কুলারের ছবি এনকোড করে যাতে ছোট বাংলা সংখ্যাও স্পষ্ট পড়া যায়"""
     b64_list = []
     if not img_paths:
         return b64_list
@@ -302,11 +297,11 @@ def _encode_images_base64(img_paths, max_images=3):
         try:
             with Image.open(p) as im:
                 rgb = im.convert("RGB")
-                if rgb.width > 1600:
-                    new_h = int((1600 / rgb.width) * rgb.height)
-                    rgb = rgb.resize((1600, new_h), Image.LANCZOS)
+                if rgb.width > 2048:
+                    new_h = int((2048 / rgb.width) * rgb.height)
+                    rgb = rgb.resize((2048, new_h), Image.LANCZOS)
                 buf = io.BytesIO()
-                rgb.save(buf, format="JPEG", quality=85)
+                rgb.save(buf, format="JPEG", quality=92)
                 b64_list.append(base64.b64encode(buf.getvalue()).decode("ascii"))
         except Exception:
             pass
@@ -315,10 +310,9 @@ def _encode_images_base64(img_paths, max_images=3):
 
 # =========================================================================
 # 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে
-# ক্রম: ১. OpenRouter -> ২. Ollama Cloud -> ৩. Groq -> ৪. Cerebras -> ৫. Gemini (সবার শেষে)
 # =========================================================================
 
-def _call_openrouter(prompt, json_mode=True, b64_images=None):
+def _call_openrouter(prompt, json_mode=True, b64_images=None, text_fallback=True):
     raw_openrouter = os.environ.get("OPENROUTER_API_KEYS", os.environ.get("OPENROUTER_API_KEY", "")).strip()
     or_order = get_keys_in_cyclic_order("openrouter", raw_openrouter)
     total_or = len(parse_multiline_keys(raw_openrouter))
@@ -333,7 +327,6 @@ def _call_openrouter(prompt, json_mode=True, b64_images=None):
             "X-Title": "YouTube Automation",
         }
 
-        # ছবি থাকলে আগে OpenRouter-এর বড় Vision ফ্রি মডেলগুলো চেষ্টা করবে
         if b64_images:
             vision_content = [{"type": "text", "text": prompt}]
             for b64 in b64_images:
@@ -343,11 +336,11 @@ def _call_openrouter(prompt, json_mode=True, b64_images=None):
                 payload = {
                     "model": v_model,
                     "messages": [{"role": "user", "content": vision_content}],
-                    "temperature": 0.35,
+                    "temperature": 0.25,
                     "max_tokens": 4500,
                 }
                 try:
-                    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60)
+                    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=65)
                     if resp.status_code == 200:
                         content_txt = resp.json()['choices'][0]['message']['content']
                         save_tracker_index("openrouter", actual_idx, total_or)
@@ -360,32 +353,32 @@ def _call_openrouter(prompt, json_mode=True, b64_images=None):
                 except Exception:
                     pass
 
-        # টেক্সট মডেলগুলো (বড় থেকে ছোট ক্রমে: 550B -> 480B -> 120B -> 80B -> 70B -> 31B -> 26B)
-        for model_name in OPENROUTER_TEXT_MODELS:
-            payload = {
-                "model": model_name,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.4,
-                "max_tokens": 4500,
-            }
-            try:
-                resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=60)
-                if resp.status_code == 200:
-                    content_txt = resp.json()['choices'][0]['message']['content']
-                    save_tracker_index("openrouter", actual_idx, total_or)
-                    res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
-                    if res:
-                        print(f"  ✨ [OpenRouter] Success with Key #{actual_idx+1} ({model_name})")
-                        return res
-                elif resp.status_code in [401, 402]:
-                    break
-            except Exception:
-                pass
+        if text_fallback:
+            for model_name in OPENROUTER_TEXT_MODELS:
+                payload = {
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.4,
+                    "max_tokens": 4500,
+                }
+                try:
+                    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=65)
+                    if resp.status_code == 200:
+                        content_txt = resp.json()['choices'][0]['message']['content']
+                        save_tracker_index("openrouter", actual_idx, total_or)
+                        res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
+                        if res:
+                            print(f"  ✨ [OpenRouter] Success with Key #{actual_idx+1} ({model_name})")
+                            return res
+                    elif resp.status_code in [401, 402]:
+                        break
+                except Exception:
+                    pass
         save_tracker_index("openrouter", actual_idx + 1, total_or)
     return None
 
 
-def _call_ollama_cloud(prompt, json_mode=True, b64_images=None):
+def _call_ollama_cloud(prompt, json_mode=True, b64_images=None, text_fallback=True):
     raw_ollama = os.environ.get("OLLAMA_API_KEYS", os.environ.get("Ollama_API_Key", os.environ.get("OLLAMA_API_KEY", ""))).strip()
     ollama_order = get_keys_in_cyclic_order("ollama", raw_ollama)
     total_ollama = len(parse_multiline_keys(raw_ollama))
@@ -396,17 +389,16 @@ def _call_ollama_cloud(prompt, json_mode=True, b64_images=None):
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
         consecutive_402 = 0
 
-        # ছবি থাকলে আগে Ollama-র বড় Vision মডেলগুলো (1.04T -> 675B -> 552B -> 31B)
         if b64_images:
             for v_model in OLLAMA_VISION_MODELS:
                 payload = {
                     "model": v_model,
                     "messages": [{"role": "user", "content": prompt, "images": b64_images}],
                     "stream": False,
-                    "options": {"temperature": 0.35, "num_predict": 4500},
+                    "options": {"temperature": 0.25, "num_predict": 4500},
                 }
                 try:
-                    resp = requests.post("https://ollama.com/api/chat", headers=headers, json=payload, timeout=65)
+                    resp = requests.post(OLLAMA_CHAT_URL, headers=headers, json=payload, timeout=65)
                     if resp.status_code == 200:
                         content_txt = resp.json().get("message", {}).get("content", "").strip()
                         save_tracker_index("ollama", actual_idx, total_ollama)
@@ -421,29 +413,29 @@ def _call_ollama_cloud(prompt, json_mode=True, b64_images=None):
                 except Exception:
                     pass
 
-        # টেক্সট মডেলগুলো (বড় থেকে ছোট ক্রমে: 1.04T -> 753B -> 675B -> 552B -> 397B -> 120B -> 31B)
-        for model_name in OLLAMA_TEXT_MODELS:
-            payload = {
-                "model": model_name,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "options": {"temperature": 0.4, "num_predict": 4500},
-            }
-            try:
-                resp = requests.post("https://ollama.com/api/chat", headers=headers, json=payload, timeout=65)
-                if resp.status_code == 200:
-                    content_txt = resp.json().get("message", {}).get("content", "").strip()
-                    save_tracker_index("ollama", actual_idx, total_ollama)
-                    res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
-                    if res:
-                        print(f"  ✨ [Ollama Cloud] Success with Key #{actual_idx+1} ({model_name})")
-                        return res
-                elif resp.status_code in [401, 402]:
-                    consecutive_402 += 1
-                    if consecutive_402 >= 2:
-                        break
-            except Exception:
-                pass
+        if text_fallback:
+            for model_name in OLLAMA_TEXT_MODELS:
+                payload = {
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                    "options": {"temperature": 0.4, "num_predict": 4500},
+                }
+                try:
+                    resp = requests.post(OLLAMA_CHAT_URL, headers=headers, json=payload, timeout=65)
+                    if resp.status_code == 200:
+                        content_txt = resp.json().get("message", {}).get("content", "").strip()
+                        save_tracker_index("ollama", actual_idx, total_ollama)
+                        res = parse_json_safely(content_txt) if json_mode else _clean_text_response(content_txt)
+                        if res:
+                            print(f"  ✨ [Ollama Cloud] Success with Key #{actual_idx+1} ({model_name})")
+                            return res
+                    elif resp.status_code in [401, 402]:
+                        consecutive_402 += 1
+                        if consecutive_402 >= 2:
+                            break
+                except Exception:
+                    pass
         save_tracker_index("ollama", actual_idx + 1, total_ollama)
     return None
 
@@ -532,10 +524,10 @@ def _call_gemini(prompt, json_mode=True, b64_images=None):
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={g_key}"
             body = {
                 "contents": [{"parts": parts}],
-                "generationConfig": {"temperature": 0.35, "maxOutputTokens": 4500},
+                "generationConfig": {"temperature": 0.25 if b64_images else 0.4, "maxOutputTokens": 4500},
             }
             try:
-                resp = requests.post(url, headers={"Content-Type": "application/json"}, json=body, timeout=55)
+                resp = requests.post(url, headers={"Content-Type": "application/json"}, json=body, timeout=60)
                 if resp.status_code == 200:
                     text_res = resp.json()['candidates'][0]['content']['parts'][0]['text']
                     save_tracker_index("gemini_text", actual_idx, total_gemini)
@@ -553,36 +545,34 @@ def _call_gemini(prompt, json_mode=True, b64_images=None):
 def execute_ai_query(prompt, json_mode=True, img_paths=None):
     b64_images = _encode_images_base64(img_paths, max_images=3) if img_paths else None
 
-    # ১. প্রথম প্রায়োরিটি: OpenRouter (ফ্রি ও বড় মডেল)
-    res = _call_openrouter(prompt, json_mode=json_mode, b64_images=b64_images)
-    if res:
-        return res
+    # ছবি থাকলে আগে সব প্রোভাইডারের Vision (OpenRouter Vision -> Ollama Vision -> Gemini Vision) দিয়ে আসল ছবি পড়বে
+    if b64_images:
+        for fn in (
+            lambda: _call_openrouter(prompt, json_mode=json_mode, b64_images=b64_images, text_fallback=False),
+            lambda: _call_ollama_cloud(prompt, json_mode=json_mode, b64_images=b64_images, text_fallback=False),
+            lambda: _call_gemini(prompt, json_mode=json_mode, b64_images=b64_images),
+        ):
+            res = fn()
+            if res:
+                return res
 
-    # ২. দ্বিতীয় প্রায়োরিটি: Ollama Cloud API
-    res = _call_ollama_cloud(prompt, json_mode=json_mode, b64_images=b64_images)
-    if res:
-        return res
-
-    # ৩. তৃতীয় প্রায়োরিটি: Groq
-    res = _call_groq(prompt, json_mode=json_mode)
-    if res:
-        return res
-
-    # ৪. চতুর্থ (ঐচ্ছিক): Cerebras
-    res = _call_cerebras(prompt, json_mode=json_mode)
-    if res:
-        return res
-
-    # ৫. সবার শেষে: Google Gemini
-    res = _call_gemini(prompt, json_mode=json_mode, b64_images=b64_images)
-    if res:
-        return res
+    # টেক্সট প্রায়োরিটি: ১. OpenRouter -> ২. Ollama Cloud -> ৩. Groq -> ৪. Cerebras -> ৫. Gemini
+    for fn in (
+        lambda: _call_openrouter(prompt, json_mode=json_mode, b64_images=None, text_fallback=True),
+        lambda: _call_ollama_cloud(prompt, json_mode=json_mode, b64_images=None, text_fallback=True),
+        lambda: _call_groq(prompt, json_mode=json_mode),
+        lambda: _call_cerebras(prompt, json_mode=json_mode),
+        lambda: _call_gemini(prompt, json_mode=json_mode, b64_images=None),
+    ):
+        res = fn()
+        if res:
+            return res
 
     return None
 
 
 # =========================================================================
-# 🌟 ফেইল-সেফ স্ক্রিপ্ট বিল্ডার (স্টেপ-১ এর তথ্য অনুযায়ী প্রতি পদের বিবরণ সহ)
+# 🌟 ফেইল-সেফ স্ক্রিপ্ট বিল্ডার
 # =========================================================================
 
 def build_script_from_verified_data(verified_data, title, article_text):
@@ -634,53 +624,48 @@ def build_script_from_verified_data(verified_data, title, article_text):
 
 
 # =========================================================================
-# 🌟 ৪টি পৃথক মডুলার কল (ছবি + আর্টিকেল পড়ে নিখুঁত তথ্য সংগ্রহ)
+# 🌟 ৪টি পৃথক মডুলার কল (আসল সার্কুলার ছবিই সর্বোচ্চ সত্য!)
 # =========================================================================
 
 def extract_verified_job_data(title, article_text, img_paths=None):
-    print("\n🔍 [STEP 1] Extracting accurate category, ALL posts, qualifications & fees (Text + Images)...")
-    prompt = f"""Analyze BOTH the attached job circular image(s) (if present) AND the article text below.
-Extract EVERY SINGLE separate post and accurate facts strictly in JSON.
-NEVER invent or hallucinate post names that are not in the images/text!
+    print("\n🔍 [STEP 1] Extracting accurate category, ALL posts, qualifications & fees (Image-First Truth)...")
+    prompt = f"""Analyze BOTH the attached official job circular image(s) (if present) AND the cleaned article text below.
+Extract EVERY SINGLE separate post and 100% factual data strictly in JSON.
+
+CRITICAL GROUND TRUTH RULES (MUST OBEY):
+1. THE ATTACHED OFFICIAL CIRCULAR IMAGE IS THE SUPREME SOURCE OF TRUTH!
+   Warning: Many Bangladeshi job blogs rewrite salary scales using an unofficial/fictional "2026 Pay Scale" (e.g., doubling 12,500->25,000, 22,000->44,000, 8,250->20,000) or have typos in post counts, deadlines, and fees!
+   Whenever the blog text conflicts with the official circular image(s), ALWAYS copy the EXACT numbers printed on the official circular image(s) (pay scale, grade, vacancy count per post, application fee, deadline)! Use the blog text only to clarify blurry image text or fill in qualifications/fee details if missing in the image.
+2. NEVER invent or hallucinate post names (like calling "বাবুর্চি" as "অসামরিক পদ"). Use the EXACT post name from the circular table!
+3. Do NOT skip any post! If there are 6 posts or 13 posts, list ALL of them individually in "posts".
 ---
 TITLE: {title}
-ARTICLE TEXT:
-{article_text[:8000]}
+CLEANED ARTICLE TEXT (Tables formatted with | ):
+{article_text[:11500]}
 ---
 
-IMPORTANT RULES:
-1. "job_category": Accurately classify from content/organization:
-   - "সরকারি চাকরি" (Ministry, Govt Directorate, Police, Army, NACTAR, BANBEIS, Parliament, Divisional Commissioner, etc.)
-   - "স্বায়ত্তশাসিত প্রতিষ্ঠান" (Public University, Autonomous Board, Govt Corp)
-   - "বেসরকারি চাকরি" (Private Limited Company, Pharma like Radiant, Group of Companies, NGO/Microfinance like Palli Bikash Kendra, TMSS, ASA, etc.)
-   - "ব্যাংক চাকরি" (Bank/Financial institution)
-2. "org_short": Clean complete short Bengali name (2 to 4 words MAX, NEVER cut mid-word. E.g. "পল্লী বিকাশ কেন্দ্র", "নেকটার (NACTAR)", "ব্যানবেইস (BANBEIS)", "রেডিয়েন্ট ফার্মা").
-3. "posts": List EVERY SINGLE separate post in the circular table/text (1st post to last post, do NOT skip or merge!). For EACH post extract:
-   - "post_name": Exact post name (e.g. "জোনাল ম্যানেজার (ক্ষুদ্রঋণ)", "এরিয়া ম্যানেজার", etc.) and grade if any.
-   - "vacancy_count": Exact vacancy count for that post (e.g. "০৫ জন", "১০ জন", "০১টি").
-   - "educational_qualification": Degree/pass + required experience/computer/driving license for THAT specific post.
-   - "salary_scale": Exact salary/pay grade for THAT specific post (e.g. "৭০,০০০ থেকে ৭৫,৫০০ টাকা").
-   - "application_fee": Exact application fee in Taka for THAT specific post (read the bottom/fee section of the image/text carefully! E.g. "২২৩ টাকা", "১১২ টাকা", "কোনো আবেদন ফি নেই", or "উল্লেখ নেই" if truly absent).
-   - "key_duties": Brief 1-sentence realistic description of this post's work & responsibilities.
+OTHER RULES:
+- "job_category": Accurately classify as "সরকারি চাকরি", "স্বায়ত্তশাসিত প্রতিষ্ঠান", "বেসরকারি চাকরি", or "ব্যাংক চাকরি".
+- "org_short": Complete, well-known Bengali organization/ministry name (3 to 5 words MAX, NEVER cut awkwardly! E.g. "ট্রেডিং কর্পোরেশন অব বাংলাদেশ", "মিনিস্ট্রি অব ডিফেন্স (MODC)", "কর অঞ্চল-১৪ ঢাকা", "ইসলামী বিশ্ববিদ্যালয়", "বান্দরবান পার্বত্য জেলা পরিষদ").
 
 Return strictly valid JSON:
 {{
   "organization": "Full Bengali organization/company/ministry name",
-  "org_short": "2-4 word clean name",
+  "org_short": "Complete 3-5 word clean name",
   "job_category": "সরকারি চাকরি" | "স্বায়ত্তশাসিত প্রতিষ্ঠান" | "বেসরকারি চাকরি" | "ব্যাংক চাকরি",
-  "total_vacancies": "e.g. ৪০ জন or ২৭৩টি or ১৪টি",
-  "eligibility_summary": "Short 2-4 word range e.g. স্নাতক/স্নাতকোত্তর পাশ",
-  "application_fee_summary": "e.g. আবেদন ফি নেই or ১১২ থেকে ২২৩ টাকা or উল্লেখ নেই",
-  "deadline": "Last date in Bengali if found, else empty string",
-  "district_eligibility": "e.g. ৬৪ জেলা or ঢাকা, গাজীপুর ও পার্শ্ববর্তী জেলা",
+  "total_vacancies": "e.g. ০৩টি or ৪৯ জন or ১৮টি",
+  "eligibility_summary": "Short 2-4 word range e.g. ৮ম থেকে স্নাতক পাশ",
+  "application_fee_summary": "e.g. ৫৬ থেকে ১১২ টাকা or ১০০ ও ২০০ টাকা or আবেদন ফি নেই",
+  "deadline": "Exact last date from image/text in Bengali",
+  "district_eligibility": "e.g. ৬৪ জেলা or শুধু ঢাকা জেলা or শুধু বান্দরবান জেলা",
   "posts": [
     {{
-      "post_name": "...",
-      "vacancy_count": "...",
-      "educational_qualification": "...",
-      "salary_scale": "...",
-      "application_fee": "...",
-      "key_duties": "..."
+      "post_name": "Exact post name (and grade if given)",
+      "vacancy_count": "Exact vacancy count for this post",
+      "educational_qualification": "Exact degree/GPA/experience/typing requirement for THIS post",
+      "salary_scale": "Exact salary scale printed on the official circular image/text",
+      "application_fee": "Exact fee for THIS post (e.g. ২০০ টাকা, ১১২ টাকা, ৫৬ টাকা, ৫০০ টাকা, বিনামূল্যে)",
+      "key_duties": "Brief 1-sentence realistic description of this post's work & responsibilities"
     }}
   ]
 }}"""
@@ -692,34 +677,34 @@ def generate_script_from_verified_data(verified_data, title, article_text):
     data_str = json.dumps(verified_data, ensure_ascii=False, indent=2)
 
     prompt = f"""You are an expert Bangladeshi job circular YouTube presenter.
-Write a natural, crisp, informative spoken Bengali voiceover script using ONLY the verified data below.
+Write a natural, crisp, 100% factual spoken Bengali voiceover script using ONLY the verified data below.
 
 Title: "{title}"
 Verified Structured Job Data (Every single post):
 {data_str}
 
-Article Reference Context:
-{article_text[:5000]}
+Reference Context:
+{article_text[:7000]}
 
-STRICT SCRIPT STRUCTURE (FOLLOW THIS EXACT FLOW):
-1. [সংক্ষিপ্ত ইন্ট্রো — সর্বোচ্চ ২০-২৫ সেকেন্ড]: Start with "আসসালামু আলাইকুম প্রিয় চাকরিপ্রার্থী ভাই ও বোনেরা।". Quickly tell which organization/company/ministry published the circular, total vacancies, and deadline (if any). Do NOT drag out a generic 1-minute filler intro!
-2. [প্রতিষ্ঠান/মন্ত্রণালয় পরিচিতি — ২-৩ বাক্য]: Briefly discuss the organization, company, or ministry (what it does, its work environment, and career value).
+STRICT SCRIPT STRUCTURE:
+1. [সংক্ষিপ্ত ইন্ট্রো — ২০-২৫ সেকেন্ড]: Start with "আসসালামু আলাইকুম প্রিয় চাকরিপ্রার্থী ভাই ও বোনেরা।". Quickly state which organization/company/ministry published the circular, total vacancies, and deadline.
+2. [প্রতিষ্ঠান/মন্ত্রণালয় পরিচিতি — ২-৩ বাক্য]: Briefly discuss what the organization/ministry does and its career value.
 3. [প্রতিটি আলাদা আলাদা পদের বিস্তারিত আলোচনা — মূল অংশ]:
    Go through EVERY SINGLE post in "posts" ONE BY ONE in exact order (from post #1 to the last post, NEVER skip any post!).
-   For EACH individual post, clearly speak in smooth conversational Bengali:
-   - পদের নাম ও গ্রেড/বেতন স্কেল,
-   - ওই পদে কতজন লোক নেওয়া হবে,
+   For EACH individual post, smoothly speak in conversational Bengali:
+   - পদের আসল নাম ও গ্রেড/বেতন স্কেল (যা verified_data-তে আছে ঠিক সেটিই বলুন),
+   - এই পদে কতজন লোক নেওয়া হবে,
    - পদটির দায়িত্ব ও কাজ কী,
-   - কী কী শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা লাগবে,
-   - এবং ওই পদে আবেদন করতে কত টাকা আবেদন ফি লাগবে (বিনামূল্যে বা ফি না লাগলে তা স্পষ্ট বলবেন; ভিন্ন ভিন্ন ফি হলে প্রতিটি পদের ফি আলাদা বলবেন; আর বিজ্ঞপ্তিতে উল্লেখ না থাকলে অনুমান না করে জানাবেন যে বিজ্ঞপ্তিতে আলাদা ফি উল্লেখ করা হয়নি)।
-   *Formatting rule*: Write continuous natural spoken paragraphs (NO bullet points, NO headings, NO markdown symbols). Transition naturally like: "প্রথমেই এক নম্বর যে পদটি রয়েছে...", "এরপর দুই নম্বর পদটি হলো...".
-4. [সাধারণ শর্ত ও সুযোগ-সুবিধা — সংক্ষিপ্ত]: Mention age limit, eligible districts, and key job benefits/allowances (PF, bonus, TA/DA, etc.).
-5. [শেষ কথা — ONLY WhatsApp Message CTA]: End with ONLY this style:
+   - কী কী শিক্ষাগত যোগ্যতা, জিপিএ ও অভিজ্ঞতা লাগবে (যা ডাটায় আছে তা স্পষ্টভাবে বলবেন, অযথা "বিজ্ঞপ্তিতে দেখুন" বলে এড়িয়ে যাবেন না),
+   - এবং এই পদে আবেদন করতে কত টাকা আবেদন ফি লাগবে।
+   *Formatting rule*: Write continuous natural spoken paragraphs (NO bullet points, NO headings, NO markdown symbols).
+4. [সাধারণ শর্ত ও সুযোগ-সুবিধা]: Mention age limit, eligible districts, and job benefits/allowances.
+5. [শেষ কথা — ONLY WhatsApp Message CTA]: End with:
    "এই পদগুলোতে আবেদন করতে আগ্রহীরা আবেদন করার জন্য ভিডিওর স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা আমাদের হোয়াটসঅ্যাপ নম্বরে সরাসরি মেসেজ করুন। আমাদের অভিজ্ঞ টিম আপনার হয়ে সঠিক নিয়মে আবেদন সম্পন্ন করে দেবে। নিয়মিত চাকরির খবর পেতে চ্যানেলটি সাবস্ক্রাইব করে সাথেই থাকুন, ধন্যবাদ।"
 
-STRICT NEGATIVE CONSTRAINTS (MUST OBEY):
-- DO NOT mention ANY application procedure (NO postal address, NO courier/email steps, NO website URLs, NO form-filling steps, NO photo/attestation instructions).
-- DO NOT write or speak ANY phone number digits anywhere in the script (neither digits nor Bengali words like জিরো ওয়ান ফাইভ!).
+STRICT NEGATIVE CONSTRAINTS:
+- DO NOT mention ANY application procedure (NO postal address, NO courier/email steps, NO website URLs, NO form-filling instructions, NO photo/signature pixel sizes).
+- DO NOT write or speak ANY phone number digits anywhere in the script.
 - Output ONLY pure spoken Bengali plain text (no JSON, no markdown, no brackets)."""
 
     res_text = execute_ai_query(prompt, json_mode=False)
@@ -749,48 +734,120 @@ Return strictly valid JSON:
     return execute_ai_query(prompt, json_mode=True)
 
 
+def _normalize_thumb_meta(raw_res, verified_data, clean_title, fallback_layout):
+    if not raw_res or not isinstance(raw_res, dict):
+        raw_res = {}
+
+    layout = str(raw_res.get("layout_style", "")).strip()
+    if layout not in LAYOUT_STYLES:
+        layout = fallback_layout
+
+    org_short = strip_unwanted_chars(
+        raw_res.get("org_short") or verified_data.get("org_short") or verified_data.get("organization") or clean_title[:35]
+    )
+    job_cat = strip_unwanted_chars(raw_res.get("job_category") or verified_data.get("job_category") or "সরকারি চাকরি")
+    top_tag = strip_unwanted_chars(raw_res.get("top_tag") or job_cat)
+
+    total_v = verified_data.get("total_vacancies", "")
+    default_hero = f"{total_v} পদে বিশাল নিয়োগ" if total_v else "আকর্ষণীয় নিয়োগ বিজ্ঞপ্তি"
+    default_sub = verified_data.get("eligibility_summary") or "যোগ্যতা, বেতন ও বিস্তারিত"
+
+    hero_text = strip_unwanted_chars(raw_res.get("hero_text") or default_hero)
+    sub_text = strip_unwanted_chars(raw_res.get("sub_text") or default_sub)
+    bot_text = strip_unwanted_chars(raw_res.get("bot_text") or "প্রতিটি পদের যোগ্যতা, বেতন ও ফি")
+
+    raw_hl = raw_res.get("highlights")
+    highlights = []
+    if isinstance(raw_hl, list):
+        for item in raw_hl[:3]:
+            if isinstance(item, dict):
+                lbl = strip_unwanted_chars(item.get("label", ""))
+                val = strip_unwanted_chars(item.get("value", ""))
+                if val:
+                    highlights.append({"label": lbl or "তথ্য", "value": val})
+            elif isinstance(item, str) and item.strip():
+                highlights.append({"label": "তথ্য", "value": strip_unwanted_chars(item)})
+
+    if len(highlights) < 3:
+        fallback_items = [
+            {"label": "আবেদন যোগ্যতা", "value": strip_unwanted_chars(verified_data.get("eligibility_summary") or "বিজ্ঞপ্তি অনুযায়ী")},
+            {"label": "আবেদন ফি", "value": strip_unwanted_chars(verified_data.get("application_fee_summary") or "বিজ্ঞপ্তি অনুযায়ী")},
+            {"label": "সময়সীমা / জেলা", "value": strip_unwanted_chars(verified_data.get("deadline") or verified_data.get("district_eligibility") or "৬৪ জেলা")},
+        ]
+        for fb in fallback_items:
+            if len(highlights) < 3 and fb["value"]:
+                highlights.append(fb)
+
+    return {
+        "layout_style": layout,
+        "job_category": job_cat,
+        "top_tag": top_tag,
+        "org_short": org_short,
+        "hero_text": hero_text,
+        "sub_text": sub_text,
+        "highlights": highlights[:3],
+        "bot_text": bot_text,
+    }
+
+
 def generate_thumbnail_metadata(verified_data, title):
-    print("🎨 [STEP 4] Generating Pro Thumbnail Texts...")
-    first_post = (verified_data.get("posts") or [{}])[0]
-    post_name = first_post.get("post_name", "বিভিন্ন পদ")
+    print("🎨 [STEP 4] Generating Creative Dynamic Thumbnail Concept...")
+    posts = verified_data.get("posts") or [{}]
+    posts_brief = ", ".join([
+        f"{p.get('post_name', '')} ({p.get('vacancy_count', '')}, বেতন: {p.get('salary_scale', '')})"
+        for p in posts[:4]
+    ])
     total_vac = verified_data.get("total_vacancies", "")
-    org_short = verified_data.get("org_short") or verified_data.get("organization", "নিয়োগ বিজ্ঞপ্তি")
+    org_short = verified_data.get("org_short") or verified_data.get("organization", "নিয়োগ বিজ্ঞপ্তি")
     job_cat = verified_data.get("job_category", "সরকারি চাকরি")
-    elig = verified_data.get("eligibility_summary") or first_post.get("educational_qualification", "স্নাতক/HSC/SSC পাশ")
+    elig = verified_data.get("eligibility_summary") or posts[0].get("educational_qualification", "স্নাতক/HSC/SSC পাশ")
     fee_sum = verified_data.get("application_fee_summary", "")
     deadline = verified_data.get("deadline", "")
     district = verified_data.get("district_eligibility", "৬৪ জেলা")
 
-    prompt = f"""Create punchy, ultra-clean short texts (NO truncation, NO emojis) for a YouTube thumbnail in JSON.
-Organization Short: "{org_short}"
-Category: "{job_cat}"
-Total Vacancies: "{total_vac}"
-Main Post: "{post_name}"
-Eligibility: "{elig}"
-Fee: "{fee_sum}"
-Deadline: "{deadline}"
-District: "{district}"
+    suggested_layout = random.choice(LAYOUT_STYLES)
 
-RULES:
-- Every field MUST be short, natural, complete Bengali words (never cut mid-word!).
-- Do NOT put 'সরকারি চাকরি' if Category is বেসরকারি চাকরি!
-- Do NOT use ৳ symbol (write 'টাকা' if mentioning fee).
-- "main_red" must be 2-3 bold words (e.g. "৪০ পদে নিয়োগ" or "২৭৩ পদে নিয়োগ" or "বিশাল নিয়োগ বিজ্ঞপ্তি").
-- "main_dark" must be 2-4 crisp words (e.g. "স্নাতক ও স্নাতকোত্তর পাশ" or "অষ্টম থেকে স্নাতক পাশ").
-- "bot_text" must be 3-5 words max (e.g. "প্রতিটি পদের যোগ্যতা ও ফি").
+    prompt = f"""You are a creative YouTube Thumbnail Copywriter for a Bangladeshi job channel.
+Do NOT repeat the exact same boring wording every time! Vary the hook angle dynamically based on what is MOST attractive about THIS job!
 
-Return JSON:
+Job Details:
+- Organization: "{org_short}"
+- Category: "{job_cat}"
+- Total Vacancies: "{total_vac}"
+- Key Posts & Salary: "{posts_brief}"
+- Eligibility: "{elig}"
+- Application Fee: "{fee_sum}"
+- Deadline: "{deadline}"
+- District: "{district}"
+
+Suggested Layout Style: "{suggested_layout}"
+Valid Layout Styles: "poster_classic", "split_impact", "headline_first", "dark_bold", "stat_cards"
+
+CREATIVE RULES:
+1. "top_tag": Creative 2-4 word top badge matching Category (NEVER write সরকারি if বেসরকারি!).
+2. "org_short": Complete, clean, unmistakable Bengali name of the organization/ministry (3-5 words, NEVER cut mid-word!).
+3. "hero_text": Most clickable 2-4 word hook for THIS job (mix angles: salary, low qualification, no fee, or post count).
+4. "sub_text": Different complementary 2-4 word hook.
+5. "highlights": Exactly 3 DIFFERENT factual label+value cards (write 'টাকা' instead of ৳, NO emojis!).
+6. "bot_text": Creative 3-5 word CTA.
+
+Return strictly valid JSON:
 {{
-  "header_tag": "{job_cat}",
-  "org_short": "Clean 2-4 word organization name",
-  "main_red": "2-3 bold words main vacancy hook",
-  "main_dark": "2-4 crisp words qualification or ministry hook",
-  "pill_1": "Short 2-3 words e.g. {district}",
-  "pill_2": "Short 2-3 words e.g. যোগ্যতা বা শেষ তারিখ",
-  "pill_3": "Short 2-3 words e.g. আবেদন ফি বা বেতন",
-  "bot_text": "3-5 words bottom CTA"
+  "layout_style": "{suggested_layout}",
+  "job_category": "{job_cat}",
+  "top_tag": "...",
+  "org_short": "...",
+  "hero_text": "...",
+  "sub_text": "...",
+  "highlights": [
+    {{"label": "...", "value": "..."}},
+    {{"label": "...", "value": "..."}},
+    {{"label": "...", "value": "..."}}
+  ],
+  "bot_text": "..."
 }}"""
-    return execute_ai_query(prompt, json_mode=True)
+    raw_res = execute_ai_query(prompt, json_mode=True)
+    return _normalize_thumb_meta(raw_res, verified_data, title, suggested_layout)
 
 
 # =========================================================================
@@ -800,14 +857,13 @@ Return JSON:
 def generate_job_content(title, article_text, img_paths=None):
     clean_title = clean_title_for_display(title)
 
-    # ১. কল ১: ছবি ও টেক্সট পড়ে সঠিক ক্যাটাগরি ও প্রতিটি আলাদা পদের তথ্য এক্সট্রাকশন
     verified_data = extract_verified_job_data(clean_title, article_text, img_paths=img_paths)
     if not verified_data or not isinstance(verified_data, dict) or not verified_data.get("posts"):
-        clean_org = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else clean_title[:30]
+        clean_org = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else clean_title[:35]
         is_priv = any(k in clean_title.lower() for k in ["লিমিটেড", "ফার্মা", "গ্রুপ", "কোম্পানি", "বেসরকারি", "বিকাশ", "ফাউন্ডেশন", "এনজিও", "ltd", "limited"])
         verified_data = {
             "organization": clean_org,
-            "org_short": " ".join(clean_org.split()[:3]),
+            "org_short": " ".join(clean_org.split()[:4]),
             "job_category": "বেসরকারি চাকরি" if is_priv else "সরকারি চাকরি",
             "total_vacancies": "",
             "eligibility_summary": "বিজ্ঞপ্তি অনুযায়ী যোগ্যতা",
@@ -824,7 +880,6 @@ def generate_job_content(title, article_text, img_paths=None):
             }]
         }
 
-    # ২. কল ২: প্রতিটি পদের বিবরণসহ পূর্ণাঙ্গ কথ্য স্ক্রিপ্ট
     raw_script = generate_script_from_verified_data(verified_data, clean_title, article_text)
 
     if not raw_script or len(raw_script.split()) < 160:
@@ -833,33 +888,14 @@ def generate_job_content(title, article_text, img_paths=None):
 
     voiceover_script = convert_all_numbers_in_script(raw_script)
 
-    # ৩. কল ৩: SEO মেটাডাটা
     seo_res = generate_seo_metadata(verified_data, clean_title)
     opt_title = seo_res.get("optimized_title", clean_title)[:100] if seo_res and isinstance(seo_res, dict) else clean_title[:100]
     video_desc = seo_res.get("video_description", clean_title) if seo_res and isinstance(seo_res, dict) else clean_title
     raw_tags = seo_res.get("specific_tags", []) if seo_res and isinstance(seo_res, dict) else []
     video_tags = sanitize_youtube_tags(raw_tags + DEFAULT_BASE_TAGS)
 
-    # ৪. কল ৪: প্রফেশনাল থাম্বনেইল মেটাডাটা
-    thumb_res = generate_thumbnail_metadata(verified_data, clean_title)
-    if not thumb_res or not isinstance(thumb_res, dict):
-        thumb_res = {}
-
-    total_v = verified_data.get("total_vacancies", "")
-    default_red = f"{total_v} পদে নিয়োগ" if total_v else "জরুরি নিয়োগ বিজ্ঞপ্তি"
-    default_dark = verified_data.get("eligibility_summary") or "যোগ্যতা ও বিস্তারিত"
-
-    thumb_meta = {
-        "job_category": strip_unwanted_chars(thumb_res.get("header_tag") or verified_data.get("job_category", "সরকারি চাকরি")),
-        "org_short": strip_unwanted_chars(thumb_res.get("org_short") or verified_data.get("org_short") or verified_data.get("organization", "")),
-        "main_red": strip_unwanted_chars(thumb_res.get("main_red") or default_red),
-        "main_dark": strip_unwanted_chars(thumb_res.get("main_dark") or default_dark),
-        "pill_1": strip_unwanted_chars(thumb_res.get("pill_1") or verified_data.get("district_eligibility", "৬৪ জেলা")),
-        "pill_2": strip_unwanted_chars(thumb_res.get("pill_2") or (f"শেষ: {verified_data['deadline']}" if verified_data.get("deadline") else "সব পদের তথ্য")),
-        "pill_3": strip_unwanted_chars(thumb_res.get("pill_3") or (f"ফি: {verified_data['application_fee_summary']}" if verified_data.get("application_fee_summary") else "বিস্তারিত বেতন")),
-        "bot_text": strip_unwanted_chars(thumb_res.get("bot_text") or "প্রতিটি পদের যোগ্যতা, বেতন ও ফি"),
-    }
+    thumb_meta = generate_thumbnail_metadata(verified_data, clean_title)
 
     word_count = len(voiceover_script.split())
-    print(f"✨ [ACCURACY GUARANTEED] {word_count}-word Post-by-Post Script Ready for '{clean_title[:35]}'!")
+    print(f"✨ [ACCURACY GUARANTEED] {word_count}-word Script + Layout [{thumb_meta['layout_style']}] Ready!")
     return opt_title, voiceover_script, thumb_meta, video_desc, video_tags
