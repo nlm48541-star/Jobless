@@ -14,15 +14,17 @@ TRACKER_FILE = "api_key_tracker.json"
 WORKSPACE_TRACKER = os.path.join(WORKSPACE_DIR, "api_key_tracker.json")
 
 # =========================================================================
-# 🌟 মডেল কনফিগারেশন (নভেম্বর ২০২৬ অনুযায়ী কেবল সচল ও বড় মডেল)
+# 🌟 মডেল কনফিগারেশন (কেবলমাত্র সচল ও বড় মডেল — বড় থেকে ছোট ক্রমে)
 # =========================================================================
 
+# ১. OpenRouter Vision মডেলসমূহ (ছবি পড়ার জন্য)
 OPENROUTER_VISION_MODELS = [
     "google/gemma-4-31b-it:free",             # 31B Dense Multimodal (সেরা বাংলা OCR)
     "google/gemma-4-26b-a4b-it:free",         # 26B MoE Multimodal
     "nvidia/nemotron-3.5-super-vl:free",      # 120B MoE Multimodal
 ]
 
+# ১. OpenRouter Text মডেলসমূহ (বড় থেকে ছোট ক্রমে)
 OPENROUTER_TEXT_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free", # 550B MoE
     "nvidia/nemotron-3.5-super-vl:free",      # 120B MoE
@@ -33,6 +35,7 @@ OPENROUTER_TEXT_MODELS = [
 
 OLLAMA_CHAT_URL = "https://ollama.com/api/chat"
 
+# ২. Ollama Cloud Vision মডেলসমূহ
 OLLAMA_VISION_MODELS = [
     "kimi-k2.6",                              # 1.04T Multimodal
     "mistral-large-3:675b",                   # 675B Multimodal
@@ -41,6 +44,7 @@ OLLAMA_VISION_MODELS = [
     "gemma4:31b",                             # 31B Multimodal
 ]
 
+# ২. Ollama Cloud Text মডেলসমূহ (1.04T -> 753B -> 675B -> 552B -> 397B -> 120B -> 31B)
 OLLAMA_TEXT_MODELS = [
     "kimi-k2.6",                              # 1.04T
     "glm-5.2",                                # 753B
@@ -55,17 +59,20 @@ OLLAMA_TEXT_MODELS = [
     "gemma4:31b",                             # 31B
 ]
 
+# ৩. Groq Cloud মডেলসমূহ (120B -> 70B, ছোট 8B মডেল বাদ)
 GROQ_MODELS = [
     "openai/gpt-oss-120b",                    # 120B
     "llama-3.3-70b-versatile",                # 70B
 ]
 
+# ৪. Cerebras Cloud মডেলসমূহ (355B -> 235B -> 120B)
 CEREBRAS_MODELS = [
     "zai-glm-4.7",                            # 355B
     "qwen-3-235b-a22b-instruct-2507",         # 235B
     "gpt-oss-120b",                           # 120B
 ]
 
+# ৫. Google Gemini মডেলসমূহ (সবার শেষে)
 GEMINI_TEXT_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -287,7 +294,7 @@ def _clean_text_response(raw_text):
 
 
 def _encode_images_base64(img_paths, max_images=3):
-    """২০৪৮ পিক্সেল শার্প কোয়ালিটিতে সার্কুলারের ছবি এনকোড করে যাতে ছোট বাংলা সংখ্যাও স্পষ্ট পড়া যায়"""
+    """২০৪৮ পিক্সেল শার্প কোয়ালিটিতে সার্কুলারের ছবি এনকোড করে যাতে ছোট বাংলা সংখ্যাও নিখুঁত পড়া যায়"""
     b64_list = []
     if not img_paths:
         return b64_list
@@ -310,6 +317,7 @@ def _encode_images_base64(img_paths, max_images=3):
 
 # =========================================================================
 # 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে
+# ক্রম: ১. OpenRouter -> ২. Ollama Cloud -> ৩. Groq -> ৪. Cerebras -> ৫. Gemini (সবার শেষে)
 # =========================================================================
 
 def _call_openrouter(prompt, json_mode=True, b64_images=None, text_fallback=True):
@@ -327,6 +335,7 @@ def _call_openrouter(prompt, json_mode=True, b64_images=None, text_fallback=True
             "X-Title": "YouTube Automation",
         }
 
+        # ছবি থাকলে আগে OpenRouter Vision মডেলগুলো দিয়ে ছবির ভেতরের টেবিল পড়বে
         if b64_images:
             vision_content = [{"type": "text", "text": prompt}]
             for b64 in b64_images:
@@ -353,6 +362,7 @@ def _call_openrouter(prompt, json_mode=True, b64_images=None, text_fallback=True
                 except Exception:
                     pass
 
+        # টেক্সট মডেলগুলো (বড় থেকে ছোট ক্রমে)
         if text_fallback:
             for model_name in OPENROUTER_TEXT_MODELS:
                 payload = {
@@ -389,6 +399,7 @@ def _call_ollama_cloud(prompt, json_mode=True, b64_images=None, text_fallback=Tr
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
         consecutive_402 = 0
 
+        # ছবি থাকলে আগে Ollama Vision মডেলগুলো (1.04T -> 675B -> 552B -> 31B)
         if b64_images:
             for v_model in OLLAMA_VISION_MODELS:
                 payload = {
@@ -413,6 +424,7 @@ def _call_ollama_cloud(prompt, json_mode=True, b64_images=None, text_fallback=Tr
                 except Exception:
                     pass
 
+        # টেক্সট মডেলগুলো (1.04T -> 753B -> 675B -> 552B -> 397B -> 120B -> 31B)
         if text_fallback:
             for model_name in OLLAMA_TEXT_MODELS:
                 payload = {
@@ -545,7 +557,7 @@ def _call_gemini(prompt, json_mode=True, b64_images=None):
 def execute_ai_query(prompt, json_mode=True, img_paths=None):
     b64_images = _encode_images_base64(img_paths, max_images=3) if img_paths else None
 
-    # ছবি থাকলে আগে সব প্রোভাইডারের Vision (OpenRouter Vision -> Ollama Vision -> Gemini Vision) দিয়ে আসল ছবি পড়বে
+    # ছবি থাকলে আগে সব প্রোভাইডারের Vision মডেল (OpenRouter Vision -> Ollama Vision -> Gemini Vision) দিয়ে আসল ছবি পড়বে
     if b64_images:
         for fn in (
             lambda: _call_openrouter(prompt, json_mode=json_mode, b64_images=b64_images, text_fallback=False),
@@ -657,6 +669,7 @@ Return strictly valid JSON:
   "eligibility_summary": "Short 2-4 word range e.g. ৮ম থেকে স্নাতক পাশ",
   "application_fee_summary": "e.g. ৫৬ থেকে ১১২ টাকা or ১০০ ও ২০০ টাকা or আবেদন ফি নেই",
   "deadline": "Exact last date from image/text in Bengali",
+  "age_limit": "e.g. ১৮ থেকে ৩০ বছর or ১৮ থেকে ৩২ বছর",
   "district_eligibility": "e.g. ৬৪ জেলা or শুধু ঢাকা জেলা or শুধু বান্দরবান জেলা",
   "posts": [
     {{
@@ -851,10 +864,10 @@ Return strictly valid JSON:
 
 
 # =========================================================================
-# 🌟 মূল মাস্টার ফাংশন
+# 🌟 মূল মাস্টার ফাংশন (মোশন গ্রাফিক্সের জন্য verified_data সহ রিটার্ন)
 # =========================================================================
 
-def generate_job_content(title, article_text, img_paths=None):
+def generate_job_content_with_data(title, article_text, img_paths=None):
     clean_title = clean_title_for_display(title)
 
     verified_data = extract_verified_job_data(clean_title, article_text, img_paths=img_paths)
@@ -869,6 +882,7 @@ def generate_job_content(title, article_text, img_paths=None):
             "eligibility_summary": "বিজ্ঞপ্তি অনুযায়ী যোগ্যতা",
             "application_fee_summary": "বিজ্ঞপ্তি অনুযায়ী",
             "deadline": "",
+            "age_limit": "১৮ থেকে ৩২ বছর",
             "district_eligibility": "সকল জেলা",
             "posts": [{
                 "post_name": "বিভিন্ন পদে নিয়োগ",
@@ -898,4 +912,11 @@ def generate_job_content(title, article_text, img_paths=None):
 
     word_count = len(voiceover_script.split())
     print(f"✨ [ACCURACY GUARANTEED] {word_count}-word Script + Layout [{thumb_meta['layout_style']}] Ready!")
+    return opt_title, voiceover_script, thumb_meta, video_desc, video_tags, verified_data
+
+
+def generate_job_content(title, article_text, img_paths=None):
+    opt_title, voiceover_script, thumb_meta, video_desc, video_tags, _ = generate_job_content_with_data(
+        title, article_text, img_paths=img_paths
+    )
     return opt_title, voiceover_script, thumb_meta, video_desc, video_tags
