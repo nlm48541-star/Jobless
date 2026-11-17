@@ -3,13 +3,14 @@ import os, shutil, subprocess
 from PIL import Image
 
 from ai_service import (
-    generate_job_content, convert_all_numbers_in_script,
-    generate_seo_metadata, generate_thumbnail_metadata,
+    generate_job_content_with_data, convert_all_numbers_in_script,
+    extract_verified_job_data, generate_seo_metadata, generate_thumbnail_metadata,
     sanitize_youtube_tags, DEFAULT_BASE_TAGS, clean_script_for_speech
 )
 from audio_engine import generate_voiceover_audio_pipeline
 from thumbnail import generate_dynamic_thumbnail
 from video_editor import render_video_slideshow
+from motion_renderer import render_motion_video
 from youtube_uploader import upload_to_youtube
 from feed_manager import scrape_article_content_and_images, download_image, clean_filename
 
@@ -48,7 +49,7 @@ def clean_manual_folder_on_drive(folder_id):
 
 
 def prepare_manual_drive_job():
-    """ধাপ ১: ম্যানুয়াল ড্রাইভের ফাইল ও AI স্ক্রিপ্ট প্রস্তুত করে (অডিও এখনো বানাবে না)"""
+    """ধাপ ১: ম্যানুয়াল ড্রাইভের ফাইল ও AI স্ক্রিপ্ট প্রস্তুত করে (ছবি ছাড়া হলেও মোশন গ্রাফিক্স মোডে)"""
     if not is_manual_mode_enabled():
         return None
 
@@ -75,7 +76,8 @@ def prepare_manual_drive_job():
 
     for f in sorted(all_files):
         f_path = os.path.join(MANUAL_DIR, f)
-        if os.path.isdir(f_path): continue
+        if os.path.isdir(f_path):
+            continue
         f_lower = f.lower()
         ext = f_lower.split('.')[-1]
 
@@ -117,20 +119,18 @@ def prepare_manual_drive_job():
         try:
             with open(article_txt_path, "r", encoding="utf-8") as af:
                 article_text = af.read().strip()
-        except Exception: pass
+        except Exception:
+            pass
 
     video_title = "নিয়োগ বিজ্ঞপ্তি"
     if title_txt_path and os.path.exists(title_txt_path):
         try:
             with open(title_txt_path, "r", encoding="utf-8") as tf:
                 video_title = tf.read().strip()
-        except Exception: pass
+        except Exception:
+            pass
     elif scraped_title:
         video_title = scraped_title
-
-    if not img_files:
-        print("❌ No circular images available. Aborting manual job.")
-        return None
 
     user_provided_script = ""
     if script_txt_path and os.path.exists(script_txt_path):
@@ -138,31 +138,48 @@ def prepare_manual_drive_job():
         try:
             with open(script_txt_path, "r", encoding="utf-8") as sf:
                 user_provided_script = sf.read().strip()
-        except Exception: pass
+        except Exception:
+            pass
 
+    # ছবি এবং টেক্সট কোনোটিই না থাকলে বাতিল
+    if not img_files and not article_text and not user_provided_script:
+        print("❌ Neither circular images nor article text available. Aborting manual job.")
+        return None
+
+    use_motion = (len(img_files) == 0)
     thumb_meta = {}
     video_desc = ""
     video_tags = DEFAULT_BASE_TAGS
     voiceover_script = ""
+    verified_data = {}
 
     if user_provided_script:
         cleaned_user_script = clean_script_for_speech(user_provided_script)
         voiceover_script = convert_all_numbers_in_script(cleaned_user_script)
         try:
-            stub = {"organization": video_title[:30], "total_vacancies": "", "posts": [{"post_name": "নিয়োগ"}]}
-            seo = generate_seo_metadata(stub, video_title)
+            verified_data = extract_verified_job_data(video_title, article_text or user_provided_script, img_paths=img_files or None) or {
+                "organization": video_title[:35],
+                "org_short": " ".join(video_title.split()[:4]),
+                "job_category": "সরকারি চাকরি",
+                "total_vacancies": "",
+                "posts": [{"post_name": "বিভিন্ন পদে নিয়োগ", "vacancy_count": "বিজ্ঞপ্তি অনুযায়ী", "salary_scale": "নির্ধারিত স্কেল", "educational_qualification": "বিজ্ঞপ্তি অনুযায়ী", "application_fee": "বিজ্ঞপ্তি অনুযায়ী", "key_duties": "সংশ্লিষ্ট দায়িত্ব পালন"}],
+            }
+            seo = generate_seo_metadata(verified_data, video_title)
             if seo:
                 video_desc = seo.get("video_description", video_title)
                 video_tags = sanitize_youtube_tags(seo.get("specific_tags", []) + DEFAULT_BASE_TAGS)
-            thumb = generate_thumbnail_metadata(stub, video_title)
-            if thumb: thumb_meta = thumb
-        except Exception: pass
+            thumb = generate_thumbnail_metadata(verified_data, video_title)
+            if thumb:
+                thumb_meta = thumb
+        except Exception:
+            pass
     else:
-        print("🤖 [ARTICLE TEXT MODE] Generating full accurate script from article text...")
+        print("🤖 [ARTICLE TEXT MODE] Generating accurate script & structured data...")
         source_text = article_text if article_text else video_title
-        ai_res = generate_job_content(video_title, source_text, img_files)
-        opt_title, voiceover_script, thumb_meta, video_desc, video_tags = ai_res
-        if opt_title: video_title = opt_title
+        ai_res = generate_job_content_with_data(video_title, source_text, img_files if img_files else None)
+        opt_title, voiceover_script, thumb_meta, video_desc, video_tags, verified_data = ai_res
+        if opt_title:
+            video_title = opt_title
 
     if not voiceover_script and not custom_audio_file:
         print("❌ Failed to obtain voiceover script or audio.")
@@ -175,6 +192,8 @@ def prepare_manual_drive_job():
         "thumb_meta": thumb_meta,
         "video_desc": video_desc,
         "video_tags": video_tags,
+        "verified_data": verified_data,
+        "use_motion_graphics": use_motion,
         "img_files": img_files,
         "custom_thumb_path": custom_thumb_path,
         "custom_audio_file": custom_audio_file,
@@ -182,14 +201,15 @@ def prepare_manual_drive_job():
 
 
 def finalize_manual_drive_job(yt, job, audio_path):
-    """ধাপ ৩: প্রস্তুত হওয়া অডিও দিয়ে ম্যানুয়াল ড্রাইভ ভিডিও রেন্ডার ও আপলোড"""
+    """ধাপ ৩: প্রস্তুত হওয়া অডিও দিয়ে স্লাইডশো অথবা মোশন গ্রাফিক্স ভিডিও রেন্ডার ও আপলোড"""
     if not job or not audio_path or not os.path.exists(audio_path):
         return
 
     os.makedirs(TMP_DIR, exist_ok=True)
     video_title = job["video_title"]
     thumbnail_path = os.path.join(TMP_DIR, "manual_thumbnail.jpg")
-    if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
+    if os.path.exists(thumbnail_path):
+        os.remove(thumbnail_path)
 
     custom_thumb_path = job["custom_thumb_path"]
     if custom_thumb_path and os.path.exists(custom_thumb_path):
@@ -200,9 +220,16 @@ def finalize_manual_drive_job(yt, job, audio_path):
         generate_dynamic_thumbnail(video_title, thumbnail_path, thumb_meta=job["thumb_meta"])
 
     out_video_file = os.path.join(TMP_DIR, "manual_out.mp4")
-    if os.path.exists(out_video_file): os.remove(out_video_file)
+    if os.path.exists(out_video_file):
+        os.remove(out_video_file)
 
-    render_video_slideshow(audio_path, job["img_files"], out_video_file, is_vertical=False)
+    if job.get("use_motion_graphics"):
+        render_motion_video(
+            job.get("verified_data", {}), job.get("voiceover_script", ""),
+            video_title, audio_path, out_video_file, is_vertical=False
+        )
+    else:
+        render_video_slideshow(audio_path, job["img_files"], out_video_file, is_vertical=False)
 
     upload_success = upload_to_youtube(
         yt, out_video_file, video_title,
@@ -215,8 +242,15 @@ def finalize_manual_drive_job(yt, job, audio_path):
             os.makedirs(LIVESTREAM_DIR, exist_ok=True)
             safe_name = clean_filename(video_title)[:40].strip()
             live_video_file = os.path.join(LIVESTREAM_DIR, f"{safe_name}.mp4")
-            render_video_slideshow(audio_path, job["img_files"], live_video_file, is_vertical=True)
-        except Exception: pass
+            if job.get("use_motion_graphics"):
+                render_motion_video(
+                    job.get("verified_data", {}), job.get("voiceover_script", ""),
+                    video_title, audio_path, live_video_file, is_vertical=True
+                )
+            else:
+                render_video_slideshow(audio_path, job["img_files"], live_video_file, is_vertical=True)
+        except Exception:
+            pass
 
         clean_manual_folder_on_drive(job["folder_id"])
         shutil.rmtree(MANUAL_DIR, ignore_errors=True)
