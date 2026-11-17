@@ -42,7 +42,6 @@ def clean_filename(text):
 
 
 def _pick_real_img_src(img_tag, base_url=""):
-    """WordPress Lazy-Load (data-lazy-src, data-src) আগে চেক করে এবং ডামি data:image/svg+xml বাদ দেয়"""
     candidates = [
         img_tag.get('data-lazy-src'),
         img_tag.get('data-src'),
@@ -54,7 +53,6 @@ def _pick_real_img_src(img_tag, base_url=""):
     for attr in ('data-lazy-srcset', 'data-srcset', 'srcset'):
         ss = img_tag.get(attr)
         if ss:
-            # srcset থেকে সবচেয়ে বড় রেজোলিউশনের URL বেছে নেওয়া
             parts = [p.strip().split()[0] for p in ss.split(',') if p.strip()]
             if parts:
                 candidates.append(parts[-1])
@@ -103,7 +101,6 @@ def extract_image_urls_from_html(html_content, base_url=""):
 
     img_urls = []
     for img in container.find_all('img'):
-        # র‍্যাপিং লিঙ্কে সরাসরি বড় ছবি থাকলে সেটি নেওয়া (WP gallery / anchor wrap)
         parent_a = img.find_parent('a')
         if parent_a and parent_a.get('href'):
             href = urljoin(base_url, parent_a.get('href').strip())
@@ -120,7 +117,6 @@ def extract_image_urls_from_html(html_content, base_url=""):
 
 
 def _clean_article_text(container):
-    # HTML টেবিলের প্রতিটি সারি ` | ` দিয়ে সুন্দরভাবে সাজানো যাতে কলাম না মেশে
     for table in container.find_all('table'):
         rows_txt = []
         for tr in table.find_all('tr'):
@@ -131,8 +127,6 @@ def _clean_article_text(container):
         table.replace_with(NavigableString("\n" + "\n".join(rows_txt) + "\n"))
 
     raw_text = container.get_text(separator='\n', strip=True)
-
-    # ব্লগের বাড়তি বয়লারপ্লেট সেকশন বাদ দিয়ে শুধু আসল নিয়োগের তথ্য রাখা
     stop_markers = [
         "সাধারণ জিজ্ঞাসা (FAQ)",
         "আরও চলমান নিয়োগ",
@@ -160,12 +154,7 @@ def _clean_article_text(container):
 
 
 def scrape_article_content_and_images(page_url):
-    """
-    🌟 bdgovtnotice.com, bdgovtjob.net, projobsbd.com থেকে Lazy-Load ছবি ও পরিষ্কার টেবিল টেক্সট সংগ্রহ করে
-    """
-    title = ""
-    clean_text = ""
-    img_urls = []
+    title, clean_text, img_urls = "", "", []
     try:
         resp = requests.get(page_url, headers=HEADERS, timeout=20)
         if resp.status_code == 200:
@@ -199,7 +188,6 @@ def download_image(url, output_path, referer_url=""):
         if req.status_code == 200 and len(req.content) > 8000:
             with open(output_path, 'wb') as f:
                 f.write(req.content)
-            # আসল ইমেজ ফাইল কি না ও সাইজ >= 450x350 কি না যাচাই
             with Image.open(output_path) as im:
                 w, h = im.size
                 if w < 450 or h < 350:
@@ -268,8 +256,10 @@ def check_new_articles_and_prepare_folders():
                     continue
 
                 scraped_title, article_text, img_urls = scrape_article_content_and_images(link)
-                if not img_urls:
-                    print(f"⏩ Skipping '{folder_title}' (No valid circular images found).")
+                has_text = bool(article_text and len(article_text.strip()) >= 180)
+
+                if not img_urls and not has_text:
+                    print(f"⏩ Skipping '{folder_title}' (Neither images nor sufficient text found).")
                     continue
 
                 folder_path = os.path.join(WORKSPACE_DIR, folder_title)
@@ -286,42 +276,38 @@ def check_new_articles_and_prepare_folders():
                         except Exception:
                             pass
 
-                if not downloaded_info:
-                    shutil.rmtree(folder_path, ignore_errors=True)
-                    continue
-
-                # 🌟 ব্লগের ল্যান্ডস্কেপ/ঝাপসা কভার ব্যানার (ratio >= 1.42) যেকোনো পজিশন থেকে বাদ দেওয়া (যদি আসল সার্কুলার ছবি থাকে)
-                non_banners = [item for item in downloaded_info if item[3] < 1.42]
-                if non_banners:
-                    for item in downloaded_info:
-                        if item[3] >= 1.42:
-                            try:
-                                os.remove(item[0])
-                                print(f"✂️ [Cover Banner Removed] Dropped blog banner ({item[1]}x{item[2]}).")
-                            except Exception:
-                                pass
-                    kept_files = [item[0] for item in non_banners]
-                else:
-                    # সব ছবিই ল্যান্ডস্কেপ হলে সবচেয়ে বড় রেজোলিউশনের ছবি রাখা
-                    best = max(downloaded_info, key=lambda x: x[1] * x[2])
-                    for item in downloaded_info:
-                        if item[0] != best[0]:
-                            try:
-                                os.remove(item[0])
-                            except Exception:
-                                pass
-                    kept_files = [best[0]]
-
                 final_img_count = 0
-                for final_idx, temp_path in enumerate(kept_files, start=1):
-                    final_path = os.path.join(folder_path, f"{final_idx}.jpg")
-                    try:
-                        os.rename(temp_path, final_path)
-                        final_img_count += 1
-                    except Exception:
-                        pass
+                if downloaded_info:
+                    non_banners = [item for item in downloaded_info if item[3] < 1.42]
+                    if non_banners:
+                        for item in downloaded_info:
+                            if item[3] >= 1.42:
+                                try:
+                                    os.remove(item[0])
+                                    print(f"✂️ [Cover Banner Removed] Dropped blog banner ({item[1]}x{item[2]}).")
+                                except Exception:
+                                    pass
+                        kept_files = [item[0] for item in non_banners]
+                    else:
+                        best = max(downloaded_info, key=lambda x: x[1] * x[2])
+                        for item in downloaded_info:
+                            if item[0] != best[0]:
+                                try:
+                                    os.remove(item[0])
+                                except Exception:
+                                    pass
+                        kept_files = [best[0]]
 
-                if final_img_count == 0:
+                    for final_idx, temp_path in enumerate(kept_files, start=1):
+                        final_path = os.path.join(folder_path, f"{final_idx}.jpg")
+                        try:
+                            os.rename(temp_path, final_path)
+                            final_img_count += 1
+                        except Exception:
+                            pass
+
+                # ছবি না পেলেও পর্যাপ্ত আর্টিকেল টেক্সট থাকলে স্কিপ না করে মোশন গ্রাফিক্স মোডের জন্য সেভ করবে
+                if final_img_count == 0 and not has_text:
                     shutil.rmtree(folder_path, ignore_errors=True)
                     continue
 
@@ -334,5 +320,9 @@ def check_new_articles_and_prepare_folders():
                     with open(os.path.join(folder_path, "article.txt"), "w", encoding="utf-8") as af:
                         af.write(article_text)
 
-                print(f"✅ Prepared Article: {folder_title} ({final_img_count} Circular Image(s), {len(article_text)} Chars)")
+                if final_img_count > 0:
+                    print(f"✅ Prepared Article: {folder_title} ({final_img_count} Circular Image(s), {len(article_text)} Chars)")
+                else:
+                    print(f"🎬 Prepared Text-Only Article (Motion Graphics Mode): {folder_title} ({len(article_text)} Chars)")
+
                 existing.append(folder_title)
