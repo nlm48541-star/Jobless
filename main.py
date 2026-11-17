@@ -6,10 +6,11 @@ from feed_manager import (
     check_new_articles_and_prepare_folders, clean_filename, is_forbidden_article,
     WORKSPACE_DIR, scrape_article_content_and_images
 )
-from ai_service import generate_job_content
+from ai_service import generate_job_content_with_data
 from audio_engine import generate_voiceover_batch_pipeline
 from thumbnail import generate_dynamic_thumbnail
 from video_editor import render_video_slideshow
+from motion_renderer import render_motion_video
 from youtube_uploader import get_youtube_service, upload_to_youtube
 from manual_processor import prepare_manual_drive_job, finalize_manual_drive_job
 
@@ -21,14 +22,16 @@ MAX_VIDEOS_PER_RUN = 2
 
 
 def add_to_history(entry_text):
-    if not entry_text or not str(entry_text).strip(): return
+    if not entry_text or not str(entry_text).strip():
+        return
     clean_val = str(entry_text).strip()
     existing_records = set()
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, "r", encoding="utf-8") as hf:
                 existing_records = {line.strip().lower() for line in hf if line.strip()}
-        except Exception: pass
+        except Exception:
+            pass
 
     if clean_val.lower() not in existing_records:
         try:
@@ -36,11 +39,12 @@ def add_to_history(entry_text):
             with open(HISTORY_FILE, "a", encoding="utf-8") as hf:
                 hf.write(f"{clean_val}\n")
             print(f"📝 [HISTORY] Saved: '{clean_val[:60]}'")
-        except Exception: pass
+        except Exception:
+            pass
 
 
 def prepare_workspace_video_jobs():
-    """ধাপ ১: সব বৈধ ফোল্ডারের AI স্ক্রিপ্ট ও মেটাডাটা আগে তৈরি করে নেয় (অডিও বাদে)"""
+    """ধাপ ১: সব বৈধ ফোল্ডারের (ছবিসহ অথবা শুধু টেক্সট) AI স্ক্রিপ্ট ও ডাটা প্রস্তুত করে"""
     print("\nScanning Drive folders for AI Script Generation...")
     if not os.path.exists(WORKSPACE_DIR):
         return []
@@ -81,41 +85,49 @@ def prepare_workspace_video_jobs():
                 elif ext in ['jpg', 'jpeg', 'png', 'webp']:
                     img_files.append(os.path.join(folder_path, file))
 
-            if not img_files:
-                shutil.rmtree(folder_path, ignore_errors=True)
-                continue
-
             raw_title = folder_name
             if txt_path and os.path.exists(txt_path):
                 try:
                     with open(txt_path, 'r', encoding='utf-8') as tf:
                         raw_title = tf.read().strip()
-                except Exception: pass
+                except Exception:
+                    pass
 
             article_link = ""
             if link_path and os.path.exists(link_path):
                 try:
                     with open(link_path, 'r', encoding='utf-8') as lf:
                         article_link = lf.read().strip()
-                except Exception: pass
+                except Exception:
+                    pass
 
             article_text = ""
             if article_txt_path and os.path.exists(article_txt_path):
                 try:
                     with open(article_txt_path, 'r', encoding='utf-8') as af:
                         article_text = af.read().strip()
-                except Exception: pass
+                except Exception:
+                    pass
             elif article_link:
                 _, article_text, _ = scrape_article_content_and_images(article_link)
 
-            source_text = article_text if article_text else raw_title
+            # ছবি এবং পর্যাপ্ত টেক্সট—কোনোটিই না থাকলে ফোল্ডার বাদ যাবে
+            if not img_files and (not article_text or len(article_text.strip()) < 100):
+                shutil.rmtree(folder_path, ignore_errors=True)
+                continue
 
             if is_forbidden_article(raw_title):
                 shutil.rmtree(folder_path, ignore_errors=True)
                 continue
 
-            print(f"\n========== [SCRIPT PHASE {len(prepared_jobs) + 1}/{MAX_VIDEOS_PER_RUN}]: {folder_name} ==========")
-            opt_title, voiceover_script, thumb_meta, video_desc, video_tags = generate_job_content(raw_title, source_text, img_files)
+            use_motion = (len(img_files) == 0)
+            source_text = article_text if article_text else raw_title
+            mode_label = "🎬 MOTION GRAPHICS" if use_motion else "🖼️ CIRCULAR SLIDESHOW"
+
+            print(f"\n========== [SCRIPT PHASE {len(prepared_jobs) + 1}/{MAX_VIDEOS_PER_RUN} | {mode_label}]: {folder_name} ==========")
+            opt_title, voiceover_script, thumb_meta, video_desc, video_tags, verified_data = generate_job_content_with_data(
+                raw_title, source_text, img_files if img_files else None
+            )
 
             if not opt_title or not voiceover_script or len(voiceover_script.split()) < 25:
                 print(f"🛑 [CANCELLED] Full script generation failed for '{folder_name}'.")
@@ -131,6 +143,8 @@ def prepare_workspace_video_jobs():
                 "thumb_meta": thumb_meta,
                 "video_desc": video_desc,
                 "video_tags": video_tags,
+                "verified_data": verified_data,
+                "use_motion_graphics": use_motion,
                 "img_files": img_files,
                 "custom_thumb_path": custom_thumb_path,
                 "existing_audio_file": existing_audio_file,
@@ -143,13 +157,14 @@ def prepare_workspace_video_jobs():
 
 
 def finalize_workspace_video_job(yt, job, audio_path):
-    """ধাপ ৩: অডিও পাওয়ার পর ওয়ার্কস্পেস ভিডিও রেন্ডার ও আপলোড"""
+    """ধাপ ৩: অডিও পাওয়ার পর স্লাইডশো অথবা মোশন গ্রাফিক্স ভিডিও রেন্ডার ও আপলোড"""
     folder_name = job["folder_name"]
     folder_path = job["folder_path"]
     os.makedirs(TMP_DIR, exist_ok=True)
 
     thumbnail_path = os.path.join(TMP_DIR, "thumbnail.jpg")
-    if os.path.exists(thumbnail_path): os.remove(thumbnail_path)
+    if os.path.exists(thumbnail_path):
+        os.remove(thumbnail_path)
 
     custom_thumb_path = job["custom_thumb_path"]
     if custom_thumb_path and os.path.exists(custom_thumb_path):
@@ -159,10 +174,18 @@ def finalize_workspace_video_job(yt, job, audio_path):
         generate_dynamic_thumbnail(job["raw_title"], thumbnail_path, thumb_meta=job["thumb_meta"])
 
     out_video_file = os.path.join(TMP_DIR, "final_out.mp4")
-    if os.path.exists(out_video_file): os.remove(out_video_file)
+    if os.path.exists(out_video_file):
+        os.remove(out_video_file)
 
-    print(f"Rendering 16:9 Video for '{folder_name}'...")
-    render_video_slideshow(audio_path, job["img_files"], out_video_file, is_vertical=False)
+    if job.get("use_motion_graphics"):
+        print(f"🎬 Rendering 16:9 Motion Graphics Video for '{folder_name}'...")
+        render_motion_video(
+            job["verified_data"], job["voiceover_script"], job["video_title"],
+            audio_path, out_video_file, is_vertical=False
+        )
+    else:
+        print(f"Rendering 16:9 Circular Video for '{folder_name}'...")
+        render_video_slideshow(audio_path, job["img_files"], out_video_file, is_vertical=False)
 
     upload_success = upload_to_youtube(
         yt, out_video_file, job["video_title"],
@@ -179,8 +202,15 @@ def finalize_workspace_video_job(yt, job, audio_path):
             os.makedirs(LIVESTREAM_DIR, exist_ok=True)
             safe_name = clean_filename(job["video_title"])[:45].strip()
             live_video_file = os.path.join(LIVESTREAM_DIR, f"{safe_name}.mp4")
-            render_video_slideshow(audio_path, job["img_files"], live_video_file, is_vertical=True)
-        except Exception: pass
+            if job.get("use_motion_graphics"):
+                render_motion_video(
+                    job["verified_data"], job["voiceover_script"], job["video_title"],
+                    audio_path, live_video_file, is_vertical=True
+                )
+            else:
+                render_video_slideshow(audio_path, job["img_files"], live_video_file, is_vertical=True)
+        except Exception:
+            pass
 
         shutil.rmtree(folder_path, ignore_errors=True)
         print(f"✅ Folder '{folder_name}' successfully uploaded.\n")
@@ -193,12 +223,15 @@ def process_shorts_folder(yt):
             if f.lower() == "shorts" and os.path.isdir(os.path.join(WORKSPACE_DIR, f)):
                 shorts_dir = os.path.join(WORKSPACE_DIR, f)
                 break
-    if not shorts_dir: return
+    if not shorts_dir:
+        return
 
     for file in os.listdir(shorts_dir):
-        if file == ".keep": continue
+        if file == ".keep":
+            continue
         file_path = os.path.join(shorts_dir, file)
-        if os.path.isdir(file_path): continue
+        if os.path.isdir(file_path):
+            continue
 
         ext = file.lower().split('.')[-1]
         if ext in ['mp4', 'mov', 'mkv', 'avi']:
@@ -209,17 +242,19 @@ def process_shorts_folder(yt):
             )
             if upload_success:
                 add_to_history(f"[SHORTS] {video_title}")
-                try: os.remove(file_path)
-                except Exception: pass
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
 
 
 if __name__ == "__main__":
-    print("\n====== [ Google Drive Bot Active | Batch Kaggle TTS Engine ] ======\n")
+    print("\n====== [ Google Drive Bot Active | Dual Slideshow + Motion Graphics Engine ] ======\n")
     try:
         os.makedirs(TMP_DIR, exist_ok=True)
         yt_service = get_youtube_service()
 
-        # ---------------- ধাপ ১: সব স্ক্রিপ্ট আগে জেনারেট করা ----------------
+        # ধাপ ১: সব স্ক্রিপ্ট ও মোশন ডাটা আগে তৈরি
         manual_job = None
         try:
             manual_job = prepare_manual_drive_job()
@@ -237,7 +272,7 @@ if __name__ == "__main__":
         except Exception:
             traceback.print_exc()
 
-        # ---------------- ধাপ ২: মাত্র ১টি কমান্ডে সবগুলো অডিও একসাথে তৈরি ----------------
+        # ধাপ ২: ১টি কমান্ডে সবগুলো অডিও একসাথে তৈরি
         batch_tasks = []
         manual_audio_target = None
 
@@ -269,9 +304,9 @@ if __name__ == "__main__":
         if batch_tasks:
             generate_voiceover_batch_pipeline(batch_tasks, os.path.join(TMP_DIR, "batch_audio"))
         else:
-            print("ℹ️ কোনো নতুন ভয়েসওভার তৈরির প্রয়োজন নেই (Kaggle GPU কল স্কিপ করা হলো)।")
+            print("ℹ️ কোনো নতুন ভয়েসওভার তৈরির প্রয়োজন নেই।")
 
-        # ---------------- ধাপ ৩: ভিডিও রেন্ডার ও YouTube আপলোড ----------------
+        # ধাপ ৩: ভিডিও রেন্ডার ও YouTube আপলোড
         if manual_job and manual_audio_target and os.path.exists(manual_audio_target):
             try:
                 finalize_manual_drive_job(yt_service, manual_job, manual_audio_target)
@@ -296,5 +331,6 @@ if __name__ == "__main__":
     except Exception:
         traceback.print_exc()
     finally:
-        if os.path.exists(TMP_DIR): shutil.rmtree(TMP_DIR, ignore_errors=True)
+        if os.path.exists(TMP_DIR):
+            shutil.rmtree(TMP_DIR, ignore_errors=True)
         print("\nAll Tasks Finalized Perfectly.\n======================================")
