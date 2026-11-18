@@ -14,65 +14,58 @@ TRACKER_FILE = "api_key_tracker.json"
 WORKSPACE_TRACKER = os.path.join(WORKSPACE_DIR, "api_key_tracker.json")
 
 # =========================================================================
-# 🌟 মডেল কনফিগারেশন (কেবলমাত্র সচল ও বড় মডেল — বড় থেকে ছোট ক্রমে)
+# 🌟 সচল বড় মডেলসমূহ (Vision ও Text)
 # =========================================================================
 
-# ১. OpenRouter Vision মডেলসমূহ (ছবি পড়ার জন্য)
 OPENROUTER_VISION_MODELS = [
-    "google/gemma-4-31b-it:free",             # 31B Dense Multimodal (সেরা বাংলা OCR)
-    "google/gemma-4-26b-a4b-it:free",         # 26B MoE Multimodal
-    "nvidia/nemotron-3.5-super-vl:free",      # 120B MoE Multimodal
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "nvidia/nemotron-3.5-super-vl:free",
 ]
 
-# ১. OpenRouter Text মডেলসমূহ (বড় থেকে ছোট ক্রমে)
 OPENROUTER_TEXT_MODELS = [
-    "nvidia/nemotron-3-ultra-550b-a55b:free", # 550B MoE
-    "nvidia/nemotron-3.5-super-vl:free",      # 120B MoE
-    "google/gemma-4-31b-it:free",             # 31B Dense
-    "google/gemma-4-26b-a4b-it:free",         # 26B MoE
-    "openrouter/free",                        # Free Auto Router
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3.5-super-vl:free",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "openrouter/free",
 ]
 
 OLLAMA_CHAT_URL = "https://ollama.com/api/chat"
 
-# ২. Ollama Cloud Vision মডেলসমূহ
 OLLAMA_VISION_MODELS = [
-    "kimi-k2.6",                              # 1.04T Multimodal
-    "mistral-large-3:675b",                   # 675B Multimodal
-    "deepseek-v4.1-flash",                    # 552B Multimodal
-    "glm-5.3-flash",                          # Multimodal Flagship
-    "gemma4:31b",                             # 31B Multimodal
+    "kimi-k2.6",
+    "mistral-large-3:675b",
+    "deepseek-v4.1-flash",
+    "glm-5.3-flash",
+    "gemma4:31b",
 ]
 
-# ২. Ollama Cloud Text মডেলসমূহ (1.04T -> 753B -> 675B -> 552B -> 397B -> 120B -> 31B)
 OLLAMA_TEXT_MODELS = [
-    "kimi-k2.6",                              # 1.04T
-    "glm-5.2",                                # 753B
-    "mistral-large-3:675b",                   # 675B
-    "deepseek-v4.1-flash",                    # 552B
-    "deepseek-v4-pro",                        # Frontier MoE
-    "qwen3.5:397b",                           # 397B
-    "minimax-m3",                             # Flagship
-    "glm-5.3-flash",                          # Multimodal
-    "gpt-oss:120b",                           # 120B
-    "nemotron-3-super",                       # 120B
-    "gemma4:31b",                             # 31B
+    "kimi-k2.6",
+    "glm-5.2",
+    "mistral-large-3:675b",
+    "deepseek-v4.1-flash",
+    "deepseek-v4-pro",
+    "qwen3.5:397b",
+    "minimax-m3",
+    "glm-5.3-flash",
+    "gpt-oss:120b",
+    "nemotron-3-super",
+    "gemma4:31b",
 ]
 
-# ৩. Groq Cloud মডেলসমূহ (120B -> 70B, ছোট 8B মডেল বাদ)
 GROQ_MODELS = [
-    "openai/gpt-oss-120b",                    # 120B
-    "llama-3.3-70b-versatile",                # 70B
+    "openai/gpt-oss-120b",
+    "llama-3.3-70b-versatile",
 ]
 
-# ৪. Cerebras Cloud মডেলসমূহ (355B -> 235B -> 120B)
 CEREBRAS_MODELS = [
-    "zai-glm-4.7",                            # 355B
-    "qwen-3-235b-a22b-instruct-2507",         # 235B
-    "gpt-oss-120b",                           # 120B
+    "zai-glm-4.7",
+    "qwen-3-235b-a22b-instruct-2507",
+    "gpt-oss-120b",
 ]
 
-# ৫. Google Gemini মডেলসমূহ (সবার শেষে)
 GEMINI_TEXT_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -92,6 +85,8 @@ def clean_script_for_speech(raw_text):
     if not raw_text:
         return ""
     text = re.sub(r'<think>.*?</think>', '', str(raw_text), flags=re.DOTALL)
+    # অদৃশ্য ইউনিকোড ক্যারেক্টার রিমুভ (যা স্ক্রিনে □□□□ বক্স তৈরি করত)
+    text = re.sub(r'[\u200b-\u200f\ufeff\u202a-\u202e\xa0]', ' ', text)
     text = re.sub(r'[\*\_\|\#\~`]', '', text)
     text = re.sub(r'\[.*?\]', '', text)
     text = re.sub(r'https?://\S+|wa\.me/\S+', '', text)
@@ -204,17 +199,33 @@ def number_to_bangla_words(n):
 
 
 def convert_all_numbers_in_script(text):
+    """
+    🌟 সংখ্যাকে নিখুঁত বাংলা কথায় রূপান্তর (৫৮,০১০/- কে ৫ লাখ ৮০ হাজার বলার বাগ স্থায়ী সমাধান)
+    """
     if not text:
         return ""
     text = re.sub(r'<think>.*?</think>', '', str(text), flags=re.DOTALL)
     text = re.sub(r'https?://\S+|wa\.me/\S+', '', text)
-    text = re.sub(r'([0-9০-৯]),([0-9০-৯])', r'\1\2', text)
-    text = re.sub(r'(\+?(?:88|৮৮)?[\s\-]*0?1[0-9০-৯][\s\-0-9০-৯]{7,11})', ' আমাদের হোয়াটসঅ্যাপ নম্বর ', text)
+    # অদৃশ্য ইউনিকোড ক্যারেক্টার পরিষ্কার
+    text = re.sub(r'[\u200b-\u200f\ufeff\u202a-\u202e\xa0]', ' ', text)
+
+    # টাকার পেছনের /- বা /= বা ৳ চিহ্ন দূর করা
     text = re.sub(r'([0-9০-৯]+)\s*(?:/=|/-|৳)', r'\1 টাকা', text)
     text = re.sub(r'৳\s*([0-9০-৯]+)', r'\1 টাকা', text)
+
+    # কমা-যুক্ত সংখ্যাকে স্বাভাবিক সংখ্যায় রূপান্তর (যেমন ২৪,০০০ -> ২৪০০০, ৫৮,০১০ -> ৫৮০১০)
+    text = re.sub(r'([0-9০-৯]+),([0-9০-৯]+)', r'\1\2', text)
+
+    # হোয়াটসঅ্যাপ নম্বর সুরক্ষিত করা
+    text = re.sub(r'(\+?(?:88|৮৮)?[\s\-]*0?1[0-9০-৯][\s\-0-9০-৯]{7,11})', ' আমাদের হোয়াটসঅ্যাপ নম্বর ', text)
+
+    # শতাংশ রূপান্তর
     text = re.sub(r'([0-9০-৯]+(?:\.[0-9০-৯]+)?)\s*%', r'\1 শতাংশ', text)
+
+    # রেঞ্জ রূপান্তর (যেমন ২৪০০০-৫৮০১০ -> ২৪০০০ থেকে ৫৮০১০)
     text = re.sub(r'([0-9০-৯]+)\s*[-–—]\s*([0-9০-৯]+)', r'\1 থেকে \2', text)
 
+    # দশমিক সংখ্যা (যেমন ৩.৫০ -> তিন দশমিক পাঁচ শূন্য)
     def dec_repl(m):
         try:
             left = number_to_bangla_words(en_bn_to_int(m.group(1)))
@@ -225,6 +236,7 @@ def convert_all_numbers_in_script(text):
 
     text = re.sub(r'([0-9০-৯]+)\.([0-9০-৯]+)', dec_repl, text)
 
+    # পূর্ণসংখ্যাকে বাংলায় পড়া
     def num_repl(m):
         num_str = m.group(0)
         if len(num_str) > 8:
@@ -268,7 +280,7 @@ def clean_title_for_display(title):
 
 def strip_unwanted_chars(text):
     s = re.sub(r'\s*৳', ' টাকা', str(text))
-    cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆', '', s)
+    cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆|[\u200b-\u200f\ufeff\u202a-\u202e\xa0]', '', s)
     return re.sub(r'\s+', ' ', cleaned).strip()
 
 
@@ -294,7 +306,6 @@ def _clean_text_response(raw_text):
 
 
 def _encode_images_base64(img_paths, max_images=3):
-    """২০৪৮ পিক্সেল শার্প কোয়ালিটিতে সার্কুলারের ছবি এনকোড করে যাতে ছোট বাংলা সংখ্যাও নিখুঁত পড়া যায়"""
     b64_list = []
     if not img_paths:
         return b64_list
@@ -317,7 +328,6 @@ def _encode_images_base64(img_paths, max_images=3):
 
 # =========================================================================
 # 🌟 কেন্দ্রীয় এআই এক্সিকিউশন গেটওয়ে
-# ক্রম: ১. OpenRouter -> ২. Ollama Cloud -> ৩. Groq -> ৪. Cerebras -> ৫. Gemini (সবার শেষে)
 # =========================================================================
 
 def _call_openrouter(prompt, json_mode=True, b64_images=None, text_fallback=True):
@@ -335,7 +345,6 @@ def _call_openrouter(prompt, json_mode=True, b64_images=None, text_fallback=True
             "X-Title": "YouTube Automation",
         }
 
-        # ছবি থাকলে আগে OpenRouter Vision মডেলগুলো দিয়ে ছবির ভেতরের টেবিল পড়বে
         if b64_images:
             vision_content = [{"type": "text", "text": prompt}]
             for b64 in b64_images:
@@ -362,7 +371,6 @@ def _call_openrouter(prompt, json_mode=True, b64_images=None, text_fallback=True
                 except Exception:
                     pass
 
-        # টেক্সট মডেলগুলো (বড় থেকে ছোট ক্রমে)
         if text_fallback:
             for model_name in OPENROUTER_TEXT_MODELS:
                 payload = {
@@ -399,7 +407,6 @@ def _call_ollama_cloud(prompt, json_mode=True, b64_images=None, text_fallback=Tr
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {o_key}"}
         consecutive_402 = 0
 
-        # ছবি থাকলে আগে Ollama Vision মডেলগুলো (1.04T -> 675B -> 552B -> 31B)
         if b64_images:
             for v_model in OLLAMA_VISION_MODELS:
                 payload = {
@@ -424,7 +431,6 @@ def _call_ollama_cloud(prompt, json_mode=True, b64_images=None, text_fallback=Tr
                 except Exception:
                     pass
 
-        # টেক্সট মডেলগুলো (1.04T -> 753B -> 675B -> 552B -> 397B -> 120B -> 31B)
         if text_fallback:
             for model_name in OLLAMA_TEXT_MODELS:
                 payload = {
@@ -557,7 +563,7 @@ def _call_gemini(prompt, json_mode=True, b64_images=None):
 def execute_ai_query(prompt, json_mode=True, img_paths=None):
     b64_images = _encode_images_base64(img_paths, max_images=3) if img_paths else None
 
-    # ছবি থাকলে আগে সব প্রোভাইডারের Vision মডেল (OpenRouter Vision -> Ollama Vision -> Gemini Vision) দিয়ে আসল ছবি পড়বে
+    # ছবি থাকলে Vision মডেল আগে কল হবে
     if b64_images:
         for fn in (
             lambda: _call_openrouter(prompt, json_mode=json_mode, b64_images=b64_images, text_fallback=False),
@@ -568,7 +574,6 @@ def execute_ai_query(prompt, json_mode=True, img_paths=None):
             if res:
                 return res
 
-    # টেক্সট প্রায়োরিটি: ১. OpenRouter -> ২. Ollama Cloud -> ৩. Groq -> ৪. Cerebras -> ৫. Gemini
     for fn in (
         lambda: _call_openrouter(prompt, json_mode=json_mode, b64_images=None, text_fallback=True),
         lambda: _call_ollama_cloud(prompt, json_mode=json_mode, b64_images=None, text_fallback=True),
@@ -636,7 +641,7 @@ def build_script_from_verified_data(verified_data, title, article_text):
 
 
 # =========================================================================
-# 🌟 ৪টি পৃথক মডুলার কল (আসল সার্কুলার ছবিই সর্বোচ্চ সত্য!)
+# 🌟 ৪টি পৃথক মডুলার কল (সার্কুলার ছবি ও টেবিল থেকে ১০০% নির্ভুল ডেটা)
 # =========================================================================
 
 def extract_verified_job_data(title, article_text, img_paths=None):
@@ -645,40 +650,36 @@ def extract_verified_job_data(title, article_text, img_paths=None):
 Extract EVERY SINGLE separate post and 100% factual data strictly in JSON.
 
 CRITICAL GROUND TRUTH RULES (MUST OBEY):
-1. THE ATTACHED OFFICIAL CIRCULAR IMAGE IS THE SUPREME SOURCE OF TRUTH!
-   Warning: Many Bangladeshi job blogs rewrite salary scales using an unofficial/fictional "2026 Pay Scale" (e.g., doubling 12,500->25,000, 22,000->44,000, 8,250->20,000) or have typos in post counts, deadlines, and fees!
-   Whenever the blog text conflicts with the official circular image(s), ALWAYS copy the EXACT numbers printed on the official circular image(s) (pay scale, grade, vacancy count per post, application fee, deadline)! Use the blog text only to clarify blurry image text or fill in qualifications/fee details if missing in the image.
-2. NEVER invent or hallucinate post names (like calling "বাবুর্চি" as "অসামরিক পদ"). Use the EXACT post name from the circular table!
-3. Do NOT skip any post! If there are 6 posts or 13 posts, list ALL of them individually in "posts".
+1. THE OFFICIAL CIRCULAR IMAGE IS THE SUPREME TRUTH!
+   Warning: Bangladeshi job blogs often rewrite salary scales using an unofficial/fictional "2026 Pay Scale" (e.g. doubling 12,500->25,000, 22,000->44,000, 8,250->20,000) or have typos!
+   Whenever blog text conflicts with circular image(s), ALWAYS copy EXACT numbers printed on the image(s) (salary, grade, vacancy, application fee, deadline).
+2. DO NOT MERGE POSTS! If the circular has 5 or 13 separate posts, extract EVERY SINGLE post separately into the "posts" array.
+3. Use the EXACT post name from the circular (e.g. "বাবুর্চি", "অফিস সহায়ক", "চিত্র শিল্পী", "প্রোগ্রামার সহকারী").
 ---
 TITLE: {title}
-CLEANED ARTICLE TEXT (Tables formatted with | ):
+CLEANED ARTICLE TEXT:
 {article_text[:11500]}
 ---
-
-OTHER RULES:
-- "job_category": Accurately classify as "সরকারি চাকরি", "স্বায়ত্তশাসিত প্রতিষ্ঠান", "বেসরকারি চাকরি", or "ব্যাংক চাকরি".
-- "org_short": Complete, well-known Bengali organization/ministry name (3 to 5 words MAX, NEVER cut awkwardly! E.g. "ট্রেডিং কর্পোরেশন অব বাংলাদেশ", "মিনিস্ট্রি অব ডিফেন্স (MODC)", "কর অঞ্চল-১৪ ঢাকা", "ইসলামী বিশ্ববিদ্যালয়", "বান্দরবান পার্বত্য জেলা পরিষদ").
 
 Return strictly valid JSON:
 {{
   "organization": "Full Bengali organization/company/ministry name",
-  "org_short": "Complete 3-5 word clean name",
+  "org_short": "Complete 3-5 word clean name (e.g. 'পল্লী উন্নয়ন একাডেমী বগুড়া', 'বাংলাদেশ প্রতিযোগিতা কমিশন')",
   "job_category": "সরকারি চাকরি" | "স্বায়ত্তশাসিত প্রতিষ্ঠান" | "বেসরকারি চাকরি" | "ব্যাংক চাকরি",
-  "total_vacancies": "e.g. ০৩টি or ৪৯ জন or ১৮টি",
+  "total_vacancies": "e.g. ১০টি or ১৬ জন or ৪৯ জন",
   "eligibility_summary": "Short 2-4 word range e.g. ৮ম থেকে স্নাতক পাশ",
   "application_fee_summary": "e.g. ৫৬ থেকে ১১২ টাকা or ১০০ ও ২০০ টাকা or আবেদন ফি নেই",
   "deadline": "Exact last date from image/text in Bengali",
   "age_limit": "e.g. ১৮ থেকে ৩০ বছর or ১৮ থেকে ৩২ বছর",
-  "district_eligibility": "e.g. ৬৪ জেলা or শুধু ঢাকা জেলা or শুধু বান্দরবান জেলা",
+  "district_eligibility": "e.g. ৬৪ জেলা or নির্দিষ্ট জেলা",
   "posts": [
     {{
-      "post_name": "Exact post name (and grade if given)",
-      "vacancy_count": "Exact vacancy count for this post",
-      "educational_qualification": "Exact degree/GPA/experience/typing requirement for THIS post",
-      "salary_scale": "Exact salary scale printed on the official circular image/text",
-      "application_fee": "Exact fee for THIS post (e.g. ২০০ টাকা, ১১২ টাকা, ৫৬ টাকা, ৫০০ টাকা, বিনামূল্যে)",
-      "key_duties": "Brief 1-sentence realistic description of this post's work & responsibilities"
+      "post_name": "Exact post name and grade",
+      "vacancy_count": "Exact count for this post (e.g. ০১টি, ০২ জন)",
+      "educational_qualification": "Exact qualification requirement for THIS post",
+      "salary_scale": "Exact salary scale printed on official circular (e.g. ৮,২৫০-২০,০১০ টাকা)",
+      "application_fee": "Exact fee for THIS post (e.g. ১১২ টাকা, ৫৬ টাকা, ২০০ টাকা, বিনামূল্যে)",
+      "key_duties": "Brief 1-sentence realistic description of this post's responsibilities"
     }}
   ]
 }}"""
@@ -700,15 +701,15 @@ Reference Context:
 {article_text[:7000]}
 
 STRICT SCRIPT STRUCTURE:
-1. [সংক্ষিপ্ত ইন্ট্রো — ২০-২৫ সেকেন্ড]: Start with "আসসালামু আলাইকুম প্রিয় চাকরিপ্রার্থী ভাই ও বোনেরা।". Quickly state which organization/company/ministry published the circular, total vacancies, and deadline.
+1. [সংক্ষিপ্ত ইন্ট্রো — ২০-২৫ সেকেন্ড]: Start with "আসসালামু আলাইকুম প্রিয় চাকরিপ্রার্থী ভাই ও বোনেরা।". State which organization/company/ministry published the circular, total vacancies, and deadline.
 2. [প্রতিষ্ঠান/মন্ত্রণালয় পরিচিতি — ২-৩ বাক্য]: Briefly discuss what the organization/ministry does and its career value.
 3. [প্রতিটি আলাদা আলাদা পদের বিস্তারিত আলোচনা — মূল অংশ]:
    Go through EVERY SINGLE post in "posts" ONE BY ONE in exact order (from post #1 to the last post, NEVER skip any post!).
    For EACH individual post, smoothly speak in conversational Bengali:
-   - পদের আসল নাম ও গ্রেড/বেতন স্কেল (যা verified_data-তে আছে ঠিক সেটিই বলুন),
+   - পদের আসল নাম ও গ্রেড/বেতন স্কেল (যা verified_data-তে আছে ঠিক সেটাই বলুন; ভুল সংখ্যা বলবেন না!),
    - এই পদে কতজন লোক নেওয়া হবে,
    - পদটির দায়িত্ব ও কাজ কী,
-   - কী কী শিক্ষাগত যোগ্যতা, জিপিএ ও অভিজ্ঞতা লাগবে (যা ডাটায় আছে তা স্পষ্টভাবে বলবেন, অযথা "বিজ্ঞপ্তিতে দেখুন" বলে এড়িয়ে যাবেন না),
+   - কী কী শিক্ষাগত যোগ্যতা, জিপিএ ও অভিজ্ঞতা লাগবে (যা ডাটায় আছে তা স্পষ্টভাবে বলবেন, বিজ্ঞপ্তিতে দেখুন বলে এড়িয়ে যাবেন না),
    - এবং এই পদে আবেদন করতে কত টাকা আবেদন ফি লাগবে।
    *Formatting rule*: Write continuous natural spoken paragraphs (NO bullet points, NO headings, NO markdown symbols).
 4. [সাধারণ শর্ত ও সুযোগ-সুবিধা]: Mention age limit, eligible districts, and job benefits/allowances.
@@ -864,7 +865,7 @@ Return strictly valid JSON:
 
 
 # =========================================================================
-# 🌟 মূল মাস্টার ফাংশন (মোশন গ্রাফিক্সের জন্য verified_data সহ রিটার্ন)
+# 🌟 মূল মাস্টার ফাংশন
 # =========================================================================
 
 def generate_job_content_with_data(title, article_text, img_paths=None):
