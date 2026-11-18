@@ -17,7 +17,7 @@ NOISE_SELECTOR_RE = re.compile(
     r'(sidebar|widget|toc|table-of-contents|ez-toc|lwptoc|rank-math-toc|faq|accordion|'
     r'related|recent-posts|popular-posts|author-box|comment|share|social|newsletter|'
     r'disclaimer|calculator|breadcrumb|wp-post-image|post-thumbnail|featured-image|'
-    r'entry-header|post-meta|navigation|nav-links|yarpp|crp_related)',
+    r'entry-header|post-meta|navigation|nav-links|yarpp|crp_related|footer|menu)',
     re.I,
 )
 
@@ -79,7 +79,7 @@ def _pick_real_img_src(img_tag, base_url=""):
 def _strip_noise_elements(container):
     for tag in container(['script', 'style', 'noscript', 'nav', 'footer', 'header', 'aside', 'form', 'iframe', 'svg']):
         tag.decompose()
-    for el in list(container.find_all(['div', 'section', 'ul', 'nav'])):
+    for el in list(container.find_all(['div', 'section', 'ul', 'nav', 'p'])):
         if not getattr(el, 'attrs', None):
             continue
         cls = " ".join(el.get('class', [])) if isinstance(el.get('class'), list) else str(el.get('class', ''))
@@ -117,6 +117,7 @@ def extract_image_urls_from_html(html_content, base_url=""):
 
 
 def _clean_article_text(container):
+    # ৩টি ওয়েবসাইটের টেবিল ডাটা নিখুঁতভাবে এক্সট্রাক্ট করা (কলাম যাতে গুলিয়ে না যায়)
     for table in container.find_all('table'):
         rows_txt = []
         for tr in table.find_all('tr'):
@@ -124,9 +125,12 @@ def _clean_article_text(container):
             cells = [c for c in cells if c]
             if cells:
                 rows_txt.append(" | ".join(cells))
-        table.replace_with(NavigableString("\n" + "\n".join(rows_txt) + "\n"))
+        if rows_txt:
+            table.replace_with(NavigableString("\n\n[টেবিল শুরু]\n" + "\n".join(rows_txt) + "\n[টেবিল শেষ]\n\n"))
 
     raw_text = container.get_text(separator='\n', strip=True)
+
+    # অপ্রয়োজনীয় পুরনো সার্কুলার ও ব্লগের বয়লারপ্লেট ফিল্টার
     stop_markers = [
         "সাধারণ জিজ্ঞাসা (FAQ)",
         "আরও চলমান নিয়োগ",
@@ -134,8 +138,7 @@ def _clean_article_text(container):
         "গত ৭ দিনের জনপ্রিয়",
         "নিচে সাম্প্রতিক আরও",
         "প্রস্তুতি ও এক্সপার্ট টিপস",
-        "লিখেছেন ও যাচাই করেছেন",
-        "আমাদের সম্পর্কে",
+        "আবেদন সংক্রান্ত অন্যান্য",
         "Your email address will not be published",
         "Leave a Comment",
     ]
@@ -146,6 +149,9 @@ def _clean_article_text(container):
             continue
         if any(marker in s for marker in stop_markers):
             break
+        # পুরনো ২০২৩/২০২৪ এর অপ্রাসঙ্গিক অংশ বাদ
+        if re.search(r'(২০২৩|২০২৪)\s*সালের\s*নিয়োগ', s) and not re.search(r'২০২৬', s):
+            continue
         lines.append(s)
 
     cleaned = "\n".join(lines)
@@ -190,7 +196,7 @@ def download_image(url, output_path, referer_url=""):
                 f.write(req.content)
             with Image.open(output_path) as im:
                 w, h = im.size
-                if w < 450 or h < 350:
+                if w < 400 or h < 300:
                     os.remove(output_path)
                     return False
                 im.convert("RGB").save(output_path, "JPEG", quality=92)
@@ -259,7 +265,7 @@ def check_new_articles_and_prepare_folders():
                 has_text = bool(article_text and len(article_text.strip()) >= 180)
 
                 if not img_urls and not has_text:
-                    print(f"⏩ Skipping '{folder_title}' (Neither images nor sufficient text found).")
+                    print(f"⏩ Skipping '{folder_title}' (No valid content found).")
                     continue
 
                 folder_path = os.path.join(WORKSPACE_DIR, folder_title)
@@ -278,13 +284,14 @@ def check_new_articles_and_prepare_folders():
 
                 final_img_count = 0
                 if downloaded_info:
+                    # ব্লগের ডেকোরেটিভ ব্যানার (১৬:৯ অনুপাতের ছবি) আলাদা করা
                     non_banners = [item for item in downloaded_info if item[3] < 1.42]
                     if non_banners:
                         for item in downloaded_info:
                             if item[3] >= 1.42:
                                 try:
                                     os.remove(item[0])
-                                    print(f"✂️ [Cover Banner Removed] Dropped blog banner ({item[1]}x{item[2]}).")
+                                    print(f"✂️ [Banner Filtered] Dropped blog cover ({item[1]}x{item[2]}).")
                                 except Exception:
                                     pass
                         kept_files = [item[0] for item in non_banners]
@@ -306,7 +313,6 @@ def check_new_articles_and_prepare_folders():
                         except Exception:
                             pass
 
-                # ছবি না পেলেও পর্যাপ্ত আর্টিকেল টেক্সট থাকলে স্কিপ না করে মোশন গ্রাফিক্স মোডের জন্য সেভ করবে
                 if final_img_count == 0 and not has_text:
                     shutil.rmtree(folder_path, ignore_errors=True)
                     continue
