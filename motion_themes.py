@@ -45,16 +45,31 @@ def to_bn_num(n):
     return str(int(n)).translate(BN_DIGITS)
 
 
-def remove_emojis(text):
+def clean_motion_text(text):
+    """
+    🌟 ফন্ট বক্স (□□□□) দূর করার মাস্টার ফিল্টার
+    অদৃশ্য ইউনিকোড ক্যারেক্টার (ZWJ, ZWNJ, LTR/RTL marks, NBSP), কার্লি কোট ও মিসিং সিম্বল পরিষ্কার করে
+    """
     if not text:
         return ""
-    s = re.sub(r'\s*৳', ' টাকা', str(text))
-    cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆', '', s)
-    return re.sub(r'\s+', ' ', cleaned).strip()
+    s = str(text)
+    # অদৃশ্য ইউনিকোড চিহ্ন যা ফন্টে না থাকায় □ দেখায়
+    s = re.sub(r'[\u200b-\u200f\ufeff\u202a-\u202e\xa0]', ' ', s)
+    # বিশেষ ড্যাশ ও কোটকে স্ট্যান্ডার্ড রূপ দেওয়া
+    s = s.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
+    s = s.replace('—', '-').replace('–', '-').replace('…', '...')
+    # ইমোজি ও মুদ্রা প্রতীক স্বাভাবিক করা
+    s = re.sub(r'\s*৳', ' টাকা', s)
+    s = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆', '', s)
+    return re.sub(r'\s+', ' ', s).strip()
+
+
+def remove_emojis(text):
+    return clean_motion_text(text)
 
 
 # =========================================================================
-# 🌟 ফন্ট ও টেক্সট শেপিং হেল্পার
+# 🌟 ফন্ট ও টেক্সট শেপিং
 # =========================================================================
 
 _FONT_CACHE = {}
@@ -140,7 +155,8 @@ def get_english_bold_font(size):
 
 
 def _split_script_segments(text):
-    tokens = re.split(r'([A-Za-z0-9/.\-:]+)', str(text))
+    clean_t = clean_motion_text(text)
+    tokens = re.split(r'([A-Za-z0-9/.\-:]+)', clean_t)
     segs = []
     for t in tokens:
         if not t:
@@ -189,16 +205,18 @@ def draw_mixed_text(draw, x, y, text, bn_font, font_size, fill, anchor="mm"):
 
 
 def fit_single_line_font(draw, text, font_fn, start_sz, min_sz, max_w):
+    clean_t = clean_motion_text(text)
     for sz in range(start_sz, min_sz - 1, -2):
         f = font_fn(sz)
-        w, _ = measure_mixed_text(draw, text, f, sz)
+        w, _ = measure_mixed_text(draw, clean_t, f, sz)
         if w <= max_w:
             return f, sz
     return font_fn(min_sz), min_sz
 
 
 def fit_multiline_font(draw, text, font_fn, start_sz, min_sz, max_w, max_lines):
-    words = str(text).split()
+    clean_t = clean_motion_text(text)
+    words = clean_t.split()
     if not words:
         return font_fn(min_sz), min_sz, [""]
 
@@ -237,7 +255,7 @@ def fit_multiline_font(draw, text, font_fn, start_sz, min_sz, max_w, max_lines):
 
 
 # =========================================================================
-# 🌟 ইজিং, স্প্রাইট, আইকন ও FFmpeg স্ট্রিমার
+# 🌟 ইজিং ও গ্রাফিক্স প্রিমিটিভ
 # =========================================================================
 
 def ease_out_cubic(t):
@@ -301,9 +319,10 @@ def make_card(w, h, radius=32, fill=(255, 255, 255), border=None, border_w=2, pa
 
 
 def make_text_sprite(text, font_fn, start_sz, min_sz, max_w, max_lines, color, align="mm"):
+    clean_t = clean_motion_text(text)
     tmp = Image.new("RGBA", (max_w + 40, 420), (0, 0, 0, 0))
     td = ImageDraw.Draw(tmp)
-    f, sz, lines = fit_multiline_font(td, text, font_fn, start_sz, min_sz, max_w, max_lines)
+    f, sz, lines = fit_multiline_font(td, clean_t, font_fn, start_sz, min_sz, max_w, max_lines)
     lh = sz + 14
     h = max(sz + 32, len(lines) * lh + 24)
     sp = Image.new("RGBA", (max_w + 40, h), (0, 0, 0, 0))
@@ -317,9 +336,10 @@ def make_text_sprite(text, font_fn, start_sz, min_sz, max_w, max_lines, color, a
 
 
 def make_word_sprites(text, font_fn, start_sz, min_sz, max_w, max_lines, color, center_x, center_y):
+    clean_t = clean_motion_text(text)
     tmp = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
     td = ImageDraw.Draw(tmp)
-    f, sz, lines = fit_multiline_font(td, text, font_fn, start_sz, min_sz, max_w, max_lines)
+    f, sz, lines = fit_multiline_font(td, clean_t, font_fn, start_sz, min_sz, max_w, max_lines)
     lh = sz + 18
     total_h = len(lines) * lh
     cur_y = center_y - total_h // 2 + lh // 2
