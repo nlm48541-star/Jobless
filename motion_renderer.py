@@ -10,6 +10,7 @@ from motion_data import build_motion_timeline
 from motion_themes import (
     MOTION_PALETTES,
     apply_transition,
+    clean_motion_text,
     draw_icon,
     draw_mixed_text,
     ease_out_back,
@@ -76,26 +77,25 @@ def _make_icon_badge(size: int, kind: str, bg_col, icon_col, border_col=None):
 
 
 def _make_labeled_card(w, h, label, value, pal, icon_kind, val_color=None, radius=28):
+    label_clean = clean_motion_text(label)
+    val_clean = clean_motion_text(value)
     card = make_card(w, h, radius=radius, fill=pal["card"], border=pal["border"], border_w=2, pad=18, shadow_alpha=22)
     d = ImageDraw.Draw(card)
     ox, oy = 18, 18
 
-    # বামে হালকা আইকন ব্যাজ
     ib_sz = min(84, int(h * 0.56))
     ib = _make_icon_badge(ib_sz, icon_kind, pal["tint"], pal["accent"], pal["border"])
     ix = ox + 26
     iy = oy + (h - ib_sz) // 2
     card.paste(ib, (ix, iy), ib.getchannel("A"))
 
-    # ডানে লেবেল + বড় ভ্যালু
     tx_left = ix + ib_sz + 24
     text_max_w = max(120, (ox + w - 24) - tx_left)
-    tx_cx = tx_left + text_max_w // 2
 
-    lf, lsz = fit_single_line_font(d, label, get_body_font, 32, 22, text_max_w)
-    draw_mixed_text(d, tx_left, oy + int(h * 0.28), label, lf, lsz, pal["muted"], anchor="lm")
+    lf, lsz = fit_single_line_font(d, label_clean, get_body_font, 32, 22, text_max_w)
+    draw_mixed_text(d, tx_left, oy + int(h * 0.28), label_clean, lf, lsz, pal["muted"], anchor="lm")
 
-    vf, vsz, vlines = fit_multiline_font(d, value, get_body_font, 44, 24, text_max_w, 3)
+    vf, vsz, vlines = fit_multiline_font(d, val_clean, get_body_font, 44, 24, text_max_w, 3)
     lh = vsz + 10
     start_y = oy + int(h * 0.64) - ((len(vlines) - 1) * lh) // 2
     for ln in vlines:
@@ -106,7 +106,6 @@ def _make_labeled_card(w, h, label, value, pal, icon_kind, val_color=None, radiu
 
 
 def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
-    """প্রতিটি বিটের জন্য একবারই সব কার্ড/টেক্সট স্প্রাইট তৈরি করে নেয় (দ্রুত রেন্ডারিংয়ের জন্য)"""
     btype = beat["type"]
     p = beat["payload"]
     assets = {"type": btype}
@@ -116,17 +115,17 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
         org_cy = 675 if is_vertical else 435
         assets["emblem"] = make_emblem_sprite(pal)
         assets["org_words"] = make_word_sprites(
-            p["org"], get_display_font, 88 if is_vertical else 96, 46, org_max_w, 2, pal["ink"], W // 2, org_cy
+            clean_motion_text(p["org"]), get_display_font, 88 if is_vertical else 96, 46, org_max_w, 2, pal["ink"], W // 2, org_cy
         )
         bw, bh = (620, 126) if is_vertical else (660, 114)
         badge = make_card(bw, bh, radius=bh // 2, fill=pal["accent"], shadow_alpha=28)
         bd = ImageDraw.Draw(badge)
-        bf, bsz = fit_single_line_font(bd, p["cat_badge"], get_body_font, 52, 30, bw - 60)
-        draw_mixed_text(bd, badge.width // 2, badge.height // 2, p["cat_badge"], bf, bsz, (255, 255, 255), anchor="mm")
+        bf, bsz = fit_single_line_font(bd, clean_motion_text(p["cat_badge"]), get_body_font, 52, 30, bw - 60)
+        draw_mixed_text(bd, badge.width // 2, badge.height // 2, clean_motion_text(p["cat_badge"]), bf, bsz, (255, 255, 255), anchor="mm")
         assets["badge"] = badge
 
-        sub_txt = f"মোট শূন্যপদ: {p['vac_display']}  |  {p['elig_sum']}"
-        assets["sub_sp"] = make_text_sprite(sub_txt, get_body_font, 46, 26, org_max_w, 2, pal["muted"])
+        sub_txt = f"মোট শূন্যপদ: {p['vac_display']} | {p['elig_sum']}"
+        assets["sub_sp"] = make_text_sprite(clean_motion_text(sub_txt), get_body_font, 46, 26, org_max_w, 2, pal["muted"])
 
     elif btype == "org_overview":
         cw, ch = (880, 350) if is_vertical else (880, 290)
@@ -136,9 +135,10 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
         vd.rectangle([20, 75, 20 + cw, 110], fill=pal["tint"] + (255,))
         draw_mixed_text(vd, vac_card.width // 2, 65, "মোট শূন্যপদ", get_body_font(44), 44, pal["accent"], anchor="mm")
         assets["vac_card"] = vac_card
-        assets["vac_num"] = p["vac_num"]
-        assets["static_num"] = make_text_sprite(p["vac_display"], get_display_font, 155, 64, cw - 80, 1, pal["ink"])
-        assets["count_cache"] = {}
+
+        # 🌟 ফিক্স: ফ্লিকারিং বন্ধ — শুরু থেকেই সঠিক চূড়ান্ত সংখ্যা স্প্রাইট দেখানো
+        num_clean = clean_motion_text(p["vac_display"] if not p.get("vac_num") else f"{to_bn_num(p['vac_num'])}টি")
+        assets["final_num_sp"] = make_text_sprite(num_clean, get_display_font, 160, 64, cw - 80, 1, pal["ink"])
 
         chips = [
             ("যোগ্য এলাকা", p["district"], "loc"),
@@ -157,20 +157,22 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
         total_posts = p["total_posts"]
         idx_lbl = f"পদ {to_bn_num(post['index'])} / {to_bn_num(total_posts)}"
 
-        pw_idx = 340 if is_vertical else 340
+        pw_idx = 340
         idx_pill = make_card(pw_idx, 82, radius=41, fill=pal["tint"], border=pal["accent"], border_w=3, shadow_alpha=12)
         draw_mixed_text(ImageDraw.Draw(idx_pill), idx_pill.width // 2, idx_pill.height // 2, idx_lbl, get_body_font(38), 38, pal["accent"], anchor="mm")
         assets["idx_pill"] = idx_pill
 
         vac_pill = make_card(pw_idx, 82, radius=41, fill=pal["accent"], shadow_alpha=18)
-        vf, vsz = fit_single_line_font(ImageDraw.Draw(vac_pill), f"পদ: {post['vacancy']}", get_body_font, 38, 24, pw_idx - 40)
-        draw_mixed_text(ImageDraw.Draw(vac_pill), vac_pill.width // 2, vac_pill.height // 2, f"পদ: {post['vacancy']}", vf, vsz, (255, 255, 255), anchor="mm")
+        clean_vac = clean_motion_text(f"পদ: {post['vacancy']}")
+        vf, vsz = fit_single_line_font(ImageDraw.Draw(vac_pill), clean_vac, get_body_font, 38, 24, pw_idx - 40)
+        draw_mixed_text(ImageDraw.Draw(vac_pill), vac_pill.width // 2, vac_pill.height // 2, clean_vac, vf, vsz, (255, 255, 255), anchor="mm")
         assets["vac_pill"] = vac_pill
 
         title_w = 940 if is_vertical else 1560
         title_h = 180 if is_vertical else 138
         t_card = make_card(title_w, title_h, radius=32, fill=pal["card"], border=pal["accent"], border_w=3, shadow_alpha=26)
-        tf, tsz, tlines = fit_multiline_font(ImageDraw.Draw(t_card), post["post_name"], get_display_font, 60 if is_vertical else 58, 30, title_w - 70, 2)
+        clean_pname = clean_motion_text(post["post_name"])
+        tf, tsz, tlines = fit_multiline_font(ImageDraw.Draw(t_card), clean_pname, get_display_font, 60 if is_vertical else 58, 30, title_w - 70, 2)
         tlh = tsz + 12
         ty = t_card.height // 2 - ((len(tlines) - 1) * tlh) // 2
         for ln in tlines:
@@ -191,7 +193,8 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
 
     elif btype == "post_details":
         post = p["post"]
-        assets["hdr"] = make_text_sprite(f"{post['post_name']} — বিস্তারিত শর্ত", get_display_font, 56, 32, 920 if is_vertical else 1560, 2, pal["ink"])
+        clean_pname = clean_motion_text(post["post_name"])
+        assets["hdr"] = make_text_sprite(f"{clean_pname} — বিস্তারিত শর্ত", get_display_font, 56, 32, 920 if is_vertical else 1560, 2, pal["ink"])
         if is_vertical:
             assets["qual_card"] = _make_labeled_card(940, 340, "শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা", post["qualification"], pal, "edu")
             assets["duty_card"] = _make_labeled_card(940, 300, "পদের দায়িত্ব ও কাজ", post["duties"], pal, "briefcase")
@@ -235,7 +238,7 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
         draw_mixed_text(d, lx, int(card.height * 0.30), "আবেদন অবস্থা", get_body_font(40), 40, pal["muted"], anchor="mm")
         draw_mixed_text(d, lx, int(card.height * 0.62), "চলমান", get_display_font(66), 66, pal["ink"], anchor="mm")
         draw_mixed_text(d, rx, int(card.height * 0.30), "শেষ তারিখ", get_body_font(40), 40, pal["accent"], anchor="mm")
-        rf, rsz, rlines = fit_multiline_font(d, p["deadline"], get_display_font, 58, 30, int(cw * 0.40), 2)
+        rf, rsz, rlines = fit_multiline_font(d, clean_motion_text(p["deadline"]), get_display_font, 58, 30, int(cw * 0.40), 2)
         ry = int(card.height * 0.62) - ((len(rlines) - 1) * (rsz + 10)) // 2
         for ln in rlines:
             draw_mixed_text(d, rx, ry, ln, rf, rsz, pal["accent"], anchor="mm")
@@ -288,24 +291,23 @@ def render_motion_video(verified_data, voiceover_script, title, audio_path, outp
     bg_base = Image.new("RGB", (W, H), pal["bg"])
     curl_sp = make_curl_sprite(H)
 
-    # ফ্লোটিং টপ হেডার বার (intro ও whatsapp_cta বাদে বাকি সব বিটে থাকবে)
+    # ফ্লোটিং টপ হেডার বার
     hw, hh = (920, 104) if is_vertical else (1460, 82)
     hdr_sp = make_card(hw, hh, radius=hh // 2, fill=pal["card"], border=pal["border"], border_w=2, pad=18, shadow_alpha=20)
     hd = ImageDraw.Draw(hdr_sp)
-    hf, hsz = fit_single_line_font(hd, timeline["org"], get_body_font, 42 if is_vertical else 38, 22, hw - 290)
-    draw_mixed_text(hd, 76, hdr_sp.height // 2, timeline["org"], hf, hsz, pal["ink"], anchor="lm")
+    clean_org = clean_motion_text(timeline["org"])
+    hf, hsz = fit_single_line_font(hd, clean_org, get_body_font, 42 if is_vertical else 38, 22, hw - 290)
+    draw_mixed_text(hd, 76, hdr_sp.height // 2, clean_org, hf, hsz, pal["ink"], anchor="lm")
     bx1 = hdr_sp.width - 220
     hd.rounded_rectangle([bx1, 28, hdr_sp.width - 34, hdr_sp.height - 28], radius=22, fill=pal["tint"] + (255,), outline=pal["accent"] + (255,), width=2)
     draw_mixed_text(hd, (bx1 + hdr_sp.width - 34) // 2, hdr_sp.height // 2, "বিজ্ঞপ্তি", get_body_font(30), 30, pal["accent"], anchor="mm")
 
-    # সবগুলো বিটের স্প্রাইট প্রি-রেন্ডার করা
     scene_assets = [_prepare_scene_assets(b, timeline, pal, W, H, is_vertical) for b in beats]
     trans_styles = ["curl", "push_left", "slide_up", "fade"]
     trans_sec = min(0.42, duration * 0.025)
 
     def draw_ambient_motion(frame, abs_t):
         fd = ImageDraw.Draw(frame)
-        # ডায়নামিক ভাসমান মিনিমালিস্টিক জ্যামিতিক শেপ
         x1 = int((abs_t * 62) % (W + 360)) - 180
         x2 = int(W + 180 - ((abs_t * 50) % (W + 360)))
         y_top = 80 if is_vertical else 52
@@ -328,7 +330,6 @@ def render_motion_video(verified_data, voiceover_script, title, audio_path, outp
             dot_r = 9 + int(3 * math.sin(abs_t * 5.0))
             fd.ellipse([dot_x - dot_r, hy - dot_r, dot_x + dot_r, hy + dot_r], fill=pal["accent"])
 
-        # গ্লোবাল নিচের স্মুথ প্রগ্রেস বার
         px1, px2 = (140, 940) if is_vertical else (260, 1660)
         py = 1715 if is_vertical else 990
         ratio = max(0.0, min(1.0, abs_t / duration))
@@ -371,33 +372,21 @@ def render_motion_video(verified_data, voiceover_script, title, audio_path, outp
             cp = ease_out_back(min(1.0, local_t / 0.40))
             paste_sprite(frame, ast["vac_card"], W // 2, vy, scale=0.8 + 0.2 * cp, opacity=min(1.0, local_t / 0.20))
 
-            vnum = ast["vac_num"]
+            # 🌟 ফিক্স: শুরু থেকেই সঠিক সংখ্যা পপ-ইন হবে (কাউন্টার ফ্লিকার সম্পূর্ণ বন্ধ)
             num_y = vy + 45
-            if vnum > 0:
-                cnt_p = ease_out_cubic(min(1.0, max(0.0, local_t - 0.12) / 1.15))
-                cur_val = max(1, int(round(vnum * cnt_p)))
-                cache = ast["count_cache"]
-                if cur_val not in cache:
-                    if len(cache) > 50:
-                        cache.clear()
-                    cache[cur_val] = make_text_sprite(to_bn_num(cur_val) + "টি", get_display_font, 155, 64, 780, 1, pal["ink"])
-                land_t = local_t - 1.27
-                pop_sc = (1.0 + 0.12 * math.sin((land_t / 0.32) * math.pi)) if 0.0 <= land_t <= 0.32 else 1.0
-                paste_sprite(frame, cache[cur_val], W // 2, num_y, scale=pop_sc)
-            else:
-                paste_sprite(frame, ast["static_num"], W // 2, num_y, scale=0.8 + 0.2 * cp, opacity=min(1.0, local_t / 0.25))
+            pop_p = ease_out_back(min(1.0, max(0.0, local_t - 0.08) / 0.36))
+            pulse = 1.0 + 0.025 * math.sin(abs_t * 3.6)
+            paste_sprite(frame, ast["final_num_sp"], W // 2, num_y, scale=(0.78 + 0.22 * pop_p) * pulse, opacity=min(1.0, local_t / 0.18))
 
-            # ৩টি চিপ একের পর এক আসবে (০.৭s, ১.৮s, ২.৯s পর)
             chip_coords = [(540, 880), (540, 1055), (540, 1230)] if is_vertical else [(395, 665), (960, 665), (1525, 665)]
             for idx_c, chip_sp in enumerate(ast["chips"]):
-                st = 0.65 + idx_c * min(1.1, b_dur * 0.14)
+                st = 0.55 + idx_c * min(1.0, b_dur * 0.14)
                 if local_t > st:
                     cx, cy = chip_coords[idx_c]
                     sp_p = ease_out_back((local_t - st) / 0.34)
                     paste_sprite(frame, chip_sp, cx, cy, scale=0.82 + 0.18 * sp_p, opacity=min(1.0, (local_t - st) / 0.20))
 
         elif btype == "post_spotlight":
-            # প্রতি পদের কার্ডগুলো কথার সাথে ধাপে ধাপে (০%, ১০%, ২২%, ৪০%, ৬০%, ৭৮%) আসবে
             u = local_t / max(0.5, b_dur)
             if is_vertical:
                 paste_sprite(frame, ast["idx_pill"], 295, 300, scale=0.75 + 0.25 * ease_out_back(local_t / 0.32), opacity=min(1.0, local_t / 0.18))
