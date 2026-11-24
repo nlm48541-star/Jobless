@@ -16,7 +16,9 @@ from motion_themes import (
     ease_out_back,
     ease_out_cubic,
     fit_multiline_font,
+    fit_multiline_to_box,
     fit_single_line_font,
+    fit_single_line_text,
     get_body_font,
     get_display_font,
     get_english_bold_font,
@@ -83,21 +85,26 @@ def _make_labeled_card(w, h, label, value, pal, icon_kind, val_color=None, radiu
     d = ImageDraw.Draw(card)
     ox, oy = 18, 18
 
-    ib_sz = min(84, int(h * 0.56))
+    ib_sz = min(82, int(h * 0.50))
     ib = _make_icon_badge(ib_sz, icon_kind, pal["tint"], pal["accent"], pal["border"])
-    ix = ox + 26
+    ix = ox + 24
     iy = oy + (h - ib_sz) // 2
     card.paste(ib, (ix, iy), ib.getchannel("A"))
 
-    tx_left = ix + ib_sz + 24
-    text_max_w = max(120, (ox + w - 24) - tx_left)
+    tx_left = ix + ib_sz + 22
+    text_max_w = max(120, (ox + w - 22) - tx_left)
 
-    lf, lsz = fit_single_line_font(d, label_clean, get_body_font, 32, 22, text_max_w)
-    draw_mixed_text(d, tx_left, oy + int(h * 0.28), label_clean, lf, lsz, pal["muted"], anchor="lm")
+    lf, lsz, lbl_fitted = fit_single_line_text(d, label_clean, get_body_font, 28, 18, text_max_w)
+    draw_mixed_text(d, tx_left, oy + 30, lbl_fitted, lf, lsz, pal["muted"], anchor="lm")
 
-    vf, vsz, vlines = fit_multiline_font(d, val_clean, get_body_font, 44, 24, text_max_w, 3)
-    lh = vsz + 10
-    start_y = oy + int(h * 0.64) - ((len(vlines) - 1) * lh) // 2
+    val_top = oy + 52
+    val_bottom = oy + h - 14
+    avail_val_h = max(40, val_bottom - val_top)
+
+    vf, vsz, vlines = fit_multiline_to_box(d, val_clean, get_body_font, 40, 18, text_max_w, avail_val_h, line_gap=8)
+    lh = vsz + 8
+    block_cy = (val_top + val_bottom) // 2
+    start_y = block_cy - ((len(vlines) - 1) * lh) // 2
     for ln in vlines:
         draw_mixed_text(d, tx_left, start_y, ln, vf, vsz, val_color or pal["ink"], anchor="lm")
         start_y += lh
@@ -120,12 +127,12 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
         bw, bh = (620, 126) if is_vertical else (660, 114)
         badge = make_card(bw, bh, radius=bh // 2, fill=pal["accent"], shadow_alpha=28)
         bd = ImageDraw.Draw(badge)
-        bf, bsz = fit_single_line_font(bd, clean_motion_text(p["cat_badge"]), get_body_font, 52, 30, bw - 60)
-        draw_mixed_text(bd, badge.width // 2, badge.height // 2, clean_motion_text(p["cat_badge"]), bf, bsz, (255, 255, 255), anchor="mm")
+        bf, bsz, b_txt = fit_single_line_text(bd, clean_motion_text(p["cat_badge"]), get_body_font, 52, 24, bw - 60)
+        draw_mixed_text(bd, badge.width // 2, badge.height // 2, b_txt, bf, bsz, (255, 255, 255), anchor="mm")
         assets["badge"] = badge
 
         sub_txt = f"মোট শূন্যপদ: {p['vac_display']} | {p['elig_sum']}"
-        assets["sub_sp"] = make_text_sprite(clean_motion_text(sub_txt), get_body_font, 46, 26, org_max_w, 2, pal["muted"])
+        assets["sub_sp"] = make_text_sprite(clean_motion_text(sub_txt), get_body_font, 46, 24, org_max_w, 2, pal["muted"])
 
     elif btype == "org_overview":
         cw, ch = (880, 350) if is_vertical else (880, 290)
@@ -136,9 +143,8 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
         draw_mixed_text(vd, vac_card.width // 2, 65, "মোট শূন্যপদ", get_body_font(44), 44, pal["accent"], anchor="mm")
         assets["vac_card"] = vac_card
 
-        # 🌟 ফিক্স: ফ্লিকারিং বন্ধ — শুরু থেকেই সঠিক চূড়ান্ত সংখ্যা স্প্রাইট দেখানো
         num_clean = clean_motion_text(p["vac_display"] if not p.get("vac_num") else f"{to_bn_num(p['vac_num'])}টি")
-        assets["final_num_sp"] = make_text_sprite(num_clean, get_display_font, 160, 64, cw - 80, 1, pal["ink"])
+        assets["final_num_sp"] = make_text_sprite(num_clean, get_display_font, 160, 58, cw - 80, 1, pal["ink"])
 
         chips = [
             ("যোগ্য এলাকা", p["district"], "loc"),
@@ -146,7 +152,7 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
             ("আবেদন ফি", p["fee_sum"], "salary"),
         ]
         chip_w = 880 if is_vertical else 520
-        chip_h = 140 if is_vertical else 135
+        chip_h = 155 if is_vertical else 150
         assets["chips"] = [
             _make_labeled_card(chip_w, chip_h, lbl, val, pal, kind, radius=28)
             for lbl, val, kind in chips
@@ -155,6 +161,8 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
     elif btype == "post_spotlight":
         post = p["post"]
         total_posts = p["total_posts"]
+        part = p.get("part", "full")
+        assets["part"] = part
         idx_lbl = f"পদ {to_bn_num(post['index'])} / {to_bn_num(total_posts)}"
 
         pw_idx = 340
@@ -162,50 +170,57 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
         draw_mixed_text(ImageDraw.Draw(idx_pill), idx_pill.width // 2, idx_pill.height // 2, idx_lbl, get_body_font(38), 38, pal["accent"], anchor="mm")
         assets["idx_pill"] = idx_pill
 
-        vac_pill = make_card(pw_idx, 82, radius=41, fill=pal["accent"], shadow_alpha=18)
+        pw_vac = 420
+        vac_pill = make_card(pw_vac, 82, radius=41, fill=pal["accent"], shadow_alpha=18)
         clean_vac = clean_motion_text(f"পদ: {post['vacancy']}")
-        vf, vsz = fit_single_line_font(ImageDraw.Draw(vac_pill), clean_vac, get_body_font, 38, 24, pw_idx - 40)
-        draw_mixed_text(ImageDraw.Draw(vac_pill), vac_pill.width // 2, vac_pill.height // 2, clean_vac, vf, vsz, (255, 255, 255), anchor="mm")
+        vf, vsz, vac_fitted = fit_single_line_text(ImageDraw.Draw(vac_pill), clean_vac, get_body_font, 36, 18, pw_vac - 44)
+        draw_mixed_text(ImageDraw.Draw(vac_pill), vac_pill.width // 2, vac_pill.height // 2, vac_fitted, vf, vsz, (255, 255, 255), anchor="mm")
         assets["vac_pill"] = vac_pill
 
-        title_w = 940 if is_vertical else 1560
-        title_h = 180 if is_vertical else 138
+        title_w = 940 if is_vertical else 1570
+        title_h = (205 if part == "overview" else 195) if is_vertical else (160 if part == "overview" else 152)
         t_card = make_card(title_w, title_h, radius=32, fill=pal["card"], border=pal["accent"], border_w=3, shadow_alpha=26)
         clean_pname = clean_motion_text(post["post_name"])
-        tf, tsz, tlines = fit_multiline_font(ImageDraw.Draw(t_card), clean_pname, get_display_font, 60 if is_vertical else 58, 30, title_w - 70, 2)
-        tlh = tsz + 12
+        tf, tsz, tlines = fit_multiline_to_box(ImageDraw.Draw(t_card), clean_pname, get_display_font, 58, 22, title_w - 64, title_h - 32, line_gap=10)
+        tlh = tsz + 10
         ty = t_card.height // 2 - ((len(tlines) - 1) * tlh) // 2
         for ln in tlines:
             draw_mixed_text(ImageDraw.Draw(t_card), t_card.width // 2, ty, ln, tf, tsz, pal["ink"], anchor="mm")
             ty += tlh
         assets["title_card"] = t_card
 
-        if is_vertical:
-            assets["sal_card"] = _make_labeled_card(940, 195, "বেতন স্কেল ও গ্রেড", post["salary"], pal, "salary", val_color=pal["accent"])
-            assets["qual_card"] = _make_labeled_card(940, 225, "শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা", post["qualification"], pal, "edu")
-            assets["duty_card"] = _make_labeled_card(940, 210, "পদের দায়িত্ব ও কাজ", post["duties"], pal, "briefcase")
-            assets["fee_card"] = _make_labeled_card(940, 170, "আবেদন ফি", post["fee"], pal, "fee", val_color=pal["accent_2"])
+        if part == "overview":
+            if is_vertical:
+                assets["sal_card"] = _make_labeled_card(940, 310, "বেতন স্কেল ও গ্রেড", post["salary"], pal, "salary", val_color=pal["accent"])
+                assets["duty_card"] = _make_labeled_card(940, 320, "পদের দায়িত্ব ও কাজ", post["duties"], pal, "briefcase")
+            else:
+                assets["sal_card"] = _make_labeled_card(760, 320, "বেতন স্কেল ও গ্রেড", post["salary"], pal, "salary", val_color=pal["accent"])
+                assets["duty_card"] = _make_labeled_card(760, 320, "পদের দায়িত্ব ও কাজ", post["duties"], pal, "briefcase")
         else:
-            assets["sal_card"] = _make_labeled_card(760, 215, "বেতন স্কেল ও গ্রেড", post["salary"], pal, "salary", val_color=pal["accent"])
-            assets["qual_card"] = _make_labeled_card(760, 215, "শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা", post["qualification"], pal, "edu")
-            assets["duty_card"] = _make_labeled_card(1060, 175, "পদের দায়িত্ব ও কাজ", post["duties"], pal, "briefcase")
-            assets["fee_card"] = _make_labeled_card(460, 175, "আবেদন ফি", post["fee"], pal, "fee", val_color=pal["accent_2"])
+            if is_vertical:
+                assets["sal_card"] = _make_labeled_card(940, 190, "বেতন স্কেল ও গ্রেড", post["salary"], pal, "salary", val_color=pal["accent"])
+                assets["duty_card"] = _make_labeled_card(940, 205, "পদের দায়িত্ব ও কাজ", post["duties"], pal, "briefcase")
+                assets["qual_card"] = _make_labeled_card(940, 220, "শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা", post["qualification"], pal, "edu")
+                assets["fee_card"] = _make_labeled_card(940, 170, "আবেদন ফি", post["fee"], pal, "fee", val_color=pal["accent_2"])
+            else:
+                assets["sal_card"] = _make_labeled_card(760, 210, "বেতন স্কেল ও গ্রেড", post["salary"], pal, "salary", val_color=pal["accent"])
+                assets["qual_card"] = _make_labeled_card(760, 210, "শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা", post["qualification"], pal, "edu")
+                assets["duty_card"] = _make_labeled_card(980, 180, "পদের দায়িত্ব ও কাজ", post["duties"], pal, "briefcase")
+                assets["fee_card"] = _make_labeled_card(540, 180, "আবেদন ফি", post["fee"], pal, "fee", val_color=pal["accent_2"])
 
     elif btype == "post_details":
         post = p["post"]
         clean_pname = clean_motion_text(post["post_name"])
-        assets["hdr"] = make_text_sprite(f"{clean_pname} — বিস্তারিত শর্ত", get_display_font, 56, 32, 920 if is_vertical else 1560, 2, pal["ink"])
+        assets["hdr"] = make_text_sprite(f"{clean_pname} — যোগ্যতা ও আবেদন ফি", get_display_font, 52, 26, 920 if is_vertical else 1560, 2, pal["ink"])
         if is_vertical:
-            assets["qual_card"] = _make_labeled_card(940, 340, "শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা", post["qualification"], pal, "edu")
-            assets["duty_card"] = _make_labeled_card(940, 300, "পদের দায়িত্ব ও কাজ", post["duties"], pal, "briefcase")
-            assets["fee_card"] = _make_labeled_card(940, 250, "আবেদন ফি", post["fee"], pal, "fee", val_color=pal["accent"])
+            assets["qual_card"] = _make_labeled_card(940, 440, "শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা", post["qualification"], pal, "edu")
+            assets["fee_card"] = _make_labeled_card(940, 320, "আবেদন ফি", post["fee"], pal, "fee", val_color=pal["accent"])
         else:
-            assets["qual_card"] = _make_labeled_card(840, 420, "শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা", post["qualification"], pal, "edu")
-            assets["duty_card"] = _make_labeled_card(680, 200, "পদের দায়িত্ব ও কাজ", post["duties"], pal, "briefcase")
-            assets["fee_card"] = _make_labeled_card(680, 200, "আবেদন ফি", post["fee"], pal, "fee", val_color=pal["accent"])
+            assets["qual_card"] = _make_labeled_card(960, 390, "শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা", post["qualification"], pal, "edu")
+            assets["fee_card"] = _make_labeled_card(560, 390, "আবেদন ফি", post["fee"], pal, "fee", val_color=pal["accent"])
 
     elif btype == "conditions":
-        assets["hdr"] = make_text_sprite("আবেদনের শর্ত ও সুযোগ-সুবিধা", get_display_font, 60, 38, 900 if is_vertical else 1400, 1, pal["ink"])
+        assets["hdr"] = make_text_sprite("আবেদনের শর্ত ও সুযোগ-সুবিধা", get_display_font, 60, 36, 900 if is_vertical else 1400, 1, pal["ink"])
         cw, ch = (450, 400) if is_vertical else (760, 270)
         items = [
             ("বয়সসীমা", p["age_limit"], "age"),
@@ -219,8 +234,8 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
                 c = make_card(cw, ch, radius=34, fill=pal["tint"] if idx4 in (1, 2) else pal["card"], border=pal["border"], border_w=2)
                 ib = _make_icon_badge(104, kind, pal["card"] if idx4 in (1, 2) else pal["tint"], pal["accent"])
                 paste_sprite(c, ib, c.width // 2, 95)
-                lsp = make_text_sprite(lbl, get_body_font, 40, 28, cw - 40, 1, pal["muted"])
-                vsp = make_text_sprite(val, get_body_font, 46, 26, cw - 48, 3, pal["ink"])
+                lsp = make_text_sprite(lbl, get_body_font, 38, 24, cw - 40, 1, pal["muted"])
+                vsp = make_text_sprite(val, get_body_font, 42, 20, cw - 48, 3, pal["ink"])
                 paste_sprite(c, lsp, c.width // 2, 185)
                 paste_sprite(c, vsp, c.width // 2, 295)
             else:
@@ -238,7 +253,7 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
         draw_mixed_text(d, lx, int(card.height * 0.30), "আবেদন অবস্থা", get_body_font(40), 40, pal["muted"], anchor="mm")
         draw_mixed_text(d, lx, int(card.height * 0.62), "চলমান", get_display_font(66), 66, pal["ink"], anchor="mm")
         draw_mixed_text(d, rx, int(card.height * 0.30), "শেষ তারিখ", get_body_font(40), 40, pal["accent"], anchor="mm")
-        rf, rsz, rlines = fit_multiline_font(d, clean_motion_text(p["deadline"]), get_display_font, 58, 30, int(cw * 0.40), 2)
+        rf, rsz, rlines = fit_multiline_to_box(d, clean_motion_text(p["deadline"]), get_display_font, 56, 24, int(cw * 0.40), int(ch * 0.45), line_gap=10)
         ry = int(card.height * 0.62) - ((len(rlines) - 1) * (rsz + 10)) // 2
         for ln in rlines:
             draw_mixed_text(d, rx, ry, ln, rf, rsz, pal["accent"], anchor="mm")
@@ -272,7 +287,7 @@ def _prepare_scene_assets(beat, timeline, pal, W, H, is_vertical):
     return assets
 
 
-def render_motion_video(verified_data, voiceover_script, title, audio_path, output_path, is_vertical=False, fps=25):
+def render_motion_video(verified_data, voiceover_script, title, audio_path, output_path, is_vertical=False, fps=25, segment_timings=None):
     """
     ১৬:৯ (1920x1080) এবং ৯:১৬ (1080x1920) — উভয় ফরম্যাটে ২০টি র‍্যান্ডম কালার থিমে
     অডিও-সিঙ্কড প্রিমিয়াম মিনিমালিস্টিক মোশন গ্রাফিক্স ভিডিও রেন্ডার করে।
@@ -283,7 +298,7 @@ def render_motion_video(verified_data, voiceover_script, title, audio_path, outp
     duration = max(12.0, _get_audio_duration(audio_path))
     W, H = (1080, 1920) if is_vertical else (1920, 1080)
     pal = random.choice(MOTION_PALETTES)
-    timeline = build_motion_timeline(verified_data, voiceover_script, title, duration)
+    timeline = build_motion_timeline(verified_data, voiceover_script, title, duration, segment_timings=segment_timings)
     beats = timeline["beats"]
 
     print(f"🎬 [Motion Graphics Engine] Theme='{pal['name']}' | Size={W}x{H} | Duration={duration:.1f}s | Beats={len(beats)}")
@@ -291,20 +306,20 @@ def render_motion_video(verified_data, voiceover_script, title, audio_path, outp
     bg_base = Image.new("RGB", (W, H), pal["bg"])
     curl_sp = make_curl_sprite(H)
 
-    # ফ্লোটিং টপ হেডার বার
+    # ফ্লোটিং টপ হেডার বার (বামের ডট ও টেক্সটের মাঝে পরিষ্কার গ্যাপ)
     hw, hh = (920, 104) if is_vertical else (1460, 82)
     hdr_sp = make_card(hw, hh, radius=hh // 2, fill=pal["card"], border=pal["border"], border_w=2, pad=18, shadow_alpha=20)
     hd = ImageDraw.Draw(hdr_sp)
     clean_org = clean_motion_text(timeline["org"])
-    hf, hsz = fit_single_line_font(hd, clean_org, get_body_font, 42 if is_vertical else 38, 22, hw - 290)
-    draw_mixed_text(hd, 76, hdr_sp.height // 2, clean_org, hf, hsz, pal["ink"], anchor="lm")
+    hf, hsz, org_fitted = fit_single_line_text(hd, clean_org, get_body_font, 42 if is_vertical else 38, 18, hw - 320)
+    draw_mixed_text(hd, 94, hdr_sp.height // 2, org_fitted, hf, hsz, pal["ink"], anchor="lm")
     bx1 = hdr_sp.width - 220
     hd.rounded_rectangle([bx1, 28, hdr_sp.width - 34, hdr_sp.height - 28], radius=22, fill=pal["tint"] + (255,), outline=pal["accent"] + (255,), width=2)
     draw_mixed_text(hd, (bx1 + hdr_sp.width - 34) // 2, hdr_sp.height // 2, "বিজ্ঞপ্তি", get_body_font(30), 30, pal["accent"], anchor="mm")
 
     scene_assets = [_prepare_scene_assets(b, timeline, pal, W, H, is_vertical) for b in beats]
     trans_styles = ["curl", "push_left", "slide_up", "fade"]
-    trans_sec = min(0.42, duration * 0.025)
+    trans_sec = min(0.30, duration * 0.025)
 
     def draw_ambient_motion(frame, abs_t):
         fd = ImageDraw.Draw(frame)
@@ -372,15 +387,14 @@ def render_motion_video(verified_data, voiceover_script, title, audio_path, outp
             cp = ease_out_back(min(1.0, local_t / 0.40))
             paste_sprite(frame, ast["vac_card"], W // 2, vy, scale=0.8 + 0.2 * cp, opacity=min(1.0, local_t / 0.20))
 
-            # 🌟 ফিক্স: শুরু থেকেই সঠিক সংখ্যা পপ-ইন হবে (কাউন্টার ফ্লিকার সম্পূর্ণ বন্ধ)
             num_y = vy + 45
             pop_p = ease_out_back(min(1.0, max(0.0, local_t - 0.08) / 0.36))
             pulse = 1.0 + 0.025 * math.sin(abs_t * 3.6)
             paste_sprite(frame, ast["final_num_sp"], W // 2, num_y, scale=(0.78 + 0.22 * pop_p) * pulse, opacity=min(1.0, local_t / 0.18))
 
-            chip_coords = [(540, 880), (540, 1055), (540, 1230)] if is_vertical else [(395, 665), (960, 665), (1525, 665)]
+            chip_coords = [(540, 880), (540, 1065), (540, 1250)] if is_vertical else [(395, 665), (960, 665), (1525, 665)]
             for idx_c, chip_sp in enumerate(ast["chips"]):
-                st = 0.55 + idx_c * min(1.0, b_dur * 0.14)
+                st = 0.45 + idx_c * min(1.0, b_dur * 0.14)
                 if local_t > st:
                     cx, cy = chip_coords[idx_c]
                     sp_p = ease_out_back((local_t - st) / 0.34)
@@ -388,73 +402,87 @@ def render_motion_video(verified_data, voiceover_script, title, audio_path, outp
 
         elif btype == "post_spotlight":
             u = local_t / max(0.5, b_dur)
+            part = ast.get("part", "full")
+
             if is_vertical:
-                paste_sprite(frame, ast["idx_pill"], 295, 300, scale=0.75 + 0.25 * ease_out_back(local_t / 0.32), opacity=min(1.0, local_t / 0.18))
-                if local_t > 0.12:
-                    paste_sprite(frame, ast["vac_pill"], 785, 300, scale=0.75 + 0.25 * ease_out_back((local_t - 0.12) / 0.32), opacity=min(1.0, (local_t - 0.12) / 0.18))
-                if local_t > 0.22:
-                    render_masked_rise(frame, ast["title_card"], 540, 470, (local_t - 0.22) / 0.35, rise_px=42)
-                if u >= 0.18:
-                    t_s = u * b_dur - 0.18 * b_dur
-                    sc = 1.016 if 0.18 <= u < 0.38 else 1.0
-                    paste_sprite(frame, ast["sal_card"], 540, 700, scale=(0.86 + 0.14 * ease_out_back(t_s / 0.35)) * sc, opacity=min(1.0, t_s / 0.20))
-                if u >= 0.36:
-                    t_q = u * b_dur - 0.36 * b_dur
-                    sc = 1.016 if 0.36 <= u < 0.58 else 1.0
-                    paste_sprite(frame, ast["qual_card"], 540, 945, scale=(0.86 + 0.14 * ease_out_back(t_q / 0.35)) * sc, opacity=min(1.0, t_q / 0.20))
-                if u >= 0.56:
-                    t_d = u * b_dur - 0.56 * b_dur
-                    sc = 1.016 if 0.56 <= u < 0.76 else 1.0
-                    paste_sprite(frame, ast["duty_card"], 540, 1200, scale=(0.86 + 0.14 * ease_out_back(t_d / 0.35)) * sc, opacity=min(1.0, t_d / 0.20))
-                if u >= 0.74:
-                    t_f = u * b_dur - 0.74 * b_dur
-                    sc = 1.022 if u >= 0.74 else 1.0
-                    paste_sprite(frame, ast["fee_card"], 540, 1435, scale=(0.82 + 0.18 * ease_out_back(t_f / 0.35)) * sc, opacity=min(1.0, t_f / 0.20))
+                paste_sprite(frame, ast["idx_pill"], 240, 295, scale=0.75 + 0.25 * ease_out_back(local_t / 0.32), opacity=min(1.0, local_t / 0.18))
+                if local_t > 0.10:
+                    paste_sprite(frame, ast["vac_pill"], 800, 295, scale=0.75 + 0.25 * ease_out_back((local_t - 0.10) / 0.32), opacity=min(1.0, (local_t - 0.10) / 0.18))
+                if local_t > 0.18:
+                    render_masked_rise(frame, ast["title_card"], 540, 470 if part == "full" else 495, (local_t - 0.18) / 0.32, rise_px=40)
+
+                if part == "overview":
+                    if u >= 0.16:
+                        t_s = (u - 0.16) * b_dur
+                        paste_sprite(frame, ast["sal_card"], 540, 825, scale=0.86 + 0.14 * ease_out_back(t_s / 0.35), opacity=min(1.0, t_s / 0.20))
+                    if u >= 0.50:
+                        t_d = (u - 0.50) * b_dur
+                        paste_sprite(frame, ast["duty_card"], 540, 1195, scale=0.86 + 0.14 * ease_out_back(t_d / 0.35), opacity=min(1.0, t_d / 0.20))
+                else:
+                    if u >= 0.14:
+                        t_s = (u - 0.14) * b_dur
+                        sc = 1.016 if 0.14 <= u < 0.32 else 1.0
+                        paste_sprite(frame, ast["sal_card"], 540, 700, scale=(0.86 + 0.14 * ease_out_back(t_s / 0.35)) * sc, opacity=min(1.0, t_s / 0.20))
+                    if u >= 0.32:
+                        t_d = (u - 0.32) * b_dur
+                        sc = 1.016 if 0.32 <= u < 0.52 else 1.0
+                        paste_sprite(frame, ast["duty_card"], 540, 935, scale=(0.86 + 0.14 * ease_out_back(t_d / 0.35)) * sc, opacity=min(1.0, t_d / 0.20))
+                    if u >= 0.52:
+                        t_q = (u - 0.52) * b_dur
+                        sc = 1.016 if 0.52 <= u < 0.70 else 1.0
+                        paste_sprite(frame, ast["qual_card"], 540, 1185, scale=(0.86 + 0.14 * ease_out_back(t_q / 0.35)) * sc, opacity=min(1.0, t_q / 0.20))
+                    if u >= 0.70:
+                        t_f = (u - 0.70) * b_dur
+                        sc = 1.020 if u >= 0.70 else 1.0
+                        paste_sprite(frame, ast["fee_card"], 540, 1415, scale=(0.82 + 0.18 * ease_out_back(t_f / 0.35)) * sc, opacity=min(1.0, t_f / 0.20))
             else:
-                paste_sprite(frame, ast["idx_pill"], 350, 200, scale=0.75 + 0.25 * ease_out_back(local_t / 0.32), opacity=min(1.0, local_t / 0.18))
-                if local_t > 0.12:
-                    paste_sprite(frame, ast["vac_pill"], 1570, 200, scale=0.75 + 0.25 * ease_out_back((local_t - 0.12) / 0.32), opacity=min(1.0, (local_t - 0.12) / 0.18))
-                if local_t > 0.22:
-                    render_masked_rise(frame, ast["title_card"], 960, 325, (local_t - 0.22) / 0.35, rise_px=40)
-                if u >= 0.18:
-                    t_s = u * b_dur - 0.18 * b_dur
-                    sc = 1.018 if 0.18 <= u < 0.38 else 1.0
-                    paste_sprite(frame, ast["sal_card"], 555, 540, scale=(0.86 + 0.14 * ease_out_back(t_s / 0.35)) * sc, opacity=min(1.0, t_s / 0.20))
-                if u >= 0.36:
-                    t_q = u * b_dur - 0.36 * b_dur
-                    sc = 1.018 if 0.36 <= u < 0.58 else 1.0
-                    paste_sprite(frame, ast["qual_card"], 1365, 540, scale=(0.86 + 0.14 * ease_out_back(t_q / 0.35)) * sc, opacity=min(1.0, t_q / 0.20))
-                if u >= 0.56:
-                    t_d = u * b_dur - 0.56 * b_dur
-                    sc = 1.018 if 0.56 <= u < 0.76 else 1.0
-                    paste_sprite(frame, ast["duty_card"], 710, 775, scale=(0.86 + 0.14 * ease_out_back(t_d / 0.35)) * sc, opacity=min(1.0, t_d / 0.20))
-                if u >= 0.74:
-                    t_f = u * b_dur - 0.74 * b_dur
-                    sc = 1.024 if u >= 0.74 else 1.0
-                    paste_sprite(frame, ast["fee_card"], 1510, 775, scale=(0.82 + 0.18 * ease_out_back(t_f / 0.35)) * sc, opacity=min(1.0, t_f / 0.20))
+                paste_sprite(frame, ast["idx_pill"], 345, 195, scale=0.75 + 0.25 * ease_out_back(local_t / 0.32), opacity=min(1.0, local_t / 0.18))
+                if local_t > 0.10:
+                    paste_sprite(frame, ast["vac_pill"], 1535, 195, scale=0.75 + 0.25 * ease_out_back((local_t - 0.10) / 0.32), opacity=min(1.0, (local_t - 0.10) / 0.18))
+                if local_t > 0.18:
+                    render_masked_rise(frame, ast["title_card"], 960, 320 if part == "full" else 330, (local_t - 0.18) / 0.32, rise_px=38)
+
+                if part == "overview":
+                    if u >= 0.16:
+                        t_s = (u - 0.16) * b_dur
+                        paste_sprite(frame, ast["sal_card"], 555, 635, scale=0.86 + 0.14 * ease_out_back(t_s / 0.35), opacity=min(1.0, t_s / 0.20))
+                    if u >= 0.50:
+                        t_d = (u - 0.50) * b_dur
+                        paste_sprite(frame, ast["duty_card"], 1365, 635, scale=0.86 + 0.14 * ease_out_back(t_d / 0.35), opacity=min(1.0, t_d / 0.20))
+                else:
+                    if u >= 0.14:
+                        t_s = (u - 0.14) * b_dur
+                        sc = 1.018 if 0.14 <= u < 0.32 else 1.0
+                        paste_sprite(frame, ast["sal_card"], 555, 535, scale=(0.86 + 0.14 * ease_out_back(t_s / 0.35)) * sc, opacity=min(1.0, t_s / 0.20))
+                    if u >= 0.32:
+                        t_d = (u - 0.32) * b_dur
+                        sc = 1.018 if 0.32 <= u < 0.52 else 1.0
+                        paste_sprite(frame, ast["duty_card"], 665, 765, scale=(0.86 + 0.14 * ease_out_back(t_d / 0.35)) * sc, opacity=min(1.0, t_d / 0.20))
+                    if u >= 0.52:
+                        t_q = (u - 0.52) * b_dur
+                        sc = 1.018 if 0.52 <= u < 0.70 else 1.0
+                        paste_sprite(frame, ast["qual_card"], 1365, 535, scale=(0.86 + 0.14 * ease_out_back(t_q / 0.35)) * sc, opacity=min(1.0, t_q / 0.20))
+                    if u >= 0.70:
+                        t_f = (u - 0.70) * b_dur
+                        sc = 1.022 if u >= 0.70 else 1.0
+                        paste_sprite(frame, ast["fee_card"], 1475, 765, scale=(0.82 + 0.18 * ease_out_back(t_f / 0.35)) * sc, opacity=min(1.0, t_f / 0.20))
 
         elif btype == "post_details":
             u = local_t / max(0.5, b_dur)
-            hy = 295 if is_vertical else 210
+            hy = 295 if is_vertical else 205
             render_masked_rise(frame, ast["hdr"], W // 2, hy, local_t / 0.32, rise_px=34)
             if is_vertical:
-                if local_t > 0.15:
-                    paste_sprite(frame, ast["qual_card"], 540, 560, scale=0.85 + 0.15 * ease_out_back((local_t - 0.15) / 0.35), opacity=min(1.0, (local_t - 0.15) / 0.2))
-                if u >= 0.32:
-                    t2 = u * b_dur - 0.32 * b_dur
-                    paste_sprite(frame, ast["duty_card"], 540, 935, scale=0.85 + 0.15 * ease_out_back(t2 / 0.35), opacity=min(1.0, t2 / 0.2))
-                if u >= 0.62:
-                    t3 = u * b_dur - 0.62 * b_dur
-                    paste_sprite(frame, ast["fee_card"], 540, 1265, scale=0.85 + 0.15 * ease_out_back(t3 / 0.35), opacity=min(1.0, t3 / 0.2))
+                if local_t > 0.14:
+                    paste_sprite(frame, ast["qual_card"], 540, 640, scale=0.85 + 0.15 * ease_out_back((local_t - 0.14) / 0.35), opacity=min(1.0, (local_t - 0.14) / 0.20))
+                if u >= 0.45:
+                    t2 = (u - 0.45) * b_dur
+                    paste_sprite(frame, ast["fee_card"], 540, 1085, scale=0.85 + 0.15 * ease_out_back(t2 / 0.35), opacity=min(1.0, t2 / 0.20))
             else:
-                if local_t > 0.15:
-                    paste_sprite(frame, ast["qual_card"], 595, 535, scale=0.85 + 0.15 * ease_out_back((local_t - 0.15) / 0.35), opacity=min(1.0, (local_t - 0.15) / 0.2))
-                if u >= 0.32:
-                    t2 = u * b_dur - 0.32 * b_dur
-                    paste_sprite(frame, ast["duty_card"], 1400, 425, scale=0.85 + 0.15 * ease_out_back(t2 / 0.35), opacity=min(1.0, t2 / 0.2))
-                if u >= 0.62:
-                    t3 = u * b_dur - 0.62 * b_dur
-                    paste_sprite(frame, ast["fee_card"], 1400, 650, scale=0.85 + 0.15 * ease_out_back(t3 / 0.35), opacity=min(1.0, t3 / 0.2))
+                if local_t > 0.14:
+                    paste_sprite(frame, ast["qual_card"], 655, 535, scale=0.85 + 0.15 * ease_out_back((local_t - 0.14) / 0.35), opacity=min(1.0, (local_t - 0.14) / 0.20))
+                if u >= 0.45:
+                    t2 = (u - 0.45) * b_dur
+                    paste_sprite(frame, ast["fee_card"], 1465, 535, scale=0.85 + 0.15 * ease_out_back(t2 / 0.35), opacity=min(1.0, t2 / 0.20))
 
         elif btype == "conditions":
             hy = 325 if is_vertical else 210
@@ -462,7 +490,7 @@ def render_motion_video(verified_data, voiceover_script, title, audio_path, outp
             coords = [(295, 620), (785, 620), (295, 1085), (785, 1085)] if is_vertical else [(555, 420), (1365, 420), (555, 725), (1365, 725)]
             active_c = int(abs_t * 0.85) % 4
             for i, c_sp in enumerate(ast["cards"]):
-                st = 0.10 + i * min(1.1, b_dur * 0.15)
+                st = 0.10 + i * min(1.0, b_dur * 0.15)
                 if local_t <= st:
                     continue
                 gx, gy = coords[i]
@@ -483,10 +511,10 @@ def render_motion_video(verified_data, voiceover_script, title, audio_path, outp
                     col_c = pal["accent"] if abs(((phase * 3.0) - ci) % 3.0) < 0.8 else pal["hairline"]
                     cx_a, cy_a = W // 2 + cx_off, cy + (36 if is_vertical else 28)
                     fd.line([(cx_a - 14, cy_a - 22), (cx_a + 12, cy_a), (cx_a - 14, cy_a + 22)], fill=col_c, width=8)
-            if local_t > 0.55:
-                up = ease_out_back((local_t - 0.55) / 0.36)
+            if local_t > 0.45:
+                up = ease_out_back((local_t - 0.45) / 0.36)
                 uy = 1105 if is_vertical else 795
-                paste_sprite(frame, ast["urg"], W // 2, uy, scale=(0.82 + 0.18 * up) * (1.0 + 0.024 * math.sin(abs_t * 4.2)), opacity=min(1.0, (local_t - 0.55) / 0.22))
+                paste_sprite(frame, ast["urg"], W // 2, uy, scale=(0.82 + 0.18 * up) * (1.0 + 0.024 * math.sin(abs_t * 4.2)), opacity=min(1.0, (local_t - 0.45) / 0.22))
 
         elif btype == "whatsapp_cta":
             wy = 435 if is_vertical else 260
@@ -548,7 +576,7 @@ def render_motion_video(verified_data, voiceover_script, title, audio_path, outp
 
         if b_idx < len(beats) - 1 and (cur_b["end"] - abs_t) < trans_sec:
             tp = 1.0 - (cur_b["end"] - abs_t) / trans_sec
-            next_frame = render_beat(b_idx + 1, 0.25, abs_t)
+            next_frame = render_beat(b_idx + 1, 0.0, abs_t)
             return apply_transition(frame_cur, next_frame, tp, trans_styles[b_idx % len(trans_styles)], curl_sp)
 
         return frame_cur
