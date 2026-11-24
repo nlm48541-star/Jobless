@@ -5,6 +5,7 @@ import json
 import os
 import random
 import re
+import unicodedata
 import requests
 from datetime import datetime
 from PIL import Image
@@ -80,11 +81,19 @@ LAYOUT_STYLES = [
     "stat_cards",
 ]
 
+STANDARD_WHATSAPP_CTA = (
+    "এই পদগুলোতে আবেদন করতে আগ্রহীরা আবেদন করার জন্য ভিডিওর স্ক্রিনে দেওয়া অথবা "
+    "ডেসক্রিপশনে থাকা আমাদের হোয়াটসঅ্যাপ নম্বরে সরাসরি মেসেজ করুন। আমাদের অভিজ্ঞ টিম "
+    "আপনার হয়ে সঠিক নিয়মে আবেদন সম্পন্ন করে দেবে। নিয়মিত চাকরির খবর পেতে চ্যানেলটি "
+    "সাবস্ক্রাইব করে সাথেই থাকুন। ধন্যবাদ।"
+)
+
 
 def clean_script_for_speech(raw_text):
     if not raw_text:
         return ""
-    text = re.sub(r'<think>.*?</think>', '', str(raw_text), flags=re.DOTALL)
+    text = unicodedata.normalize("NFC", str(raw_text))
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
     # অদৃশ্য ইউনিকোড ক্যারেক্টার রিমুভ (যা স্ক্রিনে □□□□ বক্স তৈরি করত)
     text = re.sub(r'[\u200b-\u200f\ufeff\u202a-\u202e\xa0]', ' ', text)
     text = re.sub(r'[\*\_\|\#\~`]', '', text)
@@ -164,6 +173,19 @@ BN_NUMS = {
     91: 'একানব্বই', 92: 'বানব্বই', 93: 'তিরানব্বই', 94: 'চুরানব্বই', 95: 'পঁচানব্বই', 96: 'ছিয়ানব্বই', 97: 'সাতানব্বই', 98: 'আটানব্বই', 99: 'নিরানব্বই'
 }
 
+BN_ORDINALS = {
+    "১ম": "প্রথম", "1st": "প্রথম",
+    "২য়": "দ্বিতীয়", "২য়": "দ্বিতীয়", "2nd": "দ্বিতীয়",
+    "৩য়": "তৃতীয়", "৩য়": "তৃতীয়", "3rd": "তৃতীয়",
+    "৪র্থ": "চতুর্থ", "4th": "চতুর্থ",
+    "৫ম": "পঞ্চম", "5th": "পঞ্চম",
+    "৬ষ্ঠ": "ষষ্ঠ", "6th": "ষষ্ঠ",
+    "৭ম": "সপ্তম", "7th": "সপ্তম",
+    "৮ম": "অষ্টম", "8th": "অষ্টম",
+    "৯ম": "নবম", "9th": "নবম",
+    "১০ম": "দশম", "10th": "দশম",
+}
+
 
 def en_bn_to_int(s):
     trans = str.maketrans('০১২৩৪৫৬৭৮৯', '0123456789')
@@ -200,30 +222,60 @@ def number_to_bangla_words(n):
 
 def convert_all_numbers_in_script(text):
     """
-    🌟 সংখ্যাকে নিখুঁত বাংলা কথায় রূপান্তর (৫৮,০১০/- কে ৫ লাখ ৮০ হাজার বলার বাগ স্থায়ী সমাধান)
+    🌟 সংখ্যাকে নিখুঁত বাংলা কথায় রূপান্তর:
+    - ১,৪২,৪০০ এর মতো একাধিক কমা-যুক্ত সংখ্যা সঠিকভাবে পড়ে
+    - ১ম, ২য়, ৩য়, ৪র্থ, ১১তম ইত্যাদি ক্রমবাচক সংখ্যা সঠিকভাবে পড়ে (একম/চারর্থ বাগ ফিক্স)
+    - ৫৮,০১০/- কে ৫৮ হাজার দশ টাকা পড়ে
     """
     if not text:
         return ""
-    text = re.sub(r'<think>.*?</think>', '', str(text), flags=re.DOTALL)
+    text = unicodedata.normalize("NFC", str(text))
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
     text = re.sub(r'https?://\S+|wa\.me/\S+', '', text)
-    # অদৃশ্য ইউনিকোড ক্যারেক্টার পরিষ্কার
     text = re.sub(r'[\u200b-\u200f\ufeff\u202a-\u202e\xa0]', ' ', text)
 
     # টাকার পেছনের /- বা /= বা ৳ চিহ্ন দূর করা
-    text = re.sub(r'([0-9০-৯]+)\s*(?:/=|/-|৳)', r'\1 টাকা', text)
-    text = re.sub(r'৳\s*([0-9০-৯]+)', r'\1 টাকা', text)
+    text = re.sub(r'([0-9০-৯,]+)\s*(?:/=|/-|৳)(?:\s*টাকা)?', r'\1 টাকা', text)
+    text = re.sub(r'৳\s*([0-9০-৯,]+)', r'\1 টাকা', text)
 
-    # কমা-যুক্ত সংখ্যাকে স্বাভাবিক সংখ্যায় রূপান্তর (যেমন ২৪,০০০ -> ২৪০০০, ৫৮,০১০ -> ৫৮০১০)
-    text = re.sub(r'([0-9০-৯]+),([0-9০-৯]+)', r'\1\2', text)
+    # সব কমা-যুক্ত সংখ্যা একত্র করা (যেমন ১,৪২,৪০০ -> ১৪২৪০০, ২৪,০০০ -> ২৪০০০)
+    text = re.sub(r'(?<=[0-9০-৯]),(?=[0-9০-৯])', '', text)
 
     # হোয়াটসঅ্যাপ নম্বর সুরক্ষিত করা
     text = re.sub(r'(\+?(?:88|৮৮)?[\s\-]*0?1[0-9০-৯][\s\-0-9০-৯]{7,11})', ' আমাদের হোয়াটসঅ্যাপ নম্বর ', text)
 
-    # শতাংশ রূপান্তর
+    # শতাংশ ও প্লাস (+) রূপান্তর
     text = re.sub(r'([0-9০-৯]+(?:\.[0-9০-৯]+)?)\s*%', r'\1 শতাংশ', text)
+    text = re.sub(r'([0-9০-৯]+)\s*\+', r'\1 প্লাস', text)
 
-    # রেঞ্জ রূপান্তর (যেমন ২৪০০০-৫৮০১০ -> ২৪০০০ থেকে ৫৮০১০)
+    # রেঞ্জ রূপান্তর (ক্রমবাচক এর আগেই করতে হবে, যেমন ১১-২০তম -> ১১ থেকে ২০তম)
     text = re.sub(r'([0-9০-৯]+)\s*[-–—]\s*([0-9০-৯]+)', r'\1 থেকে \2', text)
+
+    # বাংলা ক্রমবাচক সংখ্যা (১ম -> প্রথম, ২য় -> দ্বিতীয়, ৪র্থ -> চতুর্থ ইত্যাদি)
+    text = re.sub(
+        r'(?<![0-9০-৯])(১ম|২য়|৩য়|৪র্থ|৫ম|৬ষ্ঠ|৭ম|৮ম|৯ম|১০ম)',
+        lambda m: BN_ORDINALS.get(m.group(1), m.group(1)),
+        text
+    )
+    text = re.sub(
+        r'\b(1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\b',
+        lambda m: BN_ORDINALS.get(m.group(1).lower(), m.group(1)),
+        text,
+        flags=re.I
+    )
+
+    # "৬ নং" -> "৬ নম্বর"
+    text = re.sub(r'([0-9০-৯]+)\s*নং(?=\s|[।,!?\)]|$)', r'\1 নম্বর', text)
+
+    # "১১তম" / "২০তম" -> "এগারোতম" / "বিশতম"
+    def tomo_repl(m):
+        try:
+            val = en_bn_to_int(m.group(1))
+            return f"{number_to_bangla_words(val)}তম"
+        except Exception:
+            return m.group(0)
+
+    text = re.sub(r'([0-9০-৯]+)\s*তম', tomo_repl, text)
 
     # দশমিক সংখ্যা (যেমন ৩.৫০ -> তিন দশমিক পাঁচ শূন্য)
     def dec_repl(m):
@@ -239,7 +291,7 @@ def convert_all_numbers_in_script(text):
     # পূর্ণসংখ্যাকে বাংলায় পড়া
     def num_repl(m):
         num_str = m.group(0)
-        if len(num_str) > 8:
+        if len(num_str) > 9:
             return ""
         try:
             val = en_bn_to_int(num_str)
@@ -279,7 +331,8 @@ def clean_title_for_display(title):
 
 
 def strip_unwanted_chars(text):
-    s = re.sub(r'\s*৳', ' টাকা', str(text))
+    s = unicodedata.normalize("NFC", str(text))
+    s = re.sub(r'\s*৳', ' টাকা', s)
     cleaned = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆|[\u200b-\u200f\ufeff\u202a-\u202e\xa0]', '', s)
     return re.sub(r'\s+', ' ', cleaned).strip()
 
@@ -288,13 +341,53 @@ def parse_json_safely(raw_text):
     if not raw_text:
         return None
     cleaned = re.sub(r'<think>.*?</think>', '', str(raw_text), flags=re.DOTALL).strip()
+    cleaned = re.sub(r'```(?:json)?', '', cleaned, flags=re.I).replace('```', '').strip()
+
+    for candidate in (cleaned,):
+        try:
+            return json.loads(candidate)
+        except Exception:
+            pass
+
+    start_idx = cleaned.find('{')
+    if start_idx != -1:
+        depth = 0
+        in_str = False
+        esc = False
+        end_idx = -1
+        for i, ch in enumerate(cleaned[start_idx:], start=start_idx):
+            if esc:
+                esc = False
+                continue
+            if ch == '\\' and in_str:
+                esc = True
+                continue
+            if ch == '"':
+                in_str = not in_str
+                continue
+            if not in_str:
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i
+                        break
+        sub = cleaned[start_idx:end_idx + 1] if end_idx != -1 else cleaned[start_idx:]
+        for attempt in (sub, re.sub(r',\s*([}\]])', r'\1', sub)):
+            try:
+                return json.loads(attempt)
+            except Exception:
+                pass
+
     try:
         json_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
         if json_match:
-            return json.loads(json_match.group(0))
-        return json.loads(cleaned)
+            fixed = re.sub(r',\s*([}\]])', r'\1', json_match.group(0))
+            return json.loads(fixed)
     except Exception:
-        return None
+        pass
+    return None
 
 
 def _clean_text_response(raw_text):
@@ -376,7 +469,7 @@ def _call_openrouter(prompt, json_mode=True, b64_images=None, text_fallback=True
                 payload = {
                     "model": model_name,
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.4,
+                    "temperature": 0.35 if json_mode else 0.4,
                     "max_tokens": 4500,
                 }
                 try:
@@ -437,7 +530,7 @@ def _call_ollama_cloud(prompt, json_mode=True, b64_images=None, text_fallback=Tr
                     "model": model_name,
                     "messages": [{"role": "user", "content": prompt}],
                     "stream": False,
-                    "options": {"temperature": 0.4, "num_predict": 4500},
+                    "options": {"temperature": 0.35 if json_mode else 0.4, "num_predict": 4500},
                 }
                 try:
                     resp = requests.post(OLLAMA_CHAT_URL, headers=headers, json=payload, timeout=65)
@@ -468,11 +561,11 @@ def _call_groq(prompt, json_mode=True):
     for actual_idx, g_key in groq_order:
         headers = {"Authorization": f"Bearer {g_key}", "Content-Type": "application/json"}
         for g_model in GROQ_MODELS:
-            sys_msg = "You are a Bengali job circular specialist. Return valid JSON." if json_mode else "You are a professional Bengali YouTube presenter."
+            sys_msg = "You are a Bengali job circular specialist. Return strictly valid JSON." if json_mode else "You are a professional Bengali YouTube presenter."
             payload = {
                 "model": g_model,
                 "messages": [{"role": "system", "content": sys_msg}, {"role": "user", "content": prompt}],
-                "temperature": 0.4,
+                "temperature": 0.35 if json_mode else 0.4,
                 "max_tokens": 4500,
             }
             if json_mode:
@@ -507,7 +600,7 @@ def _call_cerebras(prompt, json_mode=True):
             payload = {
                 "model": c_model,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.4,
+                "temperature": 0.35 if json_mode else 0.4,
                 "max_tokens": 4500,
             }
             try:
@@ -540,9 +633,12 @@ def _call_gemini(prompt, json_mode=True, b64_images=None):
     for actual_idx, g_key in gemini_order:
         for g_model in GEMINI_TEXT_MODELS:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={g_key}"
+            gen_cfg = {"temperature": 0.25 if b64_images else 0.35, "maxOutputTokens": 4500}
+            if json_mode:
+                gen_cfg["responseMimeType"] = "application/json"
             body = {
                 "contents": [{"parts": parts}],
-                "generationConfig": {"temperature": 0.25 if b64_images else 0.4, "maxOutputTokens": 4500},
+                "generationConfig": gen_cfg,
             }
             try:
                 resp = requests.post(url, headers={"Content-Type": "application/json"}, json=body, timeout=60)
@@ -563,7 +659,6 @@ def _call_gemini(prompt, json_mode=True, b64_images=None):
 def execute_ai_query(prompt, json_mode=True, img_paths=None):
     b64_images = _encode_images_base64(img_paths, max_images=3) if img_paths else None
 
-    # ছবি থাকলে Vision মডেল আগে কল হবে
     if b64_images:
         for fn in (
             lambda: _call_openrouter(prompt, json_mode=json_mode, b64_images=b64_images, text_fallback=False),
@@ -589,55 +684,209 @@ def execute_ai_query(prompt, json_mode=True, img_paths=None):
 
 
 # =========================================================================
-# 🌟 ফেইল-সেফ স্ক্রিপ্ট বিল্ডার
+# 🌟 ডেটা ক্লিনআপ ও ডিটারমিনিস্টিক রিকভারি হেল্পার
 # =========================================================================
 
-def build_script_from_verified_data(verified_data, title, article_text):
-    org = verified_data.get("organization", title)
+def _clean_org_name(raw_org, fallback_title=""):
+    s = strip_unwanted_chars(raw_org or fallback_title or "নিয়োগ বিজ্ঞপ্তি")
+    s = re.sub(r'^[০-৯0-9]+\s*(?:টি|জন)?\s*পদে\s*', '', s)
+    s = re.sub(r'\s*(?:নিয়োগ|নিয়োগ)\s*(?:বিজ্ঞপ্তি|সার্কুলার).*$', '', s)
+    s = re.sub(r'\s*২০২[৩-৯]\s*$', '', s)
+    s = re.sub(r'\s*[-–|,:]+\s*$', '', s).strip()
+    return s or strip_unwanted_chars(fallback_title[:40])
+
+
+def _clean_concise_field(val, max_len=48, drop_long_parens=True):
+    s = strip_unwanted_chars(val or "")
+    if drop_long_parens and len(s) > max_len:
+        s = re.sub(r'\s*\([^)]{16,}\)', '', s).strip()
+    if len(s) > max_len:
+        s = re.split(r'\s+-\s+', s)[0].strip()
+    return s
+
+
+def _enrich_verified_data_from_text(vd, title, article_text):
+    if not isinstance(vd, dict):
+        vd = {}
+    combined_text = f"{title}\n{article_text or ''}"
+
+    vd["org_short"] = _clean_org_name(vd.get("org_short") or vd.get("organization"), title)
+    if not vd.get("organization"):
+        vd["organization"] = vd["org_short"]
+
+    # শূন্যপদ রিকভারি
+    tv = strip_unwanted_chars(vd.get("total_vacancies") or "")
+    if not tv or tv in ("বিভিন্ন পদ", "নির্ধারিত", "বিজ্ঞপ্তি অনুযায়ী"):
+        m_vac = re.search(r'(?:মোট|সর্বমোট)?\s*([০-৯0-9]+\s*(?:টি|জন))(?:\s*(?:শূন্য)?পদে|\s*লোক|\s*প্রার্থী)', combined_text)
+        if not m_vac:
+            m_vac = re.search(r'([০-৯0-9]+\s*(?:টি|জন)?)\s*পদে', title)
+        if m_vac:
+            tv = m_vac.group(1).strip()
+    vd["total_vacancies"] = _clean_concise_field(tv, max_len=24)
+
+    # আবেদনের শেষ সময় রিকভারি
+    dl = strip_unwanted_chars(vd.get("deadline") or "")
+    generic_dls = {"", "নির্ধারিত সময়সীমা", "নির্ধারিত সময়", "বিজ্ঞপ্তি অনুযায়ী", "চলমান"}
+    if dl in generic_dls:
+        m_dl = re.search(
+            r'আবেদনের\s*শেষ\s*(?:তারিখ|সময়(?:সীমা)?)\s*(?:হলো|হচ্ছে|:|ঃ|-)?\s*([^\n।]{5,55})',
+            combined_text
+        )
+        if not m_dl:
+            m_dl = re.search(
+                r'([০-৯0-9]{1,2}\s+(?:জানুয়ারি|ফেব্রুয়ারি|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর)[,\s]*[০-৯0-9]{4}(?:\s*(?:বিকাল|রাত|সকাল)?\s*[০-৯0-9:]{1,5}\s*টা)?)',
+                combined_text
+            )
+        if m_dl:
+            dl = strip_unwanted_chars(m_dl.group(1))
+    vd["deadline"] = _clean_concise_field(dl or "নির্ধারিত সময়সীমা", max_len=42)
+
+    # প্রতিটি পদের ফিল্ড কনসাইজ ও পরিষ্কার রাখা যাতে ভিজুয়ালে ওভারফ্লো না হয়
+    cleaned_posts = []
+    for p in (vd.get("posts") or [])[:16]:
+        if not isinstance(p, dict):
+            continue
+        p_copy = dict(p)
+        p_copy["post_name"] = _clean_concise_field(p.get("post_name") or "বিভিন্ন পদে নিয়োগ", max_len=64)
+        p_copy["vacancy_count"] = _clean_concise_field(p.get("vacancy_count") or vd["total_vacancies"] or "নির্ধারিত", max_len=18)
+        p_copy["application_fee"] = _clean_concise_field(p.get("application_fee") or vd.get("application_fee_summary") or "বিজ্ঞপ্তি অনুযায়ী", max_len=42)
+        p_copy["salary_scale"] = _clean_concise_field(p.get("salary_scale") or "নির্ধারিত স্কেল", max_len=64, drop_long_parens=False)
+        p_copy["educational_qualification"] = strip_unwanted_chars(p.get("educational_qualification") or vd.get("eligibility_summary") or "বিজ্ঞপ্তি অনুযায়ী")
+        p_copy["key_duties"] = strip_unwanted_chars(p.get("key_duties") or "সংশ্লিষ্ট প্রাতিষ্ঠানিক ও দাপ্তরিক দায়িত্ব পালন")
+        cleaned_posts.append(p_copy)
+
+    if cleaned_posts:
+        vd["posts"] = cleaned_posts
+
+    return vd
+
+
+# =========================================================================
+# 🌟 ফেইল-সেফ সেগমেন্টেড স্ক্রিপ্ট বিল্ডার
+# =========================================================================
+
+def _build_single_post_paragraph(idx, p):
+    p_name = p.get("post_name", f"{idx} নম্বর পদ")
+    p_vac = p.get("vacancy_count", "নির্ধারিত সংখ্যক")
+    p_qual = p.get("educational_qualification", "বিজ্ঞপ্তি অনুযায়ী শিক্ষাগত যোগ্যতা")
+    p_sal = p.get("salary_scale", "নির্ধারিত বেতন স্কেল")
+    p_fee = p.get("application_fee", "বিজ্ঞপ্তিতে উল্লেখ নেই")
+    p_duties = p.get("key_duties", "প্রতিষ্ঠানের সংশ্লিষ্ট দাপ্তরিক ও প্রাতিষ্ঠানিক দায়িত্ব পালন করা")
+
+    fee_sentence = (
+        "এই পদে আবেদন করতে কোনো আবেদন ফি লাগবে না।"
+        if any(w in p_fee for w in ["নেই", "ফ্রি", "বিনামূল্যে", "লাগবে না"])
+        else f"এই পদে আবেদন করতে আবেদন ফি লাগবে {p_fee}।"
+    )
+
+    return (
+        f"{idx} নম্বর যে পদটি রয়েছে, সেটি হলো {p_name}। "
+        f"এই পদে {p_vac} জনবল নেওয়া হবে। "
+        f"পদটির জন্য বেতন স্কেল নির্ধারণ করা হয়েছে {p_sal}। "
+        f"এই পদে চাকরি পেলে মূলত {p_duties}। "
+        f"আবেদনের জন্য শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা হিসেবে থাকতে হবে {p_qual} এবং {fee_sentence}"
+    )
+
+
+def build_segmented_script_from_verified_data(verified_data, title, article_text=""):
+    org = verified_data.get("organization") or verified_data.get("org_short") or title
     total_vac = verified_data.get("total_vacancies", "")
     deadline = verified_data.get("deadline", "")
-    posts = verified_data.get("posts", [])
+    district = verified_data.get("district_eligibility", "বাংলাদেশের সকল জেলা")
+    age_limit = verified_data.get("age_limit", "১৮ থেকে ৩২ বছর")
+    fee_sum = verified_data.get("application_fee_summary", "বিজ্ঞপ্তি অনুযায়ী")
+    posts = verified_data.get("posts") or []
 
-    vac_line = f"মোট {total_vac} জনবল নিয়োগ দেওয়া হবে।" if total_vac else "বিভিন্ন পদে যোগ্য জনবল নিয়োগ দেওয়া হবে।"
-    dl_line = f"আবেদনের শেষ সময় নির্ধারিত হয়েছে {deadline}।" if deadline else ""
+    vac_line = f"মোট {total_vac} শূন্যপদে" if total_vac else "বিভিন্ন পদে যোগ্য জনবল"
+    dl_line = f"আবেদনের শেষ সময় নির্ধারিত হয়েছে {deadline}।" if deadline and deadline != "নির্ধারিত সময়সীমা" else ""
 
-    post_paragraphs = []
-    for idx, p in enumerate(posts, 1):
-        p_name = p.get("post_name", f"{idx} নম্বর পদ")
-        p_vac = p.get("vacancy_count", "নির্ধারিত সংখ্যক")
-        p_qual = p.get("educational_qualification", "বিজ্ঞপ্তি অনুযায়ী শিক্ষাগত যোগ্যতা")
+    segments = []
+    segments.append({
+        "id": "intro",
+        "text": (
+            f"আসসালামু আলাইকুম প্রিয় চাকরিপ্রার্থী ভাই ও বোনেরা। আজকের ভিডিওতে আপনাদের সবাইকে স্বাগতম। "
+            f"সম্প্রতি {org} থেকে একটি গুরুত্বপূর্ণ নিয়োগ বিজ্ঞপ্তি প্রকাশিত হয়েছে, যেখানে {vac_line} নিয়োগ দেওয়া হবে।"
+        )
+    })
+
+    segments.append({
+        "id": "org_overview",
+        "text": (
+            f"{org} দেশের নিজস্ব কর্মক্ষেত্রে অত্যন্ত সুনাম ও মর্যাদার সাথে কাজ করে যাচ্ছে। "
+            f"এই বিজ্ঞপ্তিতে {district} থেকে যোগ্য প্রার্থীরা আবেদন করতে পারবেন এবং আবেদন ফি নির্ধারিত হয়েছে {fee_sum}। "
+            f"{dl_line} এখন চলুন বিজ্ঞপ্তিতে থাকা প্রতিটি পদের বিস্তারিত তথ্য জেনে নেওয়া যাক।"
+        )
+    })
+
+    if len(posts) == 1:
+        p = posts[0]
+        p_name = p.get("post_name", "নিয়োগকৃত পদ")
+        p_vac = p.get("vacancy_count", total_vac or "নির্ধারিত সংখ্যক")
         p_sal = p.get("salary_scale", "নির্ধারিত বেতন স্কেল")
-        p_fee = p.get("application_fee", "বিজ্ঞপ্তিতে উল্লেখ নেই")
-        p_duties = p.get("key_duties", "প্রতিষ্ঠানের সংশ্লিষ্ট দাপ্তরিক ও প্রাতিষ্ঠানিক দায়িত্ব পালন করা")
-
+        p_duties = p.get("key_duties", "প্রতিষ্ঠানের সংশ্লিষ্ট দাপ্তরিক দায়িত্ব পালন করা")
+        p_qual = p.get("educational_qualification", "বিজ্ঞপ্তি অনুযায়ী শিক্ষাগত যোগ্যতা")
+        p_fee = p.get("application_fee", fee_sum)
         fee_sentence = (
             "এই পদে আবেদন করতে কোনো আবেদন ফি লাগবে না।"
             if any(w in p_fee for w in ["নেই", "ফ্রি", "বিনামূল্যে", "লাগবে না"])
-            else f"এই পদে আবেদন করতে আবেদন ফি লাগবে {p_fee}।"
+            else f"এই পদে আবেদন ফি নির্ধারিত হয়েছে {p_fee}।"
         )
 
-        para = (
-            f"{idx} নম্বর যে পদটি রয়েছে, সেটি হলো {p_name}। "
-            f"এই পদে {p_vac} লোক নেওয়া হবে। "
-            f"এই পদে চাকরি পেলে মূলত {p_duties}। "
-            f"আবেদনের জন্য শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা হিসেবে থাকতে হবে {p_qual}। "
-            f"পদটির জন্য বেতন নির্ধারণ করা হয়েছে {p_sal} এবং {fee_sentence}"
+        segments.append({
+            "id": "post_0_part1",
+            "text": (
+                f"এই বিজ্ঞপ্তির আলোচ্য পদ হলো {p_name}। "
+                f"এখানে মোট {p_vac} জনবল নিয়োগ দেওয়া হবে। "
+                f"পদটির বেতন স্কেল নির্ধারণ করা হয়েছে {p_sal}। "
+                f"এখানে দায়িত্ব হিসেবে মূলত {p_duties}।"
+            )
+        })
+        segments.append({
+            "id": "post_0_part2",
+            "text": (
+                f"এই পদে আবেদনের জন্য শিক্ষাগত যোগ্যতা ও অভিজ্ঞতা হিসেবে প্রয়োজন হবে {p_qual}। "
+                f"{fee_sentence}"
+            )
+        })
+    else:
+        for idx, p in enumerate(posts[:16], 1):
+            segments.append({
+                "id": f"post_{idx - 1}",
+                "text": _build_single_post_paragraph(idx, p)
+            })
+
+    segments.append({
+        "id": "conditions",
+        "text": (
+            f"সাধারণ শর্তাবলী হিসেবে আবেদনকারীর বয়সসীমা নির্ধারিত হয়েছে {age_limit}। "
+            f"{district} থেকে যোগ্য নারী ও পুরুষ প্রার্থীরা আবেদন করতে পারবেন এবং "
+            f"নিয়োগপ্রাপ্তরা নির্ধারিত স্কেল অনুযায়ী বেতন, ভাতা ও অন্যান্য প্রাতিষ্ঠানিক সুযোগ-সুবিধা পাবেন।"
         )
-        post_paragraphs.append(para)
+    })
 
-    posts_block = "\n\n".join(post_paragraphs)
+    segments.append({
+        "id": "deadline",
+        "text": (
+            f"মনে রাখবেন আবেদনের শেষ সময়সীমা {deadline or 'নির্ধারিত তারিখের মধ্যে'}। "
+            f"তাই শেষ দিনের ভিড় ও সার্ভার জটিলতা এড়াতে সময়মতো আপনার আবেদন সম্পন্ন করুন।"
+        )
+    })
 
-    return f"""আসসালামু আলাইকুম প্রিয় চাকরিপ্রার্থী ভাই ও বোনেরা। আজকের ভিডিওতে আপনাদের সবাইকে স্বাগতম। সম্প্রতি {org} থেকে একটি গুরুত্বপূর্ণ নিয়োগ বিজ্ঞপ্তি প্রকাশিত হয়েছে, যেখানে {vac_line} {dl_line}
+    segments.append({
+        "id": "whatsapp_cta",
+        "text": STANDARD_WHATSAPP_CTA
+    })
 
-প্রথমেই প্রতিষ্ঠানটি সম্পর্কে সংক্ষেপে বলে নিই। {org} দেশের নিজস্ব কর্মক্ষেত্রে অত্যন্ত সুনাম ও মর্যাদার সাথে কাজ করে যাচ্ছে। এখানে চাকরি করার মাধ্যমে যেমন একটি সম্মানজনক ক্যারিয়ার গড়ে তোলা সম্ভব, তেমনি প্রতিষ্ঠানের কার্যক্রমে সরাসরি অবদান রাখার সুযোগ রয়েছে।
+    cleaned_segments = []
+    for seg in segments:
+        spoken = clean_script_for_speech(convert_all_numbers_in_script(seg["text"]))
+        cleaned_segments.append({"id": seg["id"], "text": spoken})
+    return cleaned_segments
 
-এবার চলুন বিজ্ঞপ্তিতে থাকা প্রতিটি আলাদা আলাদা পদের নাম, পদ সংখ্যা, দায়িত্ব, শিক্ষাগত যোগ্যতা এবং আবেদন ফি সম্পর্কে এক এক করে বিস্তারিত জেনে নেওয়া যাক।
 
-{posts_block}
-
-সাধারণ শর্ত হিসেবে নির্ধারিত বয়সসীমার মধ্যে থাকা দেশের যোগ্য নাগরিকরা আবেদন করতে পারবেন এবং নিয়ম অনুযায়ী প্রাপ্য বেতন ও অন্যান্য সুযোগ-সুবিধা পাবেন।
-
-আপনারা যারা এই পদগুলোতে আবেদন করতে আগ্রহী, তারা আবেদন করার জন্য ভিডিওর স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা আমাদের হোয়াটসঅ্যাপ নম্বরে সরাসরি মেসেজ করুন। আমাদের অভিজ্ঞ টিম আপনার হয়ে সঠিক নিয়মে আবেদন সম্পন্ন করে দেবে। নিয়মিত চাকরির খবর পেতে চ্যানেলটি সাবস্ক্রাইব করে সাথেই থাকুন। ধন্যবাদ।"""
+def build_script_from_verified_data(verified_data, title, article_text):
+    segs = build_segmented_script_from_verified_data(verified_data, title, article_text)
+    return "\n\n".join(s["text"] for s in segs)
 
 
 # =========================================================================
@@ -651,10 +900,14 @@ Extract EVERY SINGLE separate post and 100% factual data strictly in JSON.
 
 CRITICAL GROUND TRUTH RULES (MUST OBEY):
 1. THE OFFICIAL CIRCULAR IMAGE IS THE SUPREME TRUTH!
-   Warning: Bangladeshi job blogs often rewrite salary scales using an unofficial/fictional "2026 Pay Scale" (e.g. doubling 12,500->25,000, 22,000->44,000, 8,250->20,000) or have typos!
    Whenever blog text conflicts with circular image(s), ALWAYS copy EXACT numbers printed on the image(s) (salary, grade, vacancy, application fee, deadline).
-2. DO NOT MERGE POSTS! If the circular has 5 or 13 separate posts, extract EVERY SINGLE post separately into the "posts" array.
-3. Use the EXACT post name from the circular (e.g. "বাবুর্চি", "অফিস সহায়ক", "চিত্র শিল্পী", "প্রোগ্রামার সহকারী").
+2. DO NOT MERGE POSTS! If the circular or article lists multiple separate posts, extract EVERY SINGLE post separately into the "posts" array.
+3. KEEP DISPLAY FIELDS SHORT & CLEAN:
+   - "org_short": ONLY the clean organization name in 2-5 words (e.g. 'কর অঞ্চল-১৫, ঢাকা', 'বাংলাদেশ অভ্যন্তরীণ নৌপরিবহন কর্পোরেশন'). NEVER include vacancy numbers like '৪২ পদে' or 'নিয়োগ বিজ্ঞপ্তি' inside org_short!
+   - "vacancy_count": Short count ONLY (e.g. '০১টি', '১৬টি', '৫৪ জন'). NO long parenthetical notes!
+   - "post_name": Clean post name and grade ONLY (e.g. 'উপ-নৌ অধীক্ষক (গ্রেড-৪)'). NO long explanations in parentheses!
+   - "application_fee": Concise fee ONLY (e.g. '১১২ টাকা', '১১২ ও ৫৬ টাকা', 'বিনামূল্যে', 'পূর্ণাঙ্গ বিজ্ঞপ্তিতে প্রকাশিত হবে').
+   - "deadline": Exact last date & time from image/text in Bengali (e.g. '১৪ ডিসেম্বর ২০২৬, বিকাল ০৫:০০ টা').
 ---
 TITLE: {title}
 CLEANED ARTICLE TEXT:
@@ -664,65 +917,147 @@ CLEANED ARTICLE TEXT:
 Return strictly valid JSON:
 {{
   "organization": "Full Bengali organization/company/ministry name",
-  "org_short": "Complete 3-5 word clean name (e.g. 'পল্লী উন্নয়ন একাডেমী বগুড়া', 'বাংলাদেশ প্রতিযোগিতা কমিশন')",
+  "org_short": "Clean 2-5 word organization name without vacancy count",
   "job_category": "সরকারি চাকরি" | "স্বায়ত্তশাসিত প্রতিষ্ঠান" | "বেসরকারি চাকরি" | "ব্যাংক চাকরি",
-  "total_vacancies": "e.g. ১০টি or ১৬ জন or ৪৯ জন",
+  "total_vacancies": "e.g. ১০টি or ৪২টি or ৩৩টি",
   "eligibility_summary": "Short 2-4 word range e.g. ৮ম থেকে স্নাতক পাশ",
-  "application_fee_summary": "e.g. ৫৬ থেকে ১১২ টাকা or ১০০ ও ২০০ টাকা or আবেদন ফি নেই",
-  "deadline": "Exact last date from image/text in Bengali",
+  "application_fee_summary": "e.g. ৫৬ থেকে ১১২ টাকা or আবেদন ফি নেই",
+  "deadline": "Exact last date in Bengali",
   "age_limit": "e.g. ১৮ থেকে ৩০ বছর or ১৮ থেকে ৩২ বছর",
   "district_eligibility": "e.g. ৬৪ জেলা or নির্দিষ্ট জেলা",
   "posts": [
     {{
       "post_name": "Exact post name and grade",
-      "vacancy_count": "Exact count for this post (e.g. ০১টি, ০২ জন)",
+      "vacancy_count": "Short exact count (e.g. ০১টি, ০২ জন)",
       "educational_qualification": "Exact qualification requirement for THIS post",
       "salary_scale": "Exact salary scale printed on official circular (e.g. ৮,২৫০-২০,০১০ টাকা)",
-      "application_fee": "Exact fee for THIS post (e.g. ১১২ টাকা, ৫৬ টাকা, ২০০ টাকা, বিনামূল্যে)",
+      "application_fee": "Exact concise fee for THIS post (e.g. ১১২ টাকা, ৫৬ টাকা, বিনামূল্যে)",
       "key_duties": "Brief 1-sentence realistic description of this post's responsibilities"
     }}
   ]
 }}"""
-    return execute_ai_query(prompt, json_mode=True, img_paths=img_paths)
+    res = execute_ai_query(prompt, json_mode=True, img_paths=img_paths)
+    if not res or not isinstance(res, dict) or not res.get("posts"):
+        print("  🔄 Retrying Step 1 JSON extraction...")
+        res = execute_ai_query(prompt, json_mode=True, img_paths=img_paths)
+    if res and isinstance(res, dict):
+        res = _enrich_verified_data_from_text(res, title, article_text)
+    return res
+
+
+def generate_segmented_script_from_verified_data(verified_data, title, article_text):
+    """
+    🌟 অডিও-ভিজুয়াল ১০০% সিঙ্ক নিশ্চিত করার জন্য প্রতিটি দৃশ্য অনুযায়ী আলাদা JSON সেগমেন্টে স্ক্রিপ্ট জেনারেট করে।
+    """
+    print("🎙️ [STEP 2] Generating scene-locked segmented Bengali voiceover script...")
+    posts = (verified_data.get("posts") or [])[:16]
+    data_str = json.dumps(verified_data, ensure_ascii=False, indent=2)
+
+    if len(posts) == 1:
+        expected_post_count = 2
+        post_mapping_guide = (
+            'Because there is 1 post entry, "post_scripts" MUST have EXACTLY 2 strings:\n'
+            '  - post_scripts[0]: Discuss ONLY the post name/grade, vacancy count, salary scale, and key job duties (DO NOT mention qualification or fee here).\n'
+            '  - post_scripts[1]: Discuss ONLY the educational qualification, experience, and application fee for this post.'
+        )
+    else:
+        expected_post_count = len(posts)
+        lines = [
+            f'  - post_scripts[{i}]: Discuss ONLY Post #{i+1} ("{p.get("post_name", "")}"). '
+            f'Speak in this exact order: (a) post name, grade & vacancy count, (b) salary scale, (c) job duties, (d) educational qualification & experience, (e) application fee. Do NOT talk about any other post in this item!'
+            for i, p in enumerate(posts)
+        ]
+        post_mapping_guide = f'"post_scripts" MUST be a JSON array of EXACTLY {expected_post_count} strings matching posts 0..{expected_post_count - 1}:\n' + "\n".join(lines)
+
+    prompt = f"""You are an expert Bangladeshi job circular YouTube presenter.
+Write a crisp, natural, 100% factual spoken Bengali voiceover script divided into EXACT scene-aligned JSON fields so each spoken segment syncs 1-to-1 with its on-screen motion graphics scene.
+
+Title: "{title}"
+Verified Structured Job Data (SUPREME GROUND TRUTH — never contradict its facts or post count!):
+{data_str}
+
+Supporting Reference Text (for extra duties/allowances/dates context ONLY; never invent extra posts):
+{article_text[:6500]}
+
+STRICT JSON OUTPUT STRUCTURE:
+1. "intro": Start with "আসসালামু আলাইকুম প্রিয় চাকরিপ্রার্থী ভাই ও বোনেরা।". Briefly welcome viewers, state the organization name, category, and total vacancies in 2-3 crisp sentences (~10 seconds).
+2. "org_overview": Briefly explain what the organization/ministry does and its career value, eligible districts, application fee overview, and deadline summary in 3 sentences (~15 seconds). End with a short transition like "এখন চলুন প্রতিটি পদের বিস্তারিত তথ্য জেনে নেওয়া যাক।".
+3. "post_scripts":
+{post_mapping_guide}
+4. "conditions": Discuss general conditions ONLY — age limit & calculation date, quota/district eligibility, and salary allowances/benefits (2-3 sentences). Do NOT mention deadline warning or WhatsApp CTA here.
+5. "deadline": Clearly remind viewers of the application start & end date/time ({verified_data.get("deadline", "")}) and advise applying on time (2 short sentences).
+6. "whatsapp_cta": Exact closing CTA telling interested candidates to message our WhatsApp number shown on screen or in description so our team completes their application properly, plus subscribe call.
+
+NEGATIVE CONSTRAINTS:
+- NEVER include application procedures (no postal/courier/email steps, no URLs, no pixel sizes).
+- NEVER write phone number digits anywhere in any script text.
+- Write pure spoken Bengali (no bullet points, no markdown, no brackets).
+
+Return strictly valid JSON:
+{{
+  "intro": "...",
+  "org_overview": "...",
+  "post_scripts": ["..."],
+  "conditions": "...",
+  "deadline": "...",
+  "whatsapp_cta": "..."
+}}"""
+
+    fallback_segments = build_segmented_script_from_verified_data(verified_data, title, article_text)
+    fb_map = {s["id"]: s["text"] for s in fallback_segments}
+
+    raw_res = execute_ai_query(prompt, json_mode=True)
+    if not raw_res or not isinstance(raw_res, dict):
+        print("⚠️ Segmented script JSON failed; using structured fallback segments.")
+        return fallback_segments
+
+    def _clean_seg(txt, fb_id):
+        cleaned = clean_script_for_speech(convert_all_numbers_in_script(txt or ""))
+        if len(cleaned) < 20:
+            return fb_map.get(fb_id, "")
+        return cleaned
+
+    segments = [
+        {"id": "intro", "text": _clean_seg(raw_res.get("intro"), "intro")},
+        {"id": "org_overview", "text": _clean_seg(raw_res.get("org_overview"), "org_overview")},
+    ]
+
+    raw_posts = raw_res.get("post_scripts")
+    if not isinstance(raw_posts, list):
+        raw_posts = []
+
+    if len(posts) == 1:
+        if len(raw_posts) >= 2:
+            segments.append({"id": "post_0_part1", "text": _clean_seg(raw_posts[0], "post_0_part1")})
+            segments.append({"id": "post_0_part2", "text": _clean_seg(raw_posts[1], "post_0_part2")})
+        else:
+            segments.append({"id": "post_0_part1", "text": fb_map["post_0_part1"]})
+            segments.append({"id": "post_0_part2", "text": fb_map["post_0_part2"]})
+    else:
+        # যদি AI সবগুলো পদকে ১-২টি স্ট্রিংয়ে মার্জ করে ফেলে, তাহলে ডুপ্লিকেট এড়াতে সম্পূর্ণ ফলব্যাক ব্যবহার
+        if len(posts) >= 3 and len(raw_posts) < len(posts) - 1:
+            print(f"⚠️ AI returned {len(raw_posts)} post segments for {len(posts)} posts; using exact 1-to-1 fallback posts.")
+            for i in range(len(posts)):
+                segments.append({"id": f"post_{i}", "text": fb_map[f"post_{i}"]})
+        else:
+            for i in range(len(posts)):
+                txt = raw_posts[i] if i < len(raw_posts) else ""
+                segments.append({"id": f"post_{i}", "text": _clean_seg(txt, f"post_{i}")})
+
+    segments.append({"id": "conditions", "text": _clean_seg(raw_res.get("conditions"), "conditions")})
+    segments.append({"id": "deadline", "text": _clean_seg(raw_res.get("deadline"), "deadline")})
+
+    cta_clean = clean_script_for_speech(convert_all_numbers_in_script(raw_res.get("whatsapp_cta") or ""))
+    if len(cta_clean) < 35 or "হোয়াটসঅ্যাপ" not in cta_clean:
+        cta_clean = fb_map["whatsapp_cta"]
+    segments.append({"id": "whatsapp_cta", "text": cta_clean})
+
+    return segments
 
 
 def generate_script_from_verified_data(verified_data, title, article_text):
-    print("🎙️ [STEP 2] Generating post-by-post spoken Bengali script...")
-    data_str = json.dumps(verified_data, ensure_ascii=False, indent=2)
-
-    prompt = f"""You are an expert Bangladeshi job circular YouTube presenter.
-Write a natural, crisp, 100% factual spoken Bengali voiceover script using ONLY the verified data below.
-
-Title: "{title}"
-Verified Structured Job Data (Every single post):
-{data_str}
-
-Reference Context:
-{article_text[:7000]}
-
-STRICT SCRIPT STRUCTURE:
-1. [সংক্ষিপ্ত ইন্ট্রো — ২০-২৫ সেকেন্ড]: Start with "আসসালামু আলাইকুম প্রিয় চাকরিপ্রার্থী ভাই ও বোনেরা।". State which organization/company/ministry published the circular, total vacancies, and deadline.
-2. [প্রতিষ্ঠান/মন্ত্রণালয় পরিচিতি — ২-৩ বাক্য]: Briefly discuss what the organization/ministry does and its career value.
-3. [প্রতিটি আলাদা আলাদা পদের বিস্তারিত আলোচনা — মূল অংশ]:
-   Go through EVERY SINGLE post in "posts" ONE BY ONE in exact order (from post #1 to the last post, NEVER skip any post!).
-   For EACH individual post, smoothly speak in conversational Bengali:
-   - পদের আসল নাম ও গ্রেড/বেতন স্কেল (যা verified_data-তে আছে ঠিক সেটাই বলুন; ভুল সংখ্যা বলবেন না!),
-   - এই পদে কতজন লোক নেওয়া হবে,
-   - পদটির দায়িত্ব ও কাজ কী,
-   - কী কী শিক্ষাগত যোগ্যতা, জিপিএ ও অভিজ্ঞতা লাগবে (যা ডাটায় আছে তা স্পষ্টভাবে বলবেন, বিজ্ঞপ্তিতে দেখুন বলে এড়িয়ে যাবেন না),
-   - এবং এই পদে আবেদন করতে কত টাকা আবেদন ফি লাগবে।
-   *Formatting rule*: Write continuous natural spoken paragraphs (NO bullet points, NO headings, NO markdown symbols).
-4. [সাধারণ শর্ত ও সুযোগ-সুবিধা]: Mention age limit, eligible districts, and job benefits/allowances.
-5. [শেষ কথা — ONLY WhatsApp Message CTA]: End with:
-   "এই পদগুলোতে আবেদন করতে আগ্রহীরা আবেদন করার জন্য ভিডিওর স্ক্রিনে দেওয়া অথবা ডেসক্রিপশনে থাকা আমাদের হোয়াটসঅ্যাপ নম্বরে সরাসরি মেসেজ করুন। আমাদের অভিজ্ঞ টিম আপনার হয়ে সঠিক নিয়মে আবেদন সম্পন্ন করে দেবে। নিয়মিত চাকরির খবর পেতে চ্যানেলটি সাবস্ক্রাইব করে সাথেই থাকুন, ধন্যবাদ।"
-
-STRICT NEGATIVE CONSTRAINTS:
-- DO NOT mention ANY application procedure (NO postal address, NO courier/email steps, NO website URLs, NO form-filling instructions, NO photo/signature pixel sizes).
-- DO NOT write or speak ANY phone number digits anywhere in the script.
-- Output ONLY pure spoken Bengali plain text (no JSON, no markdown, no brackets)."""
-
-    res_text = execute_ai_query(prompt, json_mode=False)
-    return res_text if res_text and isinstance(res_text, str) else ""
+    segs = generate_segmented_script_from_verified_data(verified_data, title, article_text)
+    return "\n\n".join(s["text"] for s in segs if s.get("text"))
 
 
 def generate_seo_metadata(verified_data, title):
@@ -873,11 +1208,11 @@ def generate_job_content_with_data(title, article_text, img_paths=None):
 
     verified_data = extract_verified_job_data(clean_title, article_text, img_paths=img_paths)
     if not verified_data or not isinstance(verified_data, dict) or not verified_data.get("posts"):
-        clean_org = clean_title.split("নিয়োগ")[0].strip() if "নিয়োগ" in clean_title else clean_title[:35]
+        clean_org = _clean_org_name("", clean_title)
         is_priv = any(k in clean_title.lower() for k in ["লিমিটেড", "ফার্মা", "গ্রুপ", "কোম্পানি", "বেসরকারি", "বিকাশ", "ফাউন্ডেশন", "এনজিও", "ltd", "limited"])
-        verified_data = {
+        verified_data = _enrich_verified_data_from_text({
             "organization": clean_org,
-            "org_short": " ".join(clean_org.split()[:4]),
+            "org_short": " ".join(clean_org.split()[:5]),
             "job_category": "বেসরকারি চাকরি" if is_priv else "সরকারি চাকরি",
             "total_vacancies": "",
             "eligibility_summary": "বিজ্ঞপ্তি অনুযায়ী যোগ্যতা",
@@ -893,15 +1228,17 @@ def generate_job_content_with_data(title, article_text, img_paths=None):
                 "application_fee": "বিজ্ঞপ্তি অনুযায়ী",
                 "key_duties": "সংশ্লিষ্ট দাপ্তরিক দায়িত্ব পালন",
             }]
-        }
+        }, clean_title, article_text)
 
-    raw_script = generate_script_from_verified_data(verified_data, clean_title, article_text)
+    script_segments = generate_segmented_script_from_verified_data(verified_data, clean_title, article_text)
+    voiceover_script = "\n\n".join(s["text"] for s in script_segments if s.get("text"))
 
-    if not raw_script or len(raw_script.split()) < 160:
-        print(f"⚠️ Generated script was short ({len(raw_script.split()) if raw_script else 0} words). Using structured post-by-post builder...")
-        raw_script = build_script_from_verified_data(verified_data, clean_title, article_text)
+    if not voiceover_script or len(voiceover_script.split()) < 80:
+        print(f"⚠️ Generated script was short. Rebuilding structured segmented script...")
+        script_segments = build_segmented_script_from_verified_data(verified_data, clean_title, article_text)
+        voiceover_script = "\n\n".join(s["text"] for s in script_segments if s.get("text"))
 
-    voiceover_script = convert_all_numbers_in_script(raw_script)
+    verified_data["script_segments"] = script_segments
 
     seo_res = generate_seo_metadata(verified_data, clean_title)
     opt_title = seo_res.get("optimized_title", clean_title)[:100] if seo_res and isinstance(seo_res, dict) else clean_title[:100]
@@ -912,7 +1249,7 @@ def generate_job_content_with_data(title, article_text, img_paths=None):
     thumb_meta = generate_thumbnail_metadata(verified_data, clean_title)
 
     word_count = len(voiceover_script.split())
-    print(f"✨ [ACCURACY GUARANTEED] {word_count}-word Script + Layout [{thumb_meta['layout_style']}] Ready!")
+    print(f"✨ [SEGMENTED SYNC READY] {word_count}-word Script ({len(script_segments)} scenes) + Layout [{thumb_meta['layout_style']}]")
     return opt_title, voiceover_script, thumb_meta, video_desc, video_tags, verified_data
 
 
