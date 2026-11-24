@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, shutil, traceback
+import json, os, shutil, traceback
 from PIL import Image
 
 from feed_manager import (
@@ -18,7 +18,19 @@ TMP_DIR = "temp_assets"
 LIVESTREAM_DIR = "workspace_live"
 HISTORY_FILE = os.path.join(WORKSPACE_DIR, "history.txt")
 
-MAX_VIDEOS_PER_RUN = 2
+
+def _load_segment_timings(audio_path):
+    t_path = str(audio_path) + ".timings.json"
+    if os.path.exists(t_path):
+        try:
+            with open(t_path, "r", encoding="utf-8") as tf:
+                data = json.load(tf)
+                segs = data.get("segments")
+                if isinstance(segs, list) and segs:
+                    return segs
+        except Exception:
+            pass
+    return None
 
 
 def add_to_history(entry_text):
@@ -44,19 +56,19 @@ def add_to_history(entry_text):
 
 
 def prepare_workspace_video_jobs():
-    """ধাপ ১: সব বৈধ ফোল্ডারের (ছবিসহ অথবা শুধু টেক্সট) AI স্ক্রিপ্ট ও ডাটা প্রস্তুত করে"""
-    print("\nScanning Drive folders for AI Script Generation...")
+    """ধাপ ১: রানের মধ্যে থাকা সবগুলো বৈধ ফোল্ডারের AI স্ক্রিপ্ট ও ডাটা প্রস্তুত করে (কোনো লিমিট নেই)"""
+    print("\nScanning Drive folders for AI Script Generation (Unlimited per run)...")
     if not os.path.exists(WORKSPACE_DIR):
         return []
 
-    folders = [f for f in os.listdir(WORKSPACE_DIR) if os.path.isdir(os.path.join(WORKSPACE_DIR, f)) and f.lower() != "shorts"]
+    folders = [
+        f for f in sorted(os.listdir(WORKSPACE_DIR))
+        if os.path.isdir(os.path.join(WORKSPACE_DIR, f)) and f.lower() != "shorts"
+    ]
     prepared_jobs = []
+    total_folders = len(folders)
 
-    for folder_name in sorted(folders):
-        if len(prepared_jobs) >= MAX_VIDEOS_PER_RUN:
-            print(f"🛑 Reached batch limit of {MAX_VIDEOS_PER_RUN} videos for this run. Remaining will process next hour.")
-            break
-
+    for idx_f, folder_name in enumerate(folders, 1):
         folder_path = os.path.join(WORKSPACE_DIR, folder_name)
         try:
             if is_forbidden_article(folder_name):
@@ -124,7 +136,7 @@ def prepare_workspace_video_jobs():
             source_text = article_text if article_text else raw_title
             mode_label = "🎬 MOTION GRAPHICS" if use_motion else "🖼️ CIRCULAR SLIDESHOW"
 
-            print(f"\n========== [SCRIPT PHASE {len(prepared_jobs) + 1}/{MAX_VIDEOS_PER_RUN} | {mode_label}]: {folder_name} ==========")
+            print(f"\n========== [SCRIPT PHASE {idx_f}/{total_folders} | {mode_label}]: {folder_name} ==========")
             opt_title, voiceover_script, thumb_meta, video_desc, video_tags, verified_data = generate_job_content_with_data(
                 raw_title, source_text, img_files if img_files else None
             )
@@ -133,6 +145,8 @@ def prepare_workspace_video_jobs():
                 print(f"🛑 [CANCELLED] Full script generation failed for '{folder_name}'.")
                 continue
 
+            script_segments = verified_data.get("script_segments") if isinstance(verified_data, dict) else None
+
             prepared_jobs.append({
                 "folder_name": folder_name,
                 "folder_path": folder_path,
@@ -140,6 +154,7 @@ def prepare_workspace_video_jobs():
                 "article_link": article_link,
                 "video_title": opt_title,
                 "voiceover_script": voiceover_script,
+                "script_segments": script_segments,
                 "thumb_meta": thumb_meta,
                 "video_desc": video_desc,
                 "video_tags": video_tags,
@@ -157,7 +172,7 @@ def prepare_workspace_video_jobs():
 
 
 def finalize_workspace_video_job(yt, job, audio_path):
-    """ধাপ ৩: অডিও পাওয়ার পর স্লাইডশো অথবা মোশন গ্রাফিক্স ভিডিও রেন্ডার ও আপলোড"""
+    """ধাপ ৩: অডিও ও সেগমেন্ট টাইমস্ট্যাম্প পাওয়ার পর স্লাইডশো অথবা মোশন গ্রাফিক্স ভিডিও রেন্ডার ও আপলোড"""
     folder_name = job["folder_name"]
     folder_path = job["folder_path"]
     os.makedirs(TMP_DIR, exist_ok=True)
@@ -177,11 +192,13 @@ def finalize_workspace_video_job(yt, job, audio_path):
     if os.path.exists(out_video_file):
         os.remove(out_video_file)
 
+    segment_timings = _load_segment_timings(audio_path)
+
     if job.get("use_motion_graphics"):
         print(f"🎬 Rendering 16:9 Motion Graphics Video for '{folder_name}'...")
         render_motion_video(
             job["verified_data"], job["voiceover_script"], job["video_title"],
-            audio_path, out_video_file, is_vertical=False
+            audio_path, out_video_file, is_vertical=False, segment_timings=segment_timings
         )
     else:
         print(f"Rendering 16:9 Circular Video for '{folder_name}'...")
@@ -205,7 +222,7 @@ def finalize_workspace_video_job(yt, job, audio_path):
             if job.get("use_motion_graphics"):
                 render_motion_video(
                     job["verified_data"], job["voiceover_script"], job["video_title"],
-                    audio_path, live_video_file, is_vertical=True
+                    audio_path, live_video_file, is_vertical=True, segment_timings=segment_timings
                 )
             else:
                 render_video_slideshow(audio_path, job["img_files"], live_video_file, is_vertical=True)
@@ -249,7 +266,7 @@ def process_shorts_folder(yt):
 
 
 if __name__ == "__main__":
-    print("\n====== [ Google Drive Bot Active | Dual Slideshow + Motion Graphics Engine ] ======\n")
+    print("\n====== [ Google Drive Bot Active | Unlimited Segmented Sync Engine ] ======\n")
     try:
         os.makedirs(TMP_DIR, exist_ok=True)
         yt_service = get_youtube_service()
@@ -272,7 +289,7 @@ if __name__ == "__main__":
         except Exception:
             traceback.print_exc()
 
-        # ধাপ ২: ১টি কমান্ডে সবগুলো অডিও একসাথে তৈরি
+        # ধাপ ২: ১টি কমান্ডে সবগুলো অডিও (মোশন গ্রাফিক্স হলে প্রতি সেগমেন্টের টাইমিংসহ) একসাথে তৈরি
         batch_tasks = []
         manual_audio_target = None
 
@@ -285,7 +302,9 @@ if __name__ == "__main__":
                 batch_tasks.append({
                     "filename": "manual_voiceover.wav",
                     "text": manual_job["voiceover_script"],
+                    "segments": manual_job.get("script_segments") if manual_job.get("use_motion_graphics") else None,
                     "target_path": manual_audio_target,
+                    "timings_target_path": manual_audio_target + ".timings.json",
                 })
 
         for idx, job in enumerate(workspace_jobs):
@@ -298,7 +317,9 @@ if __name__ == "__main__":
                 batch_tasks.append({
                     "filename": f"ws_{idx}_voiceover.wav",
                     "text": job["voiceover_script"],
+                    "segments": job.get("script_segments") if job.get("use_motion_graphics") else None,
                     "target_path": target_wav,
+                    "timings_target_path": target_wav + ".timings.json",
                 })
 
         if batch_tasks:
