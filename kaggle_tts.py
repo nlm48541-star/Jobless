@@ -436,7 +436,7 @@ def _build_worker_script(
     ref_text: str,
     default_voice: str,
     speech_speed: float = 0.93,
-    nfe_step: int = 16,
+    nfe_step: int = 64,
 ) -> str:
     tasks_json = json.dumps(tasks, ensure_ascii=False)
     ref_text_json = json.dumps(ref_text, ensure_ascii=False)
@@ -496,11 +496,11 @@ def generate_voices_batch(
     ref_text: str = "",
     default_voice: str = "male",
     speech_speed: float = 0.93,
-    nfe_step: int = 16,
+    nfe_step: int = 64,
     poll_interval: int = 15,
     max_attempts: int = 3,
     retry_interval_sec: int = 1200,
-    run_timeout_sec: int = 1800,
+    run_timeout_sec: int = 2400,
 ) -> Dict[str, Path]:
     if not tasks:
         return {}
