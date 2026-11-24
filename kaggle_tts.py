@@ -179,7 +179,6 @@ else:
     ref_wav = BUNDLE_DIR / "ref_voice" / voice_file
     ref_text = (BUNDLE_DIR / "ref_voice" / "ref_text.txt").read_text(encoding="utf-8").strip()
 
-# রেফারেন্স অডিওর দৈর্ঘ্য অনুযায়ী নিরাপদ সর্বোচ্চ চাংক সাইজ
 ref_dur = sf.info(str(ref_wav)).duration
 avail_sec = max(10.0, 26.0 - ref_dur)
 MAX_CHARS = int(min(240, max(140, avail_sec * 13)))
@@ -233,20 +232,35 @@ def split_bengali_for_indicf5(text: str, max_chars: int = MAX_CHARS):
     return merged
 
 
-# ৪. সব ভিডিওর সবগুলো চাংক একটি প্যারালাল তালিকায় সাজানো
+# ৪. সব ভিডিও এবং প্রতি সেগমেন্টের চাংক একটি প্যারালাল তালিকায় সাজানো
 CHUNKS_DIR = Path("/tmp/all_chunks")
 CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
 flat_jobs = []
-task_chunk_map = {}
+task_seg_chunks = {}
 
 for t_idx, item in enumerate(TASKS):
-    chunks = split_bengali_for_indicf5(item["text"].strip(), max_chars=MAX_CHARS)
-    chunk_paths = []
-    for c_idx, ch in enumerate(chunks):
-        c_path = str(CHUNKS_DIR / f"t{t_idx}_c{c_idx:04d}.wav")
-        flat_jobs.append({"text": ch, "out_path": c_path})
-        chunk_paths.append(c_path)
-    task_chunk_map[item["filename"]] = chunk_paths
+    fname = item["filename"]
+    segs = item.get("segments")
+    if segs and isinstance(segs, list):
+        seg_entries = []
+        for s_idx, seg in enumerate(segs):
+            seg_id = str(seg.get("id", f"seg_{s_idx}"))
+            chunks = split_bengali_for_indicf5(str(seg.get("text", "")).strip(), max_chars=MAX_CHARS)
+            chunk_paths = []
+            for c_idx, ch in enumerate(chunks):
+                c_path = str(CHUNKS_DIR / f"t{t_idx}_s{s_idx:03d}_c{c_idx:04d}.wav")
+                flat_jobs.append({"text": ch, "out_path": c_path})
+                chunk_paths.append(c_path)
+            seg_entries.append((seg_id, chunk_paths))
+        task_seg_chunks[fname] = (True, seg_entries)
+    else:
+        chunks = split_bengali_for_indicf5(str(item.get("text", "")).strip(), max_chars=MAX_CHARS)
+        chunk_paths = []
+        for c_idx, ch in enumerate(chunks):
+            c_path = str(CHUNKS_DIR / f"t{t_idx}_c{c_idx:04d}.wav")
+            flat_jobs.append({"text": ch, "out_path": c_path})
+            chunk_paths.append(c_path)
+        task_seg_chunks[fname] = (False, [("__full__", chunk_paths)])
 
 jobs_file = Path("/tmp/flat_jobs.json")
 jobs_file.write_text(json.dumps(flat_jobs, ensure_ascii=False), encoding="utf-8")
@@ -254,42 +268,43 @@ jobs_file.write_text(json.dumps(flat_jobs, ensure_ascii=False), encoding="utf-8"
 worker_py = Path("/tmp/gpu_chunk_worker.py")
 worker_py.write_text(GPU_WORKER_CODE, encoding="utf-8")
 
-# ৫. ডুয়াল-GPU প্যারালাল রান (আলাদা TMPDIR যাতে jieba ক্যাশে কোনো সংঘর্ষ না হয়)
+# ৫. ডুয়াল-GPU প্যারালাল রান
 num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
 num_workers = 2 if (num_gpus >= 2 and len(flat_jobs) >= 2) else 1
 print(f"⚡ Boot & Setup: {round(time.time() - t_boot, 1)}s | GPUs: {num_gpus} | Workers: {num_workers} | Chunks: {len(flat_jobs)} | nfe_step: {NFE_STEP}")
 
-procs = []
-for wid in range(num_workers):
-    env = os.environ.copy()
-    w_tmp = Path(f"/tmp/w_{wid}_tmp")
-    w_tmp.mkdir(parents=True, exist_ok=True)
-    env["TMPDIR"] = str(w_tmp)
-    env["TEMP"] = str(w_tmp)
-    env["TMP"] = str(w_tmp)
-    if torch.cuda.is_available():
-        env["CUDA_VISIBLE_DEVICES"] = str(wid)
-    p = subprocess.Popen(
-        [
-            sys.executable, str(worker_py),
-            str(BUNDLE_DIR), str(ref_wav), ref_text, str(jobs_file),
-            str(wid), str(num_workers), str(SPEECH_SPEED), str(NFE_STEP),
-        ],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    procs.append((wid, p))
+if flat_jobs:
+    procs = []
+    for wid in range(num_workers):
+        env = os.environ.copy()
+        w_tmp = Path(f"/tmp/w_{wid}_tmp")
+        w_tmp.mkdir(parents=True, exist_ok=True)
+        env["TMPDIR"] = str(w_tmp)
+        env["TEMP"] = str(w_tmp)
+        env["TMP"] = str(w_tmp)
+        if torch.cuda.is_available():
+            env["CUDA_VISIBLE_DEVICES"] = str(wid)
+        p = subprocess.Popen(
+            [
+                sys.executable, str(worker_py),
+                str(BUNDLE_DIR), str(ref_wav), ref_text, str(jobs_file),
+                str(wid), str(num_workers), str(SPEECH_SPEED), str(NFE_STEP),
+            ],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        procs.append((wid, p))
 
-for wid, p in procs:
-    out, _ = p.communicate()
-    print(f"--- Worker {wid} Log ---")
-    print(out)
-    if p.returncode != 0:
-        raise RuntimeError(f"GPU Worker {wid} failed with exit code {p.returncode}")
+    for wid, p in procs:
+        out, _ = p.communicate()
+        print(f"--- Worker {wid} Log ---")
+        print(out)
+        if p.returncode != 0:
+            raise RuntimeError(f"GPU Worker {wid} failed with exit code {p.returncode}")
 
-# ৬. সবগুলো চাংক জোড়া লাগিয়ে মূল অডিও ফাইল ও ZIP তৈরি
+# ৬. সেগমেন্ট অনুযায়ী অডিও জোড়া দিয়ে মূল WAV + নিখুঁত timings.json ও ZIP তৈরি
 out_dir = Path("/tmp/generated_wavs")
 out_dir.mkdir(parents=True, exist_ok=True)
 zip_path = Path("/kaggle/working/audio_bundle.zip")
@@ -297,21 +312,59 @@ zip_path = Path("/kaggle/working/audio_bundle.zip")
 with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
     for item in TASKS:
         fname = item["filename"]
-        chunk_paths = task_chunk_map[fname]
+        is_segmented, seg_entries = task_seg_chunks[fname]
         sr_final = 24000
-        parts = []
-        pause = np.zeros(int(sr_final * 0.14), dtype=np.float32)
+        all_parts = []
+        intra_pause = np.zeros(int(sr_final * 0.12), dtype=np.float32)
+        inter_pause = np.zeros(int(sr_final * 0.28), dtype=np.float32)
+        seg_timings = []
+        cursor_samples = 0
+        total_segs = len(seg_entries)
 
-        for idx_c, cp in enumerate(chunk_paths):
-            seg, sr_final = sf.read(cp, dtype="float32")
-            parts.append(np.asarray(seg, dtype=np.float32).reshape(-1))
-            if idx_c < len(chunk_paths) - 1:
-                parts.append(pause)
+        for s_idx, (seg_id, chunk_paths) in enumerate(seg_entries):
+            seg_parts = []
+            for idx_c, cp in enumerate(chunk_paths):
+                seg_arr, sr_final = sf.read(cp, dtype="float32")
+                seg_parts.append(np.asarray(seg_arr, dtype=np.float32).reshape(-1))
+                if idx_c < len(chunk_paths) - 1:
+                    seg_parts.append(intra_pause)
 
-        final_wav = np.concatenate(parts) if len(parts) > 1 else parts[0]
+            if seg_parts:
+                seg_wav = np.concatenate(seg_parts) if len(seg_parts) > 1 else seg_parts[0]
+            else:
+                seg_wav = np.zeros(int(sr_final * 0.5), dtype=np.float32)
+
+            seg_start = cursor_samples / float(sr_final)
+            all_parts.append(seg_wav)
+            cursor_samples += len(seg_wav)
+
+            if s_idx < total_segs - 1:
+                all_parts.append(inter_pause)
+                cursor_samples += len(inter_pause)
+
+            seg_end = cursor_samples / float(sr_final)
+            seg_timings.append({
+                "id": seg_id,
+                "start": round(seg_start, 4),
+                "end": round(seg_end, 4),
+                "duration": round(seg_end - seg_start, 4),
+            })
+
+        final_wav = np.concatenate(all_parts) if len(all_parts) > 1 else all_parts[0]
         wav_path = out_dir / fname
         sf.write(str(wav_path), final_wav, sr_final)
         zf.write(wav_path, arcname=fname)
+
+        if is_segmented:
+            timings_fname = item.get("timings_filename") or f"{fname}.timings.json"
+            timings_path = out_dir / timings_fname
+            timings_payload = {
+                "sample_rate": int(sr_final),
+                "total_duration": round(len(final_wav) / float(sr_final), 4),
+                "segments": seg_timings,
+            }
+            timings_path.write_text(json.dumps(timings_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            zf.write(timings_path, arcname=timings_fname)
 
 print(f"✅ Total Dual-GPU Wall Time: {round(time.time() - t_boot, 1)}s")
 '''
@@ -377,7 +430,7 @@ def _find_repo_reference_voice() -> tuple[Optional[Path], str]:
 
 
 def _build_worker_script(
-    tasks: List[Dict[str, str]],
+    tasks: List[Dict],
     ref_audio_b64: str,
     ref_ext: str,
     ref_text: str,
@@ -437,7 +490,7 @@ def _push_with_fallback_slug(job_dir: Path, base_script: str, run_timeout_sec: i
 
 
 def generate_voices_batch(
-    tasks: List[Dict[str, str]],
+    tasks: List[Dict],
     output_dir: str | Path,
     ref_audio_path: Optional[str | Path] = None,
     ref_text: str = "",
@@ -446,8 +499,8 @@ def generate_voices_batch(
     nfe_step: int = 16,
     poll_interval: int = 15,
     max_attempts: int = 3,
-    retry_interval_sec: int = 1200,  # ২০ মিনিট = ১২০০ সেকেন্ড
-    run_timeout_sec: int = 1800,     # GPU চালু হলে সর্বোচ্চ ৩০ মিনিট
+    retry_interval_sec: int = 1200,
+    run_timeout_sec: int = 1800,
 ) -> Dict[str, Path]:
     if not tasks:
         return {}
