@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 import os
 import re
-import math
 import subprocess
+import unicodedata
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 FONTS_DIR = "Fonts"
@@ -48,17 +48,14 @@ def to_bn_num(n):
 def clean_motion_text(text):
     """
     🌟 ফন্ট বক্স (□□□□) দূর করার মাস্টার ফিল্টার
-    অদৃশ্য ইউনিকোড ক্যারেক্টার (ZWJ, ZWNJ, LTR/RTL marks, NBSP), কার্লি কোট ও মিসিং সিম্বল পরিষ্কার করে
+    অদৃশ্য ইউনিকোড ক্যারেক্টার, কার্লি কোট ও মিসিং সিম্বল পরিষ্কার করে
     """
     if not text:
         return ""
-    s = str(text)
-    # অদৃশ্য ইউনিকোড চিহ্ন যা ফন্টে না থাকায় □ দেখায়
+    s = unicodedata.normalize("NFC", str(text))
     s = re.sub(r'[\u200b-\u200f\ufeff\u202a-\u202e\xa0]', ' ', s)
-    # বিশেষ ড্যাশ ও কোটকে স্ট্যান্ডার্ড রূপ দেওয়া
     s = s.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
     s = s.replace('—', '-').replace('–', '-').replace('…', '...')
-    # ইমোজি ও মুদ্রা প্রতীক স্বাভাবিক করা
     s = re.sub(r'\s*৳', ' টাকা', s)
     s = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\u2b50-\u2b55]|✪|★|☆', '', s)
     return re.sub(r'\s+', ' ', s).strip()
@@ -206,12 +203,38 @@ def draw_mixed_text(draw, x, y, text, bn_font, font_size, fill, anchor="mm"):
 
 def fit_single_line_font(draw, text, font_fn, start_sz, min_sz, max_w):
     clean_t = clean_motion_text(text)
-    for sz in range(start_sz, min_sz - 1, -2):
+    floor_sz = min(min_sz, 16)
+    for sz in range(start_sz, floor_sz - 1, -2):
         f = font_fn(sz)
         w, _ = measure_mixed_text(draw, clean_t, f, sz)
         if w <= max_w:
             return f, sz
-    return font_fn(min_sz), min_sz
+    return font_fn(floor_sz), floor_sz
+
+
+def fit_single_line_text(draw, text, font_fn, start_sz, min_sz, max_w):
+    """এক লাইনে টেক্সট ফিট করে; সর্বনিম্ন ফন্টেও বড় হলে সুন্দরভাবে '...' দিয়ে সীমাবদ্ধ করে"""
+    clean_t = clean_motion_text(text)
+    for sz in range(start_sz, min_sz - 1, -2):
+        f = font_fn(sz)
+        w, _ = measure_mixed_text(draw, clean_t, f, sz)
+        if w <= max_w:
+            return f, sz, clean_t
+
+    f = font_fn(min_sz)
+    if measure_mixed_text(draw, clean_t, f, min_sz)[0] <= max_w:
+        return f, min_sz, clean_t
+
+    words = clean_t.split()
+    cur = clean_t
+    while words and measure_mixed_text(draw, cur + "...", f, min_sz)[0] > max_w:
+        words.pop()
+        cur = " ".join(words)
+    if not cur:
+        cur = clean_t
+        while len(cur) > 1 and measure_mixed_text(draw, cur + "...", f, min_sz)[0] > max_w:
+            cur = cur[:-1]
+    return f, min_sz, (cur + "...") if cur else "..."
 
 
 def fit_multiline_font(draw, text, font_fn, start_sz, min_sz, max_w, max_lines):
@@ -252,6 +275,52 @@ def fit_multiline_font(draw, text, font_fn, start_sz, min_sz, max_w, max_lines):
     if cur:
         lines.append(cur)
     return f, min_sz, lines[:max_lines]
+
+
+def fit_multiline_to_box(draw, text, font_fn, start_sz, min_sz, max_w, max_h, line_gap=8):
+    """কার্ডের প্রস্থ ও উচ্চতা উভয়ের মধ্যেই লেখা নিখুঁতভাবে ফিট করে (কলিশন/ওভারফ্লো প্রতিরোধক)"""
+    clean_t = clean_motion_text(text)
+    words = clean_t.split()
+    if not words:
+        return font_fn(min_sz), min_sz, [""]
+
+    def _wrap(f, sz):
+        lines = []
+        cur = ""
+        for w in words:
+            cand = f"{cur} {w}".strip()
+            if measure_mixed_text(draw, cand, f, sz)[0] <= max_w:
+                cur = cand
+            else:
+                if cur:
+                    lines.append(cur)
+                cur = w
+        if cur:
+            lines.append(cur)
+        return lines
+
+    for sz in range(start_sz, min_sz - 1, -2):
+        f = font_fn(sz)
+        lines = _wrap(f, sz)
+        lh = sz + line_gap
+        if len(lines) * lh <= max_h and all(measure_mixed_text(draw, ln, f, sz)[0] <= max_w for ln in lines):
+            return f, sz, lines
+
+    f = font_fn(min_sz)
+    lines = _wrap(f, min_sz)
+    lh = min_sz + line_gap
+    max_lines = max(1, max_h // lh)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        last = lines[-1]
+        while last and measure_mixed_text(draw, last + "...", f, min_sz)[0] > max_w:
+            parts = last.split()
+            if len(parts) > 1:
+                last = " ".join(parts[:-1])
+            else:
+                last = last[:-1]
+        lines[-1] = (last + "...") if last else "..."
+    return f, min_sz, lines
 
 
 # =========================================================================
