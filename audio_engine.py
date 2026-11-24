@@ -204,7 +204,7 @@ def synthesize_with_ninada_fallback(speech_text, output_audio_path, segments=Non
 
 def generate_voiceover_batch_pipeline(batch_items, batch_work_dir):
     """
-    ১. প্রাইমারি: Kaggle IndicF5_Bangladeshi (সব অডিও ও সেগমেন্ট মাত্র ১টি ব্যাচ রিকোয়েস্টে ডুয়াল-T4 GPU-তে)
+    ১. প্রাইমারি: Kaggle IndicF5_Bangladeshi (সব অডিও ও সেগমেন্ট মাত্র ১টি ব্যাচ রিকোয়েস্টে ডুয়াল-T4 GPU-তে, nfe_step=64)
     ২. ব্যাকআপ: Ninada v5.1.2 Male (Kaggle অফলাইন বা ব্যর্থ হলে সরাসরি GitHub Actions CPU-তে)
     """
     if not batch_items:
@@ -246,12 +246,12 @@ def generate_voiceover_batch_pipeline(batch_items, batch_work_dir):
 
     results = {}
 
-    # ১. প্রাইমারি: Kaggle IndicF5_Bangladeshi
+    # ১. প্রাইমারি: Kaggle IndicF5_Bangladeshi (nfe_step=64)
     try:
         from kaggle_tts import generate_voices_batch
         default_voice = os.environ.get("KAGGLE_DEFAULT_VOICE", "male").strip().lower()
         speech_speed = float(os.environ.get("KAGGLE_SPEECH_SPEED", "0.93"))
-        nfe_step = int(os.environ.get("KAGGLE_NFE_STEP", "16"))
+        nfe_step = int(os.environ.get("KAGGLE_NFE_STEP", "64"))
 
         kaggle_payload = []
         for t in cleaned_tasks:
