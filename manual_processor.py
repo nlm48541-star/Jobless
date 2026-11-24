@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, shutil, subprocess
+import json, os, shutil, subprocess
 from PIL import Image
 
 from ai_service import (
@@ -17,6 +17,20 @@ from feed_manager import scrape_article_content_and_images, download_image, clea
 MANUAL_DIR = "manual_workspace"
 TMP_DIR = "temp_assets"
 LIVESTREAM_DIR = "workspace_live"
+
+
+def _load_segment_timings(audio_path):
+    t_path = str(audio_path) + ".timings.json"
+    if os.path.exists(t_path):
+        try:
+            with open(t_path, "r", encoding="utf-8") as tf:
+                data = json.load(tf)
+                segs = data.get("segments")
+                if isinstance(segs, list) and segs:
+                    return segs
+        except Exception:
+            pass
+    return None
 
 
 def is_manual_mode_enabled():
@@ -152,6 +166,7 @@ def prepare_manual_drive_job():
     video_tags = DEFAULT_BASE_TAGS
     voiceover_script = ""
     verified_data = {}
+    script_segments = None
 
     if user_provided_script:
         cleaned_user_script = clean_script_for_speech(user_provided_script)
@@ -174,12 +189,14 @@ def prepare_manual_drive_job():
         except Exception:
             pass
     else:
-        print("🤖 [ARTICLE TEXT MODE] Generating accurate script & structured data...")
+        print("🤖 [ARTICLE TEXT MODE] Generating accurate segmented script & structured data...")
         source_text = article_text if article_text else video_title
         ai_res = generate_job_content_with_data(video_title, source_text, img_files if img_files else None)
         opt_title, voiceover_script, thumb_meta, video_desc, video_tags, verified_data = ai_res
         if opt_title:
             video_title = opt_title
+        if isinstance(verified_data, dict):
+            script_segments = verified_data.get("script_segments")
 
     if not voiceover_script and not custom_audio_file:
         print("❌ Failed to obtain voiceover script or audio.")
@@ -189,6 +206,7 @@ def prepare_manual_drive_job():
         "folder_id": folder_id,
         "video_title": video_title,
         "voiceover_script": voiceover_script,
+        "script_segments": script_segments,
         "thumb_meta": thumb_meta,
         "video_desc": video_desc,
         "video_tags": video_tags,
@@ -201,7 +219,7 @@ def prepare_manual_drive_job():
 
 
 def finalize_manual_drive_job(yt, job, audio_path):
-    """ধাপ ৩: প্রস্তুত হওয়া অডিও দিয়ে স্লাইডশো অথবা মোশন গ্রাফিক্স ভিডিও রেন্ডার ও আপলোড"""
+    """ধাপ ৩: প্রস্তুত হওয়া অডিও ও টাইমস্ট্যাম্প দিয়ে স্লাইডশো অথবা মোশন গ্রাফিক্স ভিডিও রেন্ডার ও আপলোড"""
     if not job or not audio_path or not os.path.exists(audio_path):
         return
 
@@ -223,10 +241,12 @@ def finalize_manual_drive_job(yt, job, audio_path):
     if os.path.exists(out_video_file):
         os.remove(out_video_file)
 
+    segment_timings = _load_segment_timings(audio_path)
+
     if job.get("use_motion_graphics"):
         render_motion_video(
             job.get("verified_data", {}), job.get("voiceover_script", ""),
-            video_title, audio_path, out_video_file, is_vertical=False
+            video_title, audio_path, out_video_file, is_vertical=False, segment_timings=segment_timings
         )
     else:
         render_video_slideshow(audio_path, job["img_files"], out_video_file, is_vertical=False)
@@ -245,7 +265,7 @@ def finalize_manual_drive_job(yt, job, audio_path):
             if job.get("use_motion_graphics"):
                 render_motion_video(
                     job.get("verified_data", {}), job.get("voiceover_script", ""),
-                    video_title, audio_path, live_video_file, is_vertical=True
+                    video_title, audio_path, live_video_file, is_vertical=True, segment_timings=segment_timings
                 )
             else:
                 render_video_slideshow(audio_path, job["img_files"], live_video_file, is_vertical=True)
@@ -265,6 +285,11 @@ def process_manual_drive_folder(yt):
     if not audio_path:
         os.makedirs(TMP_DIR, exist_ok=True)
         audio_path = os.path.join(TMP_DIR, "manual_voiceover.wav")
-        if not generate_voiceover_audio_pipeline(job["voiceover_script"], audio_path):
+        if not generate_voiceover_audio_pipeline(
+            job["voiceover_script"],
+            audio_path,
+            segments=job.get("script_segments") if job.get("use_motion_graphics") else None,
+            timings_output_path=audio_path + ".timings.json",
+        ):
             return
     finalize_manual_drive_job(yt, job, audio_path)
