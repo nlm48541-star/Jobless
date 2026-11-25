@@ -2,11 +2,13 @@
 import base64
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import zipfile
+import zlib
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -110,6 +112,7 @@ print(f"[Worker {worker_id}] Done!")
 
 _MAIN_RUNNER_TEMPLATE = r'''import base64
 import json
+import math
 import os
 import re
 import shutil
@@ -117,6 +120,7 @@ import subprocess
 import sys
 import time
 import zipfile
+import zlib
 from pathlib import Path
 
 os.environ["MPLBACKEND"] = "Agg"
@@ -151,28 +155,38 @@ import numpy as np
 import soundfile as sf
 import torch
 
-TASKS = json.loads(__TASKS_JSON__)
+TASKS = json.loads(zlib.decompress(base64.b64decode(__TASKS_Z_B64__)).decode("utf-8"))
 REF_AUDIO_B64 = __REF_AUDIO_B64__
 REF_EXT = __REF_EXT__
-CUSTOM_REF_TEXT = json.loads(__REF_TEXT_JSON__)
+CUSTOM_REF_TEXT = zlib.decompress(base64.b64decode(__REF_TEXT_Z_B64__)).decode("utf-8")
 DEFAULT_VOICE = __DEFAULT_VOICE__
 SPEECH_SPEED = __SPEECH_SPEED__
 NFE_STEP = __NFE_STEP__
 GPU_WORKER_CODE = base64.b64decode(__GPU_WORKER_B64__).decode("utf-8")
 
-# ৩. রেফারেন্স অডিও সেটআপ
+# ৩. রেফারেন্স অডিও সেটআপ (২৪ kHz মনো WAV)
 if REF_AUDIO_B64:
     raw_ref = Path(f"/tmp/custom_ref_raw{REF_EXT}")
     raw_ref.write_bytes(base64.b64decode(REF_AUDIO_B64))
     ref_wav = Path("/tmp/custom_ref_24k.wav")
     if shutil.which("ffmpeg"):
         subprocess.run(
-            ["ffmpeg", "-y", "-i", str(raw_ref), "-ar", "24000", "-ac", "1", str(ref_wav)],
+            ["ffmpeg", "-y", "-i", str(raw_ref), "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", str(ref_wav)],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
     else:
-        from pydub import AudioSegment
-        AudioSegment.from_file(str(raw_ref)).set_frame_rate(24000).set_channels(1).export(str(ref_wav), format="wav")
+        try:
+            _data, _sr = sf.read(str(raw_ref), dtype="float32")
+            if _data.ndim > 1:
+                _data = _data.mean(axis=1)
+            if int(_sr) != 24000:
+                from scipy.signal import resample_poly
+                _g = math.gcd(int(_sr), 24000)
+                _data = resample_poly(_data, 24000 // _g, int(_sr) // _g).astype(np.float32)
+            sf.write(str(ref_wav), _data, 24000)
+        except Exception:
+            from pydub import AudioSegment
+            AudioSegment.from_file(str(raw_ref)).set_frame_rate(24000).set_channels(1).export(str(ref_wav), format="wav")
     ref_text = CUSTOM_REF_TEXT.strip()
 else:
     voice_file = "ref_female.wav" if DEFAULT_VOICE == "female" else "ref_male.wav"
@@ -271,7 +285,7 @@ worker_py.write_text(GPU_WORKER_CODE, encoding="utf-8")
 # ৫. ডুয়াল-GPU প্যারালাল রান
 num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
 num_workers = 2 if (num_gpus >= 2 and len(flat_jobs) >= 2) else 1
-print(f"⚡ Boot & Setup: {round(time.time() - t_boot, 1)}s | GPUs: {num_gpus} | Workers: {num_workers} | Chunks: {len(flat_jobs)} | nfe_step: {NFE_STEP}")
+print(f"⚡ Boot & Setup: {round(time.time() - t_boot, 1)}s | GPUs: {num_gpus} | Workers: {num_workers} | Chunks: {len(flat_jobs)} | nfe_step: {NFE_STEP} | RefDur: {ref_dur:.1f}s")
 
 if flat_jobs:
     procs = []
@@ -429,6 +443,54 @@ def _find_repo_reference_voice() -> tuple[Optional[Path], str]:
     return None, ""
 
 
+def _prepare_compact_ref_audio(rp: Path) -> tuple[bytes, str]:
+    """
+    Kaggle-এর ১ MB সোর্স কোড লিমিটের মধ্যে রাখতে বড় রেফারেন্স অডিওকে
+    প্রথমে লসলেস ২৪ kHz মনো FLAC এবং প্রয়োজনে MP3-তে অপ্টিমাইজ করে।
+    """
+    raw_bytes = rp.read_bytes()
+    orig_ext = rp.suffix.lower() or ".wav"
+    if len(raw_bytes) <= 420_000:
+        return raw_bytes, orig_ext
+
+    if not shutil.which("ffmpeg"):
+        print(f"⚠️ ffmpeg পাওয়া যায়নি; {len(raw_bytes)/1024:.1f} KB মূল অডিও সরাসরি পাঠানো হচ্ছে।")
+        return raw_bytes, orig_ext
+
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        flac_out = td_path / "ref_24k.flac"
+        res_flac = subprocess.run(
+            ["ffmpeg", "-y", "-i", str(rp), "-vn", "-ar", "24000", "-ac", "1", "-c:a", "flac", str(flac_out)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        if res_flac.returncode == 0 and flac_out.exists():
+            f_bytes = flac_out.read_bytes()
+            if 1000 < len(f_bytes) <= 450_000:
+                print(f"🗜️ [Kaggle TTS] Compacted ref audio {len(raw_bytes)/1024:.1f} KB -> {len(f_bytes)/1024:.1f} KB (24kHz mono FLAC)")
+                return f_bytes, ".flac"
+
+        best_bytes = None
+        for br in ("128k", "96k", "64k"):
+            mp3_out = td_path / f"ref_{br}.mp3"
+            res_mp3 = subprocess.run(
+                ["ffmpeg", "-y", "-i", str(rp), "-vn", "-ar", "24000", "-ac", "1", "-c:a", "libmp3lame", "-b:a", br, str(mp3_out)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            if res_mp3.returncode == 0 and mp3_out.exists():
+                m_bytes = mp3_out.read_bytes()
+                if len(m_bytes) > 1000:
+                    best_bytes = m_bytes
+                    if len(m_bytes) <= 450_000:
+                        print(f"🗜️ [Kaggle TTS] Compacted ref audio {len(raw_bytes)/1024:.1f} KB -> {len(m_bytes)/1024:.1f} KB (24kHz mono MP3 {br})")
+                        return m_bytes, ".mp3"
+        if best_bytes:
+            print(f"🗜️ [Kaggle TTS] Compacted ref audio {len(raw_bytes)/1024:.1f} KB -> {len(best_bytes)/1024:.1f} KB (MP3)")
+            return best_bytes, ".mp3"
+
+    return raw_bytes, orig_ext
+
+
 def _build_worker_script(
     tasks: List[Dict],
     ref_audio_b64: str,
@@ -438,15 +500,16 @@ def _build_worker_script(
     speech_speed: float = 0.93,
     nfe_step: int = 64,
 ) -> str:
-    tasks_json = json.dumps(tasks, ensure_ascii=False)
-    ref_text_json = json.dumps(ref_text, ensure_ascii=False)
+    tasks_raw = json.dumps(tasks, ensure_ascii=False).encode("utf-8")
+    tasks_z_b64 = base64.b64encode(zlib.compress(tasks_raw, level=9)).decode("ascii")
+    ref_text_z_b64 = base64.b64encode(zlib.compress(ref_text.encode("utf-8"), level=9)).decode("ascii")
     gpu_worker_b64 = base64.b64encode(_GPU_WORKER_TEMPLATE.encode("utf-8")).decode("ascii")
 
     script = _MAIN_RUNNER_TEMPLATE
-    script = script.replace("__TASKS_JSON__", json.dumps(tasks_json))
+    script = script.replace("__TASKS_Z_B64__", json.dumps(tasks_z_b64))
     script = script.replace("__REF_AUDIO_B64__", json.dumps(ref_audio_b64))
     script = script.replace("__REF_EXT__", json.dumps(ref_ext))
-    script = script.replace("__REF_TEXT_JSON__", json.dumps(ref_text_json))
+    script = script.replace("__REF_TEXT_Z_B64__", json.dumps(ref_text_z_b64))
     script = script.replace("__DEFAULT_VOICE__", json.dumps(default_voice))
     script = script.replace("__SPEECH_SPEED__", repr(float(speech_speed)))
     script = script.replace("__NFE_STEP__", repr(int(nfe_step)))
@@ -520,13 +583,15 @@ def generate_voices_batch(
         rp = Path(ref_audio_path)
         if rp.exists() and ref_text.strip():
             print(f"🎤 [Kaggle TTS] Using Custom Reference Voice: {rp}")
-            ref_b64 = base64.b64encode(rp.read_bytes()).decode("ascii")
-            ref_ext = rp.suffix.lower() or ".wav"
+            compact_bytes, ref_ext = _prepare_compact_ref_audio(rp)
+            ref_b64 = base64.b64encode(compact_bytes).decode("ascii")
 
     script_code = _build_worker_script(
         tasks, ref_b64, ref_ext, ref_text, default_voice,
         speech_speed=speech_speed, nfe_step=nfe_step,
     )
+    script_kb = len(script_code.encode("utf-8")) / 1024.0
+    print(f"📦 [Kaggle TTS] Worker script payload: {script_kb:.1f} KB (Kaggle 1024 KB limit)")
 
     _cleanup_stale_workers()
 
